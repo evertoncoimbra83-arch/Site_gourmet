@@ -1,0 +1,39 @@
+      getAccompanimentGroups: adminProcedure.query(async () => {
+        try {
+          return await getSizeAccompanimentGroupsWithOptions();
+        } catch (error) {
+          console.error("Error fetching size accompaniment groups:", error);
+          throw error;
+        }
+      }),
+      addAccompanimentGroup: adminProcedure
+        .input(z.object({
+          sizeId: z.number(),
+          groupId: z.number(),
+          isRequired: z.boolean().optional(),
+        }))
+        .mutation(async ({ input }) => {
+          try {
+            return await linkAccompanimentToSize({
+              sizeId: input.sizeId,
+              groupId: input.groupId,
+              isRequired: input.isRequired ?? false,
+            });
+          } catch (error) {
+            console.error("Error adding accompaniment group to size:", error);
+            throw error;
+          }
+        }),
+      removeAccompanimentGroup: adminProcedure
+        .input(z.object({
+          sizeId: z.number(),
+          groupId: z.number(),
+        }))
+        .mutation(async ({ input }) => {
+          try {
+            return await unlinkAccompanimentFromSize(input.sizeId, input.groupId);
+          } catch (error) {
+            console.error("Error removing accompaniment group from size:", error);
+            throw error;
+          }
+        }),

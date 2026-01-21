@@ -1,0 +1,702 @@
+[
+  {
+    "id": 88,
+    "name": "Bovina",
+    "slug": "executiva-bovina",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 6,
+    "count": 10,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/88",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 325,
+    "name": "Bovina",
+    "slug": "marmita-bovina",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 14,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/325",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  },
+  {
+    "id": 15,
+    "name": "CadapioPromo",
+    "slug": "card-promo",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 14,
+    "count": 0,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/15",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 324,
+    "name": "Executiva",
+    "slug": "executiva",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 2,
+    "count": 39,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 89,
+    "name": "Frango",
+    "slug": "executiva-frango",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 7,
+    "count": 13,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/89",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 326,
+    "name": "Frango",
+    "slug": "marmita-frango",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 14,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/326",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  },
+  {
+    "id": 323,
+    "name": "Marmita",
+    "slug": "marmita",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 9,
+    "count": 43,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 91,
+    "name": "Massas",
+    "slug": "massa",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 12,
+    "count": 0,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/91",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 391,
+    "name": "Pacote_Personalizado",
+    "slug": "pacote_personalizado",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 0,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/391",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 320,
+    "name": "Pacotes",
+    "slug": "pacotes",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 1,
+    "count": 5,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/320",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 328,
+    "name": "Peixe",
+    "slug": "marmita-peixe",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 3,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/328",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  },
+  {
+    "id": 90,
+    "name": "Peixes",
+    "slug": "executiva-peixe",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 8,
+    "count": 3,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/90",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 330,
+    "name": "Promoção",
+    "slug": "marmita-promo",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 26,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/330",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  },
+  {
+    "id": 132,
+    "name": "Promoções",
+    "slug": "executiva-promocoes",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 13,
+    "count": 22,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/132",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 119,
+    "name": "Sopas",
+    "slug": "sopas",
+    "parent": 0,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 4,
+    "count": 7,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/119",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 353,
+    "name": "Sucos",
+    "slug": "sucos",
+    "parent": 0,
+    "description": "Sucos Prensados",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 0,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/353",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ]
+    }
+  },
+  {
+    "id": 120,
+    "name": "Suína",
+    "slug": "executiva-suina",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 5,
+    "count": 4,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/120",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 327,
+    "name": "Suína",
+    "slug": "marmita-suina",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 4,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/327",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  },
+  {
+    "id": 117,
+    "name": "Vegetariana",
+    "slug": "executiva-vegetariana",
+    "parent": 324,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 3,
+    "count": 9,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/117",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/324"
+        }
+      ]
+    }
+  },
+  {
+    "id": 329,
+    "name": "Vegetariana",
+    "slug": "marmita-vegetariana",
+    "parent": 323,
+    "description": "",
+    "display": "default",
+    "image": null,
+    "menu_order": 0,
+    "count": 8,
+    "_links": {
+      "self": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/329",
+          "targetHints": {
+            "allow": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      ],
+      "collection": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories"
+        }
+      ],
+      "up": [
+        {
+          "href": "https://gourmetsaudavel.com.br/wp-json/wc/v3/products/categories/323"
+        }
+      ]
+    }
+  }
+]

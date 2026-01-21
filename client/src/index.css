@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* ✅ Garante que o Tailwind procure classes em todas as subpastas */
+@source ".";
+@source "./components/**/*.{ts,tsx}";
+@source "./pages/**/*.{ts,tsx}";
+@source "./admin/**/*.{ts,tsx}";
+
+@theme {
+  --color-background: white;
+  --color-foreground: #0f172a; /* slate-900 */
+  --color-primary: #065f46;    /* emerald-800 */
+  --color-primary-hover: #064e3b;
+  
+  /* Variáveis de arredondamento para os cards não ficarem quadrados */
+  --radius-lg: 0.5rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-4xl: 2.5rem;
+}
+
+@layer base {
+  /* ✅ AJUSTE DE RESPONSIVIDADE E MARGENS (A "Borda" de segurança)
+     Adicionamos padding lateral para o conteúdo nunca encostar no vidro do celular.
+  */
+  .container, .container-page {
+    @apply mx-auto w-full;
+    @apply px-4 sm:px-6 lg:px-10; /* Aumenta o recuo lateral conforme a tela cresce */
+    max-width: 1400px;           /* Evita que o site fique "espichado" em monitores gigantes */
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-[#FBFBFC] text-slate-900 antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Garante que imagens de produtos caibam no card sem deformar */
+  img {
+    @apply max-w-full h-auto object-cover;
+  }
+}
+
+@layer components {
+  /* Utilitário para o grid de produtos não ficar gigante */
+  .products-grid {
+    @apply grid gap-4 sm:gap-6;
+    /* 2 colunas no celular, 3 no tablet, 4 no desktop, 5 em telas largas */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 768px) {
+    .products-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  @media (min-width: 1024px) {
+    .products-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  @media (min-width: 1280px) {
+    .products-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

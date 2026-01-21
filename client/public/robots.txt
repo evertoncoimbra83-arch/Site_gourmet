@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /dev-login
+
+Sitemap: https://gourmetsaudavel.com.br/sitemap.xml

@@ -1,0 +1,30 @@
+﻿version: '3.8'
+services:
+  db:
+    image: mariadb:11
+    container_name: gourmet_db
+    restart: always
+    environment:
+      MARIADB_DATABASE: gourmet_saudavel
+      MARIADB_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    networks:
+      - gourmet_network
+    volumes:
+      - gourmet_data:/var/lib/mysql
+
+  adminer:
+    image: adminer
+    container_name: gourmet_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - gourmet_network
+
+networks:
+  gourmet_network:
+
+volumes:
+  gourmet_data:
