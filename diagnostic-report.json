@@ -1,0 +1,40 @@
+{
+  "timestamp": "2025-12-07T17:52:51.443Z",
+  "status": "FAILURE",
+  "db_connection": "✅ SUCCESS",
+  "encryption_key": "❌ Missing",
+  "drizzle_schema_integrity": "✅ OK",
+  "details": {
+    "env_check": {
+      "database_url": "✅ Found (URL obscured)",
+      "jwt_secret": "✅ Found (Length OK)"
+    },
+    "schema_tables": [
+      "accompanimentGroups",
+      "accompanimentOptions",
+      "categories",
+      "couponUsage",
+      "coupons",
+      "customerAddresses",
+      "dishSizes",
+      "dishes",
+      "foodCardBrands",
+      "loyaltyHistory",
+      "loyaltySettings",
+      "mediaLibrary",
+      "orderItems",
+      "orders",
+      "packageOptionDishes",
+      "packageOptionGroups",
+      "packageOptions",
+      "packages",
+      "paymentMethods",
+      "quantityDiscountRules",
+      "shippingZones",
+      "sizeAccompanimentGroups",
+      "storeSettings",
+      "user_profiles",
+      "users"
+    ]
+  }
+}

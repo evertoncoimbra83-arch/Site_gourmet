@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+
+    <title>Site React</title>
+
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/assets/index-CXEcRTdv.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Cty3dt4P.css">
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+
+    <script>
+      (function() {
+        const endpoint = "http://localhost:3001/api/analytics";
+        const websiteId = "dev-mode";
+
+        // Verifica se as variáveis foram preenchidas e se não são o próprio placeholder 
+        // (Isso evita erros se as variáveis não estiverem no .env)
+        if (endpoint && websiteId && !endpoint.startsWith('%')) {
+          const script = document.createElement("script");
+          script.defer = true;
+          // O Umami geralmente usa /script.js ou /umami.js dependendo da versão
+          script.src = `${endpoint.replace(/\/$/, "")}/script.js`;
+          script.setAttribute("data-website-id", websiteId);
+          document.head.appendChild(script);
+        }
+      })();
+    </script>
+  </body>
+</html>
