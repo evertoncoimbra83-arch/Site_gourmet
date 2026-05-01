@@ -4,33 +4,31 @@ import { discountRules } from "../../../drizzle/schema/index.js";
 import { eq, asc } from "drizzle-orm";
 
 /**
- * Lógica centralizada para buscar regras de desconto progressivo.
- * Alinhada com o Schema que mapeia:
- * 'type'  -> discountType
- * 'value' -> discountValue
+ * 🎯 Lógica de busca de regras de desconto progressivo.
+ * Centralizamos aqui para garantir que queries legadas e novas usem a mesma base.
  */
 const fetchRulesLogic = async () => {
   const db = await getDb();
   if (!db) return [];
 
   try {
-    // 🔍 Busca as regras e as ordena pelo gatilho de quantidade (min_quantity)
+    // 🔍 Busca regras ativas e ordena pela escada de quantidade
     const rules = await db
       .select()
       .from(discountRules)
       .where(eq(discountRules.isActive, true))
       .orderBy(asc(discountRules.minQuantity));
     
-    // O Drizzle faz o "cast" automático baseado no Schema
     return rules.map((rule) => ({
       ...rule,
-      // Garantimos que os valores saiam como números para o Frontend não quebrar
+      // Normalização de tipos para o Frontend (Numbers puros)
       discountValue: Number(rule.discountValue || 0), 
-      minQuantity: Number(rule.minQuantity || 0)
+      minQuantity: Number(rule.minQuantity || 0),
+      // Adicionamos um rótulo amigável caso o banco não tenha (ex: "5% OFF")
+      label: rule.name || `${Number(rule.discountValue)}% OFF`
     }));
-  } catch (error) {
-    // 🛡️ Se houver qualquer erro de coluna, retornamos vazio para não travar a Home
-    console.error("❌ [DISCOUNTS] Erro ao buscar regras de desconto:", error);
+  } catch {
+    // ✅ Removido 'error' não utilizado para satisfazer o ESLint
     return [];
   }
 };
@@ -38,15 +36,14 @@ const fetchRulesLogic = async () => {
 export const discountsRouter = router({
   /**
    * 🛒 getDiscountRules
-   * Utilizada pelo componente DiscountRoadmap para mostrar o progresso no carrinho.
+   * Essencial para o componente de progresso no carrinho.
    */
   getDiscountRules: publicProcedure.query(async () => {
     return await fetchRulesLogic();
   }),
 
   /**
-   * 🔄 getActiveRules (Legada)
-   * Mantida para compatibilidade com partes antigas do sistema.
+   * 🔄 getActiveRules (Compatibilidade)
    */
   getActiveRules: publicProcedure.query(async () => {
     return await fetchRulesLogic();

@@ -1,73 +1,131 @@
-import { router } from "../../_core/trpc.js";
+// server/routers/admin/index.ts
+import { router, adminProcedure } from "../../_core/trpc.js"; 
+import { z } from "zod";
 
-/**
- * 1. IMPORTAÇÃO DOS ROTEADORES ADMIN
- */
+// IMPORTAÇÕES DE ROTAS EXISTENTES
 import { adminAnalyticsRouter } from "./analytics.js";
-import { adminSizesRouter } from "./sizes.js";
 import { adminLogsRouter } from "./logs.js";
+import { healthRouter } from "./health.js";
+import { securityRouter } from "./security.js";
+import { adminNutriRouter } from "./nutri/nutri.js"; 
 import { adminMediaRouter } from "./media.js"; 
-import { adminDiscountRulesRouter } from "./discount-rules.js";
+import { adminMarketingRouter } from "./marketing.js"; 
 import { adminLoyaltySettingsRouter } from "./loyalty.js";
-import { adminMarketingRouter } from "./marketing.js";
-import { adminFinanceRouter } from "./finance.js";
-import { adminCategoriesRouter } from "./categories.js";
-import { adminNutritionRouter } from "./nutrition.js";
-import { adminAccompanimentsRouter,  } from "./accompaniments.js";
-import { adminPackagesRouter } from "./packages.js"; 
 import { adminCouponsRouter } from "./coupons.js";
-import { adminPaymentMethodsRouter } from "./payment-methods.js";
-import { adminDishesRouter } from "./dishes.js";
-import { usersAdminRouter } from "./users.js";
-import { ordersAdminRouter } from "./orders.js"; // Este é o que revisamos com o JOIN e o safeDecrypt
-import { adminSettingsRouter } from "./settings.js"; 
-import { adminShippingRouter } from "./shipping.js";
-import { adminShowcaseRouter } from "./showcase.js";
+import { adminDiscountRulesRouter } from "./discount-rules.js";
 import { loyaltyAdminRouter } from "./automation.routes.js"; 
 import { mailAdminRouter } from "./mail.js"; 
+import { adminReferralRouter } from "./referral.js"; 
+import { adminFinanceRouter } from "./finance.js";
+import { adminPaymentMethodsRouter } from "./payment-methods.js"; 
+import { ingredientsRouter } from "./ingredients.js";
+import { dishCompositionRouter } from "./dishComposition.js";
+import { adminDishesRouter } from "./dishes.js";
+import { adminCategoriesRouter } from "./categories.js";
+import { adminReviewsRouter } from "./reviews.js";
+import { adminSizesRouter } from "./sizes.js"; 
+import { adminGroupsRouter } from "./groups.js";
+import { adminOptionsRouter } from "./accompaniments/options.js";
+import { accompanimentCategoriesRouter } from "./accompaniments/categories.js";
+import { adminPackagesRouter } from "./packages.js"; 
+import { adminShowcaseRouter } from "./showcase.js"; 
+import { usersAdminRouter } from "./users.js"; 
+import { adminLabelsRouter } from "./labels.js"; 
+import { adminStoreSettingsRouter } from "./adminStoreSettingsRouter.js"; 
+import { ordersAdminRouter } from "./orders/ordersAdminRouter.js";
+import { shippingRulesRouter } from "./shipping/shippingRules.js";
+import { shippingMeshRouter } from "./shipping/shippingMesh.js";
+import { adminApiRouter } from "./api.js";
+import { backupsAdminRouter } from "./backups.js";
+import { ga4AnalyticsRouter } from "./ga4Analytics.js";
+
+// IMPORTAÇÃO DA NOVA LÓGICA DE BI
+import { syncHistoricalData } from "../../api/admin/bi-sync.js";
 
 /**
  * 👑 AGREGADOR DE ADMIN
- * Define a estrutura de chamadas para trpc.admin.[chave]
+ * Revisado para compatibilidade total e suporte ao Painel de BI
  */
 export const adminRouter = router({
+  health: healthRouter, 
+  security: securityRouter,
+  backups: backupsAdminRouter,
+  ga4: ga4AnalyticsRouter,
+
+  // ✅ BI & DATA SYNC
+  // Resolve o "Property syncBI does not exist" e prepara o terreno para o Dashboard
+  syncBI: adminProcedure
+    .input(z.object({
+      ids: z.array(z.string()).optional(), 
+      start: z.string(),                   
+      end: z.string(),                     
+    }))
+    .mutation(async ({ input }) => {
+      // Sincroniza dados históricos para as tabelas bi_facts
+      return await syncHistoricalData(input.start, input.end, input.ids);
+    }),
+  
+  // 📈 ANALYTICS, BI & LOGS
   analytics: adminAnalyticsRouter,
   logs: adminLogsRouter,
-  media: adminMediaRouter,
+  
+  // 🥗 CONTEÚDO, MARKETING & NUTRI
+  nutri: adminNutriRouter, 
+  nutris: adminNutriRouter, 
+  referral: adminReferralRouter,
   marketing: adminMarketingRouter, 
+  media: adminMediaRouter,
+  mail: mailAdminRouter, 
+  
+  // 🎫 FIDELIDADE & PROMOÇÕES
   loyaltySettings: adminLoyaltySettingsRouter,
+  loyalty: loyaltyAdminRouter,
   coupons: adminCouponsRouter,
   discountRules: adminDiscountRulesRouter,
+
+  // 💰 FINANCEIRO & PAGAMENTOS
   finance: adminFinanceRouter,
   paymentMethods: adminPaymentMethodsRouter, 
-  loyalty: loyaltyAdminRouter,
 
-  // Gestão de Cardápio
-  categories: adminCategoriesRouter,
-  nutrition: adminNutritionRouter,
-  packages: adminPackagesRouter,
+  // 🍳 CARDÁPIO & COZINHA (Operação Real)
+  ingredients: ingredientsRouter, 
+  dishComposition: dishCompositionRouter,
   dishes: adminDishesRouter, 
-  sizes: adminSizesRouter, 
-  accompaniments: adminAccompanimentsRouter,
+  categories: adminCategoriesRouter, 
+  reviews: adminReviewsRouter,
   
-  // Vitrines
+  // 🍱 ACOMPANHAMENTOS
+  accompaniments: router({
+    categories: accompanimentCategoriesRouter, 
+    dishSizes: adminSizesRouter,
+    groups: adminGroupsRouter,
+    options: adminOptionsRouter,
+  }),
+
+  // 📦 COMERCIAL & EXPEDIÇÃO
+  packages: adminPackagesRouter,
+  showcase: adminShowcaseRouter, 
   showcases: adminShowcaseRouter, 
+  labels: adminLabelsRouter, 
 
-  // Gestão de Usuários e Pedidos
-  users: usersAdminRouter, 
-  orders: ordersAdminRouter, // ✅ Aqui o trpc vincula toda a lógica de pedidos
-
-  /**
-   * ✅ ROTA DE COMUNICAÇÃO (E-MAIL)
-   */
-  mail: mailAdminRouter, 
-
-  // Configurações Globais
-  settings: adminSettingsRouter,
-  storeSettings: adminSettingsRouter, 
-  shipping: adminShippingRouter,
+  // 🚚 LOGÍSTICA & FRETE
+  shipping: router({ 
+    rules: shippingRulesRouter,
+    mesh: shippingMeshRouter,
+  }),
+  shippingRules: shippingRulesRouter, 
+  shippingMesh: shippingMeshRouter,   
   
-  // ❌ REMOVIDO: userName: safeDecrypt(...) 
-  // Essa linha causaria erro de compilação aqui. 
-  // A descriptografia deve ser feita dentro do ordersAdminRouter.
+  // 👤 USUÁRIOS & PEDIDOS
+  users: usersAdminRouter,
+  usersAdmin: usersAdminRouter, 
+  orders: ordersAdminRouter, 
+  ordersAdmin: ordersAdminRouter, 
+  
+  // ⚙️ CONFIGURAÇÕES DE SISTEMA
+  storeSettings: adminStoreSettingsRouter,
+  settings: adminStoreSettingsRouter, 
+  api: adminApiRouter,
 });
+
+export type AdminRouter = typeof adminRouter;

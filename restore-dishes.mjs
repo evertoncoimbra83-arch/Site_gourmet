@@ -17,17 +17,17 @@ async function restoreDishes() {
       if (query.trim()) {
         try {
           await connection.execute(query);
-          console.log('✅ Query executada');
+          
         } catch (error) {
-          console.error('❌ Erro na query:', error.message);
+          
         }
       }
     }
     
     await connection.end();
-    console.log('✅ Restauração concluída!');
+    
   } catch (error) {
-    console.error('❌ Erro:', error);
+    
     process.exit(1);
   }
 }

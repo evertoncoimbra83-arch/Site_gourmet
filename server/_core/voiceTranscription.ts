@@ -11,9 +11,9 @@
  * // Frontend component
  * const transcribeMutation = trpc.voice.transcribe.useMutation({
  *   onSuccess: (data) => {
- *     console.log(data.text); // Full transcription
- *     console.log(data.language); // Detected language
- *     console.log(data.segments); // Timestamped segments
+ *      // Full transcription
+ *      // Detected language
+ *      // Timestamped segments
  *   }
  * });
  * 
@@ -26,6 +26,7 @@
  * ```
  */
 import { ENV } from "./env";
+import { MAX_AI_PROMPT_LENGTH, sanitizeTextForStorage } from "../lib/ai-safety.js";
 
 export type TranscribeOptions = {
   audioUrl: string; // URL to the audio file (e.g., S3 URL)
@@ -74,6 +75,14 @@ export async function transcribeAudio(
   options: TranscribeOptions
 ): Promise<TranscriptionResponse | TranscriptionError> {
   try {
+    if (!options.audioUrl || options.audioUrl.length > 2048) {
+      return {
+        error: "Audio URL is invalid",
+        code: "INVALID_FORMAT",
+        details: "Missing or oversized audio URL",
+      };
+    }
+
     // Step 1: Validate environment configuration
     if (!ENV.forgeApiUrl) {
       return {
@@ -135,10 +144,13 @@ export async function transcribeAudio(
     formData.append("response_format", "verbose_json");
     
     // Add prompt - use custom prompt if provided, otherwise generate based on language
-    const prompt = options.prompt || (
+    const prompt = sanitizeTextForStorage(
+      options.prompt || (
       options.language 
         ? `Transcribe the user's voice to text, the user's working language is ${getLanguageName(options.language)}`
         : "Transcribe the user's voice to text"
+      ),
+      MAX_AI_PROMPT_LENGTH,
     );
     formData.append("prompt", prompt);
 

@@ -10,11 +10,11 @@ async function importCsv() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL vazia");
   
   const connection = await mysql.createConnection(process.env.DATABASE_URL);
-  console.log("🔌 Conectado ao banco.");
+  
 
   const csvPath = path.join(process.cwd(), CSV_FILE_NAME);
   if (!fs.existsSync(csvPath)) {
-    console.error(`❌ CSV não encontrado: ${csvPath}`);
+    
     process.exit(1);
   }
 
@@ -22,7 +22,7 @@ async function importCsv() {
   // Divide por linhas, ignora cabeçalho e linhas vazias
   const rows = fileContent.split("\n").slice(1).filter(row => row.trim() !== "");
 
-  console.log(`🚀 Iniciando importação de ${rows.length} registros...`);
+  
   let success = 0, errors = 0;
 
   for (const row of rows) {
@@ -47,7 +47,7 @@ async function importCsv() {
 
       if (users.length > 0) {
         userId = users[0].id;
-        console.log(`🔹 Usuário existente: ${email} (ID: ${userId})`);
+        
       } else {
         // Criar usuário (migração)
         const openId = `migrated-${Date.now()}-${Math.random().toString(36).substr(2,5)}`;
@@ -56,7 +56,7 @@ async function importCsv() {
           [email, name, openId, "email", "user"]
         );
         userId = res.insertId;
-        console.log(`✨ Novo usuário criado: ${email} (ID: ${userId})`);
+        
       }
 
       // 2. Atualizar User Profile com pontos
@@ -87,12 +87,12 @@ async function importCsv() {
 
       success++;
     } catch (e) {
-      console.error(`❌ Erro na linha: ${row}`, e);
+      
       errors++;
     }
   }
 
-  console.log(`\n✅ Finalizado: ${success} sucessos, ${errors} erros.`);
+  
   await connection.end();
   process.exit(0);
 }

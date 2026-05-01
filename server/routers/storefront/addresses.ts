@@ -1,44 +1,64 @@
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, publicProcedure } from "../../_core/trpc.js";
-import { decrypt, encrypt } from "../../encryption.js";
-import { getDb } from "../../db.js";
-import { eq, and, sql, desc } from "drizzle-orm";
-import { userAddresses, storeSettings } from "../../../drizzle/schema/index.js";
+import { and, desc, eq } from "drizzle-orm";
 import { generateIdFromEntropySize } from "lucia";
-import axios from "axios";
+import {
+  shippingSettings,
+  storeSettings,
+  userAddresses,
+} from "../../../drizzle/schema/index.js";
+import { router, publicProcedure, protectedProcedure } from "../../_core/trpc.js";
+import { getDb } from "../../db.js";
 import { logAction } from "../../db/lib/audit.js";
+import { decrypt, encrypt, normalizeDigits } from "../../encryption.js";
+import { globalShippingValidator } from "../../services/shippingService.js";
 
-// --- SCHEMAS DE VALIDAÇÃO ---
-const AddressInput = z.object({
-  label: z.string().optional().nullable(),
-  street: z.string().min(1, "Rua é obrigatória"),
-  number: z.string().optional().nullable(),
-  complement: z.string().optional().nullable(),
-  neighborhood: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  zipCode: z.string().min(1, "CEP é obrigatório"),
-  phone: z.string().optional().nullable(),
+type AddressSchema = typeof userAddresses.$inferSelect;
+
+const addressIdSchema = z.string().min(1);
+
+const addressInputSchema = z.object({
+  label: z.string().trim().optional().nullable(),
+  street: z.string().trim().min(1, "Rua é obrigatória."),
+  number: z.string().trim().min(1, "Número é obrigatório."),
+  complement: z.string().trim().optional().nullable(),
+  neighborhood: z.string().trim().min(1, "Bairro é obrigatório."),
+  city: z.string().trim().min(1, "Cidade é obrigatória."),
+  state: z
+    .string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .refine((value) => /^[A-Z]{2}$/.test(value), "UF inválida."),
+  zipCode: z
+    .string()
+    .transform((value) => normalizeDigits(value))
+    .refine((value) => value.length === 8, "CEP inválido."),
+  phone: z
+    .string()
+    .transform((value) => normalizeDigits(value))
+    .refine(
+      (value) => value.length === 0 || value.length === 10 || value.length === 11,
+      "Telefone inválido.",
+    )
+    .optional()
+    .nullable(),
   isDefault: z.boolean().optional(),
 });
 
-// --- HELPERS DE CRIPTOGRAFIA ---
-function safeDecrypt(val: any): string {
-  if (!val) return "";
+function safeDecrypt(value: unknown): string {
+  if (value == null) return "";
   try {
-    const str = String(val);
-    // Verifica se parece uma string criptografada (formato iv:authTag:content)
-    if (str.split(':').length !== 3) return str;
-    return decrypt(str) || str;
-  } catch { return String(val); }
+    const raw = value instanceof Buffer ? value.toString("utf8") : String(value);
+    if (raw.split(":").length !== 3) return raw;
+    return decrypt(raw) || raw;
+  } catch {
+    return String(value);
+  }
 }
 
-function toFront(addr: any) {
-  if (!addr) return null;
+function toFront(addr: AddressSchema) {
   return {
     ...addr,
-    id: String(addr.id), 
+    id: String(addr.id),
     label: safeDecrypt(addr.label) || "Endereço",
     street: safeDecrypt(addr.street),
     number: safeDecrypt(addr.number) || "S/N",
@@ -52,181 +72,213 @@ function toFront(addr: any) {
   };
 }
 
+function buildInsertValues(
+  userId: string,
+  input: z.infer<typeof addressInputSchema>,
+  id: string,
+) {
+  return {
+    id,
+    userId,
+    label: encrypt(input.label || "Endereço"),
+    street: encrypt(input.street),
+    number: encrypt(input.number),
+    complement: encrypt(input.complement || ""),
+    neighborhood: encrypt(input.neighborhood),
+    city: encrypt(input.city),
+    state: encrypt(input.state),
+    zipCode: encrypt(input.zipCode),
+    phone: encrypt(input.phone || ""),
+    isDefault: !!input.isDefault,
+  } satisfies typeof userAddresses.$inferInsert;
+}
+
 export const addressesRouter = router({
-  
-  /**
-   * ✅ RESOLUÇÃO DO ERRO: "addresses.getStoreSettings"
-   */
-  getStoreSettings: publicProcedure.query(async () => {
-    try {
-      const db = await getDb();
-      const settings = await db.select().from(storeSettings).limit(1);
-      
-      // Se a tabela existir mas estiver vazia, retornamos um objeto padrão
-      // para evitar que o frontend quebre tentando ler propriedades de null
-      if (!settings || settings.length === 0) {
-        return {
-          id: "default",
-          generalMinOrderAmount: "0.00",
-          emergencyMode: false,
-          minOrderMessage: "Valor mínimo não atingido"
-        };
-      }
-      return settings[0];
-    } catch (error) {
-      console.error("🚨 [DB ERROR] Erro ao buscar storeSettings:", error);
-      // Retorno de fallback para o front não travar
-      return { id: "error", generalMinOrderAmount: "0.00", emergencyMode: false };
-    }
-  }),
-
-  /**
-   * ⚙️ CONFIGURAÇÕES DE ENTREGA
-   */
-  getSettings: publicProcedure.query(async () => {
-    const db = await getDb();
-    try {
-      const [settings] = await db.select().from(storeSettings).limit(1);
-      
-      return {
-        minOrderValue: Number(settings?.generalMinOrderAmount || 0),
-        isDeliveryEnabled: !settings?.emergencyMode,
-        deliveryFee: 0, 
-        baseFee: 0,
-        minOrderMessage: settings?.minOrderMessage || "Valor mínimo não atingido",
-      };
-    } catch {
-      return { minOrderValue: 0, isDeliveryEnabled: true, deliveryFee: 0, baseFee: 0, minOrderMessage: "" };
-    }
-  }),
-
-  /**
-   * 🔍 BUSCA CEP EXTERNA (ViaCEP)
-   */
-  getCep: publicProcedure
-    .input(z.object({ cep: z.string() }))
-    .query(async ({ input }) => {
-      const cleanCep = input.cep.replace(/\D/g, "");
-      if (cleanCep.length !== 8) return null;
-      try {
-        const { data } = await axios.get(`https://viacep.com.br/ws/${cleanCep}/json/`, { timeout: 5000 });
-        if (data.erro) return null;
-        return {
-          street: data.logradouro,
-          neighborhood: data.bairro,
-          city: data.localidade,
-          state: data.uf,
-        };
-      } catch { return null; }
-    }),
-
-  /**
-   * 🏁 VALIDAÇÃO DE ZONA DE ENTREGA
-   */
   validateZipZone: publicProcedure
-    .input(z.object({ zipCode: z.string() }))
-    .query(async ({ input }) => {
+    .input(
+      z.object({
+        zipCode: z.string().optional().nullable(),
+        addressId: addressIdSchema.optional().nullable(),
+        storeSlug: z.string().optional().default("jundiai"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
-      const cleanZip = input.zipCode.replace(/\D/g, "");
+      let zipToValidate = normalizeDigits(input.zipCode || "");
 
-      try {
-        const [rows]: any = await db.execute(sql`
-          SELECT id, name, price AS shippingCost
-          FROM shipping_rules
-          WHERE active = 1
-            AND CAST(cep_start AS UNSIGNED) <= CAST(${cleanZip} AS UNSIGNED)
-            AND CAST(cep_end AS UNSIGNED) >= CAST(${cleanZip} AS UNSIGNED)
-          LIMIT 1
-        `);
+      if (input.addressId && input.addressId !== "undefined") {
+        const currentUserId = ctx.user?.id ? String(ctx.user.id) : null;
 
-        const rule = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-        if (!rule) return { isValid: false, shippingCost: 0 };
+        if (currentUserId) {
+          const [addr] = await db
+            .select({ zipCode: userAddresses.zipCode })
+            .from(userAddresses)
+            .where(
+              and(
+                eq(userAddresses.id, input.addressId),
+                eq(userAddresses.userId, currentUserId),
+              ),
+            )
+            .limit(1);
 
-        return {
-          isValid: true,
-          zoneId: String(rule.id),
-          zoneName: rule.name,
-          shippingCost: Number(rule.shippingCost ?? 0),
-        };
-      } catch {
-        return { isValid: false, shippingCost: 0, error: "Tabela shipping_rules não encontrada" };
+          if (!addr) {
+            return {
+              isValid: false,
+              message: "Endereço inválido ou não autorizado.",
+            };
+          }
+
+          zipToValidate = normalizeDigits(safeDecrypt(addr.zipCode));
+        }
       }
+
+      if (zipToValidate.length !== 8) {
+        return { isValid: false, message: "CEP inválido ou não informado." };
+      }
+
+      return globalShippingValidator(zipToValidate, input.storeSlug);
     }),
 
-  /**
-   * 📋 LISTAR ENDEREÇOS
-   */
+  create: protectedProcedure
+    .input(addressInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      const userId = ctx.user.id;
+
+      if (input.isDefault) {
+        await db
+          .update(userAddresses)
+          .set({ isDefault: false })
+          .where(eq(userAddresses.userId, userId));
+      }
+
+      const id = generateIdFromEntropySize(15);
+      const insertValues = buildInsertValues(userId, input, id);
+
+      await db.insert(userAddresses).values(insertValues);
+
+      void logAction(
+        { ...ctx, user: { id: userId } },
+        "CREATE_ADDRESS",
+        "user_addresses",
+        { entityId: id },
+      );
+
+      return { success: true, id };
+    }),
+
+  update: protectedProcedure
+    .input(addressInputSchema.partial().extend({ id: addressIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      const userId = ctx.user.id;
+      const { id, ...rawData } = input;
+
+      const [existing] = await db
+        .select()
+        .from(userAddresses)
+        .where(and(eq(userAddresses.id, id), eq(userAddresses.userId, userId)))
+        .limit(1);
+
+      if (!existing) {
+        throw new Error("Endereço não encontrado.");
+      }
+
+      if (rawData.isDefault) {
+        await db
+          .update(userAddresses)
+          .set({ isDefault: false })
+          .where(eq(userAddresses.userId, userId));
+      }
+
+      const data = rawData;
+
+      await db
+        .update(userAddresses)
+        .set({
+          label:
+            data.label !== undefined
+              ? encrypt(data.label || "Endereço")
+              : existing.label,
+          street:
+            data.street !== undefined ? encrypt(data.street) : existing.street,
+          number:
+            data.number !== undefined ? encrypt(data.number) : existing.number,
+          complement:
+            data.complement !== undefined
+              ? encrypt(data.complement || "")
+              : existing.complement,
+          neighborhood:
+            data.neighborhood !== undefined
+              ? encrypt(data.neighborhood)
+              : existing.neighborhood,
+          city: data.city !== undefined ? encrypt(data.city) : existing.city,
+          state:
+            data.state !== undefined ? encrypt(data.state) : existing.state,
+          zipCode:
+            data.zipCode !== undefined
+              ? encrypt(data.zipCode)
+              : existing.zipCode,
+          phone:
+            data.phone !== undefined ? encrypt(data.phone || "") : existing.phone,
+          isDefault:
+            data.isDefault !== undefined
+              ? !!data.isDefault
+              : !!existing.isDefault,
+        })
+        .where(and(eq(userAddresses.id, id), eq(userAddresses.userId, userId)));
+
+      void logAction(
+        { ...ctx, user: { id: userId } },
+        "UPDATE_ADDRESS",
+        "user_addresses",
+        { entityId: id },
+      );
+
+      return { success: true };
+    }),
+
   list: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     const rows = await db
       .select()
       .from(userAddresses)
       .where(eq(userAddresses.userId, ctx.user.id))
-      .orderBy(desc(userAddresses.isDefault), desc(userAddresses.createdAt));
+      .orderBy(desc(userAddresses.isDefault));
 
     return rows.map(toFront);
   }),
 
-  /**
-   * ➕ CRIAR ENDEREÇO
-   */
-  create: protectedProcedure
-    .input(AddressInput)
-    .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
-      const userId = ctx.user.id; 
+  getStoreSettings: publicProcedure.query(async () => {
+    const db = await getDb();
+    const [store] = await db.select().from(storeSettings).limit(1);
+    const [shipping] = await db.select().from(shippingSettings).limit(1);
 
-      if (input.isDefault) {
-        await db.update(userAddresses)
-          .set({ isDefault: false })
-          .where(eq(userAddresses.userId, userId));
-      }
+    return {
+      generalMinOrderAmount: store?.generalMinOrderAmount || "0.00",
+      pickupEnabled: !!shipping?.pickupEnabled,
+      pickupLabel: shipping?.pickupLabel || "Retirada Gourmet Saudável",
+      pickupInstruction:
+        shipping?.pickupInstruction || "Segunda a Sexta, das 09h às 18h.",
+      minOrderMessage:
+        store?.minOrderMessage ||
+        "O valor mínimo para entrega não foi atingido.",
+    };
+  }),
 
-      const id = generateIdFromEntropySize(15);
-      await db.insert(userAddresses).values({
-        id,
-        userId,
-        label: encrypt(input.label || "Endereço"),
-        street: encrypt(input.street),
-        number: encrypt(input.number || "S/N"),
-        complement: encrypt(input.complement || ""),
-        neighborhood: encrypt(input.neighborhood || ""),
-        city: encrypt(input.city || ""),
-        state: encrypt(input.state || ""),
-        zipCode: encrypt(input.zipCode),
-        phone: encrypt(input.phone || ""),
-        isDefault: !!input.isDefault,
-      });
-      
-      logAction(ctx, "CREATE_ADDRESS", "user_addresses", {
-        entityId: id,
-        new: { label: input.label, zip: input.zipCode }
-      }).catch(() => {});
-      
-      return { success: true, id };
-    }),
-
-  /**
-   * 🗑️ EXCLUIR ENDEREÇO
-   */
   delete: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: addressIdSchema }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      
-      const [addr] = await db.select().from(userAddresses)
-        .where(and(eq(userAddresses.id, input.id), eq(userAddresses.userId, ctx.user.id)));
-      
-      if (!addr) throw new TRPCError({ code: "NOT_FOUND" });
+      await db
+        .delete(userAddresses)
+        .where(
+          and(
+            eq(userAddresses.id, input.id),
+            eq(userAddresses.userId, ctx.user.id),
+          ),
+        );
 
-      await db.delete(userAddresses)
-        .where(and(eq(userAddresses.id, input.id), eq(userAddresses.userId, ctx.user.id)));
-      
-      logAction(ctx, "DELETE_ADDRESS", "user_addresses", {
-        entityId: input.id,
-        old: { label: safeDecrypt(addr.label) }
-      }).catch(() => {});
-      
       return { success: true };
     }),
 });

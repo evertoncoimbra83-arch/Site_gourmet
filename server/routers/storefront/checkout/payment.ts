@@ -1,38 +1,30 @@
 import { router, publicProcedure } from "../../../_core/trpc.js";
-import { getDb } from "../../../db.js"
-import { paymentMethods } from "drizzle/schema/index.js"; 
+import { getDb } from "../../../db.js";
+import { paymentMethods } from "../../../../drizzle/schema/index.js";
 import { eq, and, like, or, asc } from "drizzle-orm";
 
 export const paymentRouter = router({
   
   /**
-   * ✅ Busca métodos de pagamento GERAIS (Crédito, Débito, Pix, Dinheiro)
-   * Filtramos para não trazer os Vales aqui, pois eles aparecem na sub-seção
+   * ✅ getMethods: Busca métodos GERAIS
    */
   getMethods: publicProcedure.query(async () => {
     try {
       const db = await getDb();
+      if (!db) return [];
       
       const methods = await db.select()
         .from(paymentMethods)
-        .where(
-          and(
-            eq(paymentMethods.isActive, true), // Apenas ativos
-            // Opcional: Filtra para não trazer os Vales na lista principal se quiser
-            // ou traz tudo e o frontend decide. Vamos trazer tudo ordenado.
-          )
-        )
+        .where(eq(paymentMethods.isActive, true))
         .orderBy(asc(paymentMethods.displayOrder));
 
-      // Filtramos apenas os "Tipos" principais para a lista de cima
-      // Excluímos marcas específicas de VA/VR para não poluir a lista principal
       const mainMethods = methods.filter(m => {
-        const nameLower = m.name.toLowerCase();
-        // Se for uma marca específica (Alelo, Sodexo), ignoramos aqui (vão para a lista de baixo)
+        const nameLower = (m.name || "").toLowerCase();
         return !nameLower.includes("alelo") && 
                !nameLower.includes("sodexo") && 
                !nameLower.includes("ticket") &&
-               !nameLower.includes("vr refeição");
+               !nameLower.includes("vr refeição") &&
+               !nameLower.includes("ben ");
       });
 
       return mainMethods.map(m => ({
@@ -41,21 +33,19 @@ export const paymentRouter = router({
         description: m.description || "",
         icon: m.icon || null
       }));
-    } catch (error) {
-      console.error("Erro ao buscar métodos:", error);
+    } catch {
       return [];
     }
   }),
 
   /**
-   * ✅ Busca APENAS as bandeiras de VA/VR
-   * Baseado no nome ou descrição contendo palavras-chave
+   * ✅ getFoodCardBrands: Busca bandeiras de VA/VR
    */
   getFoodCardBrands: publicProcedure.query(async () => {
     try {
       const db = await getDb();
+      if (!db) return [];
       
-      // Busca métodos que pareçam ser Vale Alimentação ou Refeição
       const brands = await db.select()
         .from(paymentMethods)
         .where(
@@ -67,8 +57,10 @@ export const paymentRouter = router({
               like(paymentMethods.name, '%Alelo%'),
               like(paymentMethods.name, '%Sodexo%'),
               like(paymentMethods.name, '%Ticket%'),
-              like(paymentMethods.name, '%Ben%'),
-              like(paymentMethods.name, '%VR%')
+              like(paymentMethods.name, '%Ben %'),
+              like(paymentMethods.name, '%VR%'),
+              like(paymentMethods.name, '%Caju%'),
+              like(paymentMethods.name, '%Flash%')
             )
           )
         )
@@ -77,25 +69,24 @@ export const paymentRouter = router({
       return brands.map(b => {
         const fullName = (b.name + " " + (b.description || "")).toLowerCase();
         
-        // Lógica para definir se é VA ou VR baseado no nome
-        let type = 'va'; // Padrão
+        let type = 'va'; 
         if (fullName.includes('refeição') || fullName.includes('vr')) {
           type = 'vr';
         }
 
+        // ✅ CORREÇÃO: Usamos unknown em vez de any para satisfazer o ESLint
+        const brand = b as Record<string, unknown>;
+
         return {
           id: b.id,
-          // Usa o brand_name se existir, senão usa o name normal
-          name: b.brandName || b.name, 
-          // Usa o brand_logo_url se existir, senão o icon normal
-          logoUrl: b.brandLogoUrl || b.icon,
-          type: type // 'va' ou 'vr'
+          name: (brand.brandName as string) || b.name, 
+          logoUrl: (brand.brandLogoUrl as string) || b.icon,
+          type: type 
         };
       });
 
-    } catch (error) {
-      console.error("Erro ao buscar bandeiras:", error);
+    } catch {
       return [];
     }
   })
-}); 
+});

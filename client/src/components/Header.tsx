@@ -1,161 +1,222 @@
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { APP_LOGO, APP_TITLE } from "@/const";
+import { APP_TITLE } from "@/const";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import {
   ShoppingCart,
-  Menu,
-  X,
   LogOut,
   LayoutDashboard,
   User,
   ChevronDown,
+  UtensilsCrossed,
+  Sparkles 
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
-import { Link } from "wouter";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useCart } from "@/_core/CartContext";
-import { CheckoutCustomer } from "@/pages/checkout/components/CheckoutCustomer";
-import { useCheckoutLogic } from "@/pages/checkout/logic/useCheckoutLogic";
 import { useOnClickOutside } from "@/_core/hooks/useOnClickOutside";
+import { cn } from "@/lib/utils";
+import { safeJsonParse } from "@/lib/safe-parse";
+import { HeaderAuthForm } from "@/pages/auth/HeaderLoginForm";
+
+const STATIC_LOGO_URL = "https://gourmetsaudavel.com/uploads/img-1771987921987-404279675.webp";
+
+interface AuthUser {
+  id: string;
+  name?: string | null;
+  role?: string;
+  referral?: string | null;
+  referralCode?: string | null; 
+  professionalId?: string | null; 
+}
+
+interface CartItem {
+  quantity: number;
+}
+
+interface CartContextType {
+  items?: CartItem[];
+  cart?: CartItem[];
+}
+
+// ✅ Interface atualizada para suportar estrutura aninhada de logo
+interface CompanySocialInfo {
+  logoUrl?: string;
+}
+
+interface StoreSettings {
+  logoUrl?: string;
+  logo_url?: string;
+  companyInfo?: string | CompanySocialInfo;
+  company_social_info?: string | CompanySocialInfo;
+}
 
 export default function Header() {
-  const { user, logout, loading, isAuthenticated } = useAuth();
+  const { user: rawUser, logout, isAuthenticated } = useAuth();
+  const user = rawUser as AuthUser | null; 
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const trpcContext = trpc.useUtils(); 
+
+  const isAllowedNutri = user?.role === "admin" || user?.role === "nutri";
   
-  // Contexto do carrinho com fallback para diferentes nomes de exportação
-  const cartContext = useCart();
-  const cartItems = (cartContext as any).items || (cartContext as any).cart || [];
-  const totalItems = cartItems.reduce((acc: number, item: any) => acc + (item.quantity || 0), 0);
+  const hasActivePrescription = useMemo(() => {
+    if (!isAuthenticated || !user) return false;
+    const isCustomer = user.role === "customer" || user.role === "user";
+    const hasReferral = !!(user.referral || user.referralCode || user.professionalId);
+    return isCustomer && hasReferral;
+  }, [isAuthenticated, user]);
 
-  const { data: companyInfo } = (trpc.public as any).getCompanyInfo.useQuery();
+  const cartContext = useCart() as unknown as CartContextType;
+  const cartItems = cartContext?.items || cartContext?.cart || [];
+  const totalItems = cartItems.reduce((acc: number, item: CartItem) => acc + (item.quantity || 0), 0);
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { data: rawStoreSettings, isLoading: isLoadingSettings } = trpc.store.public.getPublicSettings.useQuery(undefined, {
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const [hasError, setHasError] = useState(false);
   const [authDropdownOpen, setAuthDropdownOpen] = useState(false);
-  
-  const checkoutVm = useCheckoutLogic();
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Hook para fechar o dropdown ao clicar fora
+  const dropdownRef = useRef<HTMLDivElement>(null);
   useOnClickOutside(dropdownRef as React.RefObject<HTMLElement>, () => setAuthDropdownOpen(false));
 
-  // Fecha o dropdown automaticamente após o login bem-sucedido
-  useEffect(() => {
-    if (isAuthenticated) {
-      setAuthDropdownOpen(false);
+  const closeAuthWindows = () => setAuthDropdownOpen(false);
+
+  const handleLogout = async () => {
+    try {
+      closeAuthWindows();
+      await logout();
+      await trpcContext.invalidate();
+      window.location.replace("/");
+    } catch (error) {
+      console.error("Erro ao deslogar:", error);
+      window.location.href = "/"; 
     }
-  }, [isAuthenticated]);
+  };
+
+  useEffect(() => {
+    closeAuthWindows();
+  }, [pathname]);
+
+  const getLogoSrc = () => {
+    if (isLoadingSettings || !rawStoreSettings) return STATIC_LOGO_URL;
+    const s = rawStoreSettings as unknown as StoreSettings;
+    let dbLogo = s.logoUrl || s.logo_url;
+
+    if (!dbLogo) {
+      const rawInfo = s.companyInfo || s.company_social_info;
+      const social = safeJsonParse<CompanySocialInfo | undefined>(rawInfo, undefined);
+      dbLogo = social?.logoUrl;
+    }
+
+    if (dbLogo && dbLogo.length > 5) {
+      if (dbLogo.startsWith("http")) return dbLogo;
+      const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
+      return `${baseUrl}/uploads/${dbLogo.split("/uploads/")[1] || dbLogo}`;
+    }
+    return STATIC_LOGO_URL;
+  };
+
+  const currentSrc = getLogoSrc();
+
+  if (pathname.startsWith("/admin")) return null;
+
+  const navClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      "text-slate-500 hover:text-emerald-600 transition-colors relative py-1", 
+      isActive && "text-emerald-700 font-black after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-emerald-600"
+    );
 
   return (
     <header className="sticky top-0 z-50 border-b bg-white/95 backdrop-blur-md shadow-sm">
       <div className="mx-auto max-w-7xl px-4">
         <div className="flex h-16 items-center justify-between">
           
-          {/* LOGO */}
-          <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <img 
-              src={companyInfo?.logoUrl || APP_LOGO} 
-              alt={APP_TITLE} 
-              className="h-9 w-9 rounded-xl object-contain" 
+          <NavLink to="/" className="flex items-center hover:opacity-80 transition-opacity">
+            <img
+              src={!hasError ? currentSrc : STATIC_LOGO_URL}
+              alt={APP_TITLE}
+              className="h-9 sm:h-10 w-auto object-contain max-w-37.5 sm:max-w-45"
+              onError={() => setHasError(true)}
             />
-            <div className="leading-none hidden sm:block font-brand">
-                <div className="text-lg font-bold text-foreground tracking-tighter uppercase">Gourmet</div>
-                <div className="text-[11px] font-medium tracking-[0.12em] text-primary uppercase">Saudável</div>
-            </div>
-          </Link>
+          </NavLink>
 
-          {/* NAV DESKTOP */}
-          <nav className="hidden md:flex items-center gap-8">
-            <Link href="/" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors">Início</Link>
-            <Link href="/produtos" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors">Cardápio</Link>
-            <Link href="/packages" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors">Pacotes</Link>
+          <nav className="hidden md:flex items-center gap-8 font-black uppercase text-[11px] tracking-widest">
+            <NavLink to="/" className={navClass} end>Início</NavLink>
+            <NavLink to="/produtos" className={navClass}>Cardápio</NavLink>
+            
+            {isAuthenticated && (
+              <NavLink to="/cardapio-ia" className={cn(navClass, "text-emerald-600 flex items-center gap-1.5")}>
+                <Sparkles size={14} className="fill-emerald-600/20" /> Cardápio IA
+              </NavLink>
+            )}
+
+            <NavLink to="/pacotes" className={navClass}>Pacotes</NavLink>
+            
+            {hasActivePrescription && (
+              <NavLink to="/meu-plano" className={cn(navClass, "text-emerald-600 flex items-center gap-1.5")}>
+                <UtensilsCrossed size={14} /> Minha Dieta
+              </NavLink>
+            )}
+            
+            {isAllowedNutri && (
+              <NavLink to="/nutri" className={cn(navClass, "text-emerald-600")}>
+                Painel Nutri
+              </NavLink>
+            )}
           </nav>
 
-          <div className="flex items-center gap-2 sm:gap-4">
-            {/* CARRINHO */}
-            <Link href="/carrinho">
-              <div className="relative p-2.5 rounded-full hover:bg-secondary transition-all cursor-pointer group">
-                <ShoppingCart className="h-6 w-6 text-primary group-hover:scale-110 transition-transform" />
-                {totalItems > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-5.5 h-5 px-1.5 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white animate-in zoom-in duration-300 shadow-sm">
-                    {totalItems}
-                  </span>
-                )}
-              </div>
-            </Link>
+          <div className="flex items-center gap-1 sm:gap-4">
+            <NavLink to="/carrinho" className="relative p-2.5 rounded-2xl hover:bg-slate-50 transition-all group">
+              <ShoppingCart className="h-5 w-5 text-slate-900 group-hover:scale-110 transition-transform" />
+              {totalItems > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1.5 rounded-full bg-emerald-600 text-white text-[9px] font-black flex items-center justify-center border-2 border-white">
+                  {totalItems}
+                </span>
+              )}
+            </NavLink>
 
-            {/* AUTH SECTION */}
             <div className="relative" ref={dropdownRef}>
-              {loading ? (
-                <div className="h-10 w-24 rounded-full bg-slate-100 animate-pulse" />
-              ) : isAuthenticated && user ? (
+              {isAuthenticated && user ? (
                 <div className="flex items-center gap-1 sm:gap-2">
-                  <Link href="/perfil">
-                    <Button variant="ghost" className="gap-2 px-3 rounded-full font-semibold text-primary hover:bg-secondary">
-                      <User size={18} />
-                      <span className="max-w-25 truncate hidden lg:inline">
-                        {user.name?.split(" ")[0] || "Conta"}
-                      </span>
-                    </Button>
-                  </Link>
+                  <Button
+                    onClick={() => navigate("/perfil")}
+                    variant="ghost"
+                    className="gap-2 px-3 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-900 hover:bg-slate-50"
+                  >
+                    <User size={16} className="text-emerald-600" />
+                    <span className="hidden lg:inline">{user.name?.split(" ")[0]}</span>
+                  </Button>
+
                   {user.role === "admin" && (
-                    <Link href="/admin">
-                      <Button variant="outline" size="icon" className="rounded-full border-primary/20 text-primary hover:bg-primary hover:text-white transition-all hidden sm:flex">
-                        <LayoutDashboard size={18} />
-                      </Button>
-                    </Link>
+                    <Button onClick={() => navigate("/admin")} variant="outline" size="icon" className="rounded-xl hidden sm:flex border-slate-200 hover:bg-emerald-50 text-emerald-600">
+                      <LayoutDashboard size={18} />
+                    </Button>
                   )}
-                  <Button onClick={() => logout()} variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-destructive">
+
+                  <Button onClick={handleLogout} variant="ghost" size="icon" className="rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
                     <LogOut size={18} />
                   </Button>
                 </div>
               ) : (
-                <div className="hidden sm:block">
-                  <Button 
+                <div className="relative">
+                  <Button
                     onClick={() => setAuthDropdownOpen(!authDropdownOpen)}
-                    className={`rounded-full px-6 font-bold transition-all flex items-center gap-2 shadow-md ${
-                      authDropdownOpen ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white hover:bg-emerald-600'
-                    }`}
+                    className="hidden sm:flex rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase shadow-lg hover:bg-emerald-600 transition-all"
                   >
-                    Entrar 
-                    <ChevronDown size={14} className={`transition-transform duration-300 ${authDropdownOpen ? 'rotate-180' : ''}`} />
+                    Entrar <ChevronDown size={14} className={cn("ml-2 transition-transform", authDropdownOpen && "rotate-180")} />
                   </Button>
-
-                  {/* DROP DOWN LOGIN/REGISTER */}
+                  
                   {authDropdownOpen && (
-                    <div className="absolute right-0 mt-3 w-100 rounded-4xl border border-slate-100 bg-white shadow-2xl animate-in fade-in slide-in-from-top-3 duration-300 z-100 overflow-hidden">
-                      <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          {checkoutVm.state.isLogin ? "Identificação" : "Criar Nova Conta"}
-                        </span>
-                      </div>
-                      <div className="p-6">
-                        <CheckoutCustomer {...checkoutVm} />
-                        
-                        {/* ✅ LINK ESQUECEU A SENHA */}
-                        {checkoutVm.state.isLogin && (
-                          <div className="mt-4 text-center">
-                            <Link 
-                              href="/forgot-password" 
-                              onClick={() => setAuthDropdownOpen(false)}
-                              className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-emerald-600 transition-colors"
-                            >
-                              Esqueceu a sua senha?
-                            </Link>
-                          </div>
-                        )}
-                      </div>
+                    <div className="absolute right-0 mt-3 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 animate-in fade-in zoom-in-95 duration-200 origin-top-right z-60">
+                      <HeaderAuthForm onSuccess={closeAuthWindows} />
                     </div>
                   )}
                 </div>
               )}
             </div>
-
-            {/* MENU MOBILE TOGGLE */}
-            <button 
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)} 
-              className="md:hidden p-2 rounded-xl text-primary hover:bg-secondary"
-            >
-              {mobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
-            </button>
           </div>
         </div>
       </div>

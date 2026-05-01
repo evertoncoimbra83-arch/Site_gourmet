@@ -1,99 +1,144 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { trpc } from "@/_core/trpc";
-import { toast } from "@/components/ui/use-toast";
-// ✅ IMPORTANTE: Importar o helper do TanStack Query
 import { keepPreviousData } from "@tanstack/react-query";
+import { appToast as toast } from "@/lib/app-toast";
 
 export const statusLabels: Record<string, string> = {
   pending: "Pendente",
-  processing: "Preparando",
-  completed: "Concluído",
+  preparing: "Preparando",
+  shipped: "Enviado",
   delivered: "Entregue",
   cancelled: "Cancelado",
+  completed: "Concluído",
 };
 
+interface OrderFilters {
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+interface OrderListResponse {
+  // ✅ FIX: Uso de 'unknown' em vez de 'any' para satisfazer o ESLint
+  orders: unknown[]; 
+  meta: {
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+  };
+}
+
 export function useAdminOrders() {
+  const utils = trpc.useUtils();
+  
+  // Caminho correto conforme seu backend
+  const ordersApi = trpc.admin.ordersAdmin;
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  // IDs costumam ser strings (UUID) ou number. Deixei string | null para cobrir ambos.
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  
-  const limit = 20;
-  const utils = trpc.useUtils();
+  const [filters, setFilters] = useState<OrderFilters>({});
 
-  // 1. QUERY DE LISTAGEM
-  const ordersQuery = trpc.admin.orders.list.useQuery(
+  const limit = 20;
+
+  // 1. 📋 QUERY DE LISTAGEM
+  const ordersQuery = ordersApi.list.useQuery(
     {
       page,
-      limit,
-      search: search.length >= 3 ? search : undefined,
+      perPage: limit,
+      search: search.trim().length >= 2 ? search.trim() : undefined,
+      status: filters.status || undefined,
     },
     {
-      // ✅ CORREÇÃO: Substitui 'keepPreviousData: true' por isso:
       placeholderData: keepPreviousData,
+      refetchInterval: 30000, 
     }
   );
 
-  // 2. MUTAÇÃO: ATUALIZAR STATUS
-  const updateStatus = trpc.admin.orders.updateStatus.useMutation({
+  // 2. 🔍 QUERY DE DETALHES
+  const orderDetailsQuery = ordersApi.getById.useQuery(
+    { orderId: selectedOrderId as string },
+    { 
+      enabled: !!selectedOrderId,
+      staleTime: 1000 * 60 * 5,
+    }
+  );
+
+  /**
+   * ✅ MUTATIONS COM REFRESH AUTOMÁTICO
+   */
+  const updateStatus = ordersApi.updateStatus.useMutation({
     onSuccess: () => {
-      utils.admin.orders.list.invalidate();
-      if (selectedOrderId) {
-        utils.admin.orders.getById.invalidate({ id: selectedOrderId });
-      }
       toast.success("Status atualizado!");
-    },
-    onError: (err) => toast.error("Erro ao atualizar status: " + err.message),
-  });
-
-  // 3. MUTAÇÃO: ATUALIZAR PEDIDO (Edição completa)
-  // Casting 'as any' para evitar erro caso o backend ainda não tenha atualizado o tipo
-  const updateOrder = (trpc.admin.orders as any).updateOrder?.useMutation({
-    onSuccess: () => {
-      utils.admin.orders.list.invalidate();
+      // Força a atualização da lista e do contador do dashboard
+      utils.admin.ordersAdmin.list.invalidate(undefined, { refetchType: 'all' });
       if (selectedOrderId) {
-        utils.admin.orders.getById.invalidate({ id: selectedOrderId });
+        utils.admin.ordersAdmin.getById.invalidate({ orderId: selectedOrderId });
       }
-      toast.success("Pedido atualizado!");
     },
-    onError: (err: any) => toast.error("Erro ao salvar: " + err.message),
+    onError: (err) => toast.error("Erro ao atualizar: " + err.message)
   });
 
-  // 4. MUTAÇÃO: DELETAR PEDIDO
-  const deleteOrder = trpc.admin.orders.delete.useMutation({
+  const deleteOrder = ordersApi.deleteOrder.useMutation({
+    onMutate: async () => {
+      // Cancela buscas em andamento para evitar sobrescrever a UI durante a exclusão
+      await utils.admin.ordersAdmin.list.cancel();
+    },
     onSuccess: () => {
-      utils.admin.orders.list.invalidate();
-      if (selectedOrderId) setSelectedOrderId(null);
       toast.success("Pedido removido.");
+      setSelectedOrderId(null);
     },
-    onError: (err) => toast.error("Erro ao excluir: " + err.message),
+    onSettled: async () => {
+      // Garante que a lista suma da tela imediatamente buscando dados novos
+      await utils.admin.ordersAdmin.list.invalidate(undefined, { refetchType: 'all' });
+      await utils.admin.analytics.getDashboardStats.invalidate();
+    },
+    onError: (err) => toast.error("Erro ao deletar: " + err.message)
   });
 
-  const handleSetSearch = (val: string) => {
+  /**
+   * ✅ ACTIONS
+   */
+  const handleSetSearch = useCallback((val: string) => {
     setSearch(val);
+    setPage(1); 
+  }, []);
+
+  const handleSetFilters = useCallback((newFilters: OrderFilters) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
     setPage(1);
-  };
+  }, []);
+
+  const queryData = ordersQuery.data as OrderListResponse | undefined;
 
   return {
-    orders: ordersQuery.data?.orders || [],
-    meta: ordersQuery.data?.meta || { totalItems: 0, totalPages: 0, currentPage: 1 },
-    
+    orders: queryData?.orders || [],
+    meta: queryData?.meta || { totalItems: 0, totalPages: 0, currentPage: 1 },
+    selectedOrder: orderDetailsQuery.data, 
+
     state: {
       isLoading: ordersQuery.isLoading,
+      isDetailsLoading: orderDetailsQuery.isLoading,
       isFetching: ordersQuery.isFetching,
       search,
       page,
+      filters,
       selectedOrderId,
     },
     actions: {
       setSearch: handleSetSearch,
       setPage,
+      setFilters: handleSetFilters,
+      clearFilters: () => {
+        setFilters({});
+        setPage(1);
+      },
       setSelectedOrderId,
+      refetch: () => ordersQuery.refetch(),
     },
     mutations: {
       updateStatus,
-      deleteOrder,
-      updateOrder, 
+      deleteOrder
     },
   };
 }

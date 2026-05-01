@@ -1,7 +1,7 @@
 // server/storage.ts
 
-import * as envModule from './_core/env'; // ✅ CORREÇÃO: Importa o módulo ENV por namespace
-const ENV = envModule.ENV; // Define ENV para uso no restante do arquivo
+import * as envModule from './_core/env'; 
+const ENV = envModule.ENV; 
 
 type StorageConfig = { baseUrl: string; apiKey: string };
 
@@ -38,7 +38,9 @@ async function buildDownloadUrl(
     method: "GET",
     headers: buildAuthHeaders(apiKey),
   });
-  return (await response.json()).url;
+  
+  const result = await response.json() as { url: string };
+  return result.url;
 }
 
 function ensureTrailingSlash(value: string): string {
@@ -54,10 +56,8 @@ function toFormData(
   contentType: string,
   fileName: string
 ): FormData {
-  const blob =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : new Blob([data as any], { type: contentType });
+  // ✅ CORREÇÃO: Usando BlobPart[] para evitar o uso de 'any'
+  const blob = new Blob([data as BlobPart], { type: contentType });
   const form = new FormData();
   form.append("file", blob, fileName || "file");
   return form;
@@ -88,8 +88,9 @@ export async function storagePut(
       `Storage upload failed (${response.status} ${response.statusText}): ${message}`
     );
   }
-  const url = (await response.json()).url;
-  return { key, url };
+  
+  const result = await response.json() as { url: string };
+  return { key, url: result.url };
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {

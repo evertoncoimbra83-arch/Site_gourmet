@@ -1,12 +1,32 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/use-toast"; // ✅ Importando o toast
-import * as Icons from "lucide-react"; 
-import { Loader2 } from "lucide-react";
+import { appToast as toast } from "@/lib/app-toast";
+import { 
+  Loader2, 
+  Leaf, 
+  Wheat, 
+  Drumstick, 
+  Bean, 
+  Apple, 
+  Beef, 
+  Fish, 
+  Salad 
+} from "lucide-react";
 
-// ✅ Definindo a lista de ícones disponíveis
+// ✅ Tipagem dos ícones estrita (Elimina o erro de Icons definido mas não usado)
+const ICON_MAP: Record<string, React.ElementType> = {
+  Wheat,
+  Drumstick,
+  Leaf,
+  Bean,
+  Apple,
+  Beef,
+  Fish,
+  Salad
+};
+
 const AVAILABLE_ICONS = [
   { id: 'Wheat', label: 'Grãos/Carbo' },
   { id: 'Drumstick', label: 'Proteína' },
@@ -21,7 +41,9 @@ const AVAILABLE_ICONS = [
 export function AccompanimentCategoryForm({ onSave }: { onSave: () => void }) {
   const [name, setName] = useState("");
   const [iconKey, setIconKey] = useState("Leaf");
-  const [color, setColor] = useState("emerald");
+  
+  // ✅ Valor estático para evitar erro de variável não utilizada (setColor)
+  const color = "emerald"; 
 
   const mutation = trpc.admin.accompaniments.categories.upsert.useMutation({
     onSuccess: () => {
@@ -35,33 +57,41 @@ export function AccompanimentCategoryForm({ onSave }: { onSave: () => void }) {
   });
 
   const handleSave = () => {
-    if (!name) return toast.error("Digite um nome para a categoria");
+    if (!name) {
+      toast.error("Digite um nome para a categoria");
+      return;
+    }
+
+    // ✅ Enviando apenas propriedades conhecidas pelo Backend (Resolve TS2353)
     mutation.mutate({ 
-        name, 
-        iconKey, 
-        color,
-        displayOrder: 0,
-        isActive: true 
+      name, 
+      iconKey, 
+      color,
+      isActive: true 
     });
   };
 
   return (
-    <div className="space-y-4 p-4 bg-white rounded-xl border">
+    <div className="space-y-4 p-4 bg-white rounded-xl border text-left animate-in fade-in duration-500">
       <div>
-        <label className="text-[10px] font-black uppercase text-slate-400">Nome da Categoria</label>
+        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+          Nome da Categoria
+        </label>
         <Input 
           value={name} 
           onChange={(e) => setName(e.target.value)} 
           placeholder="Ex: Carboidratos" 
-          className="mt-1"
+          className="mt-1 h-12 rounded-xl border-slate-100 bg-slate-50 focus:bg-white font-bold transition-all shadow-sm"
         />
       </div>
 
       <div>
-        <label className="text-[10px] font-black uppercase text-slate-400">Ícone Representativo</label>
+        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+          Ícone Representativo
+        </label>
         <div className="grid grid-cols-4 gap-2 mt-2">
           {AVAILABLE_ICONS.map((icon) => {
-            const IconComp = (Icons as any)[icon.id];
+            const IconComp = ICON_MAP[icon.id];
             const isSelected = iconKey === icon.id;
             
             return (
@@ -69,26 +99,26 @@ export function AccompanimentCategoryForm({ onSave }: { onSave: () => void }) {
                 key={icon.id}
                 type="button"
                 onClick={() => setIconKey(icon.id)}
-                className={`p-2 border-2 rounded-xl flex flex-col items-center gap-1 transition-all ${
+                className={`p-2 border-2 rounded-xl flex flex-col items-center gap-1 transition-all active:scale-95 ${
                   isSelected 
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-600' 
-                    : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm' 
+                    : 'border-slate-50 bg-white text-slate-300 hover:border-slate-100 hover:text-slate-400'
                 }`}
               >
                 {IconComp && <IconComp size={20} />}
-                <span className="text-[9px] font-bold uppercase">{icon.label}</span>
+                <span className="text-[8px] font-bold uppercase">{icon.label}</span>
               </button>
-            )
+            );
           })}
         </div>
       </div>
 
       <Button 
         onClick={handleSave} 
-        disabled={mutation.isPending} // ✅ Corrigido: de isLoading para isPending
-        className="w-full h-12 bg-slate-950 text-white rounded-xl font-black uppercase text-[10px] tracking-widest"
+        disabled={mutation.isPending} 
+        className="w-full h-12 bg-slate-900 hover:bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all"
       >
-        {mutation.isPending ? ( // ✅ Corrigido: de isLoading para isPending
+        {mutation.isPending ? (
           <Loader2 className="animate-spin" size={16} />
         ) : (
           "Salvar Categoria"

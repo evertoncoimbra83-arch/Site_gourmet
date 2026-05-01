@@ -1,10 +1,20 @@
+import React from "react"; // ✅ Adicionado para resolver o erro 'React' must be in scope
 import { useOrderItemFormatter } from "@/_core/hooks/useOrderItemFormatter";
 import { Utensils, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function ItemDetailsDisplay({ item, className }: { item: any, className?: string }) {
-  const formatted = useOrderItemFormatter(item);
+// --- INTERFACES LOCAIS ---
 
+interface OptionItem {
+  name: string;
+  groupName?: string;
+  dishName?: string;
+  slotName?: string;
+  accompaniments?: Array<{ name: string }>;
+}
+
+export function ItemDetailsDisplay({ item, className }: { item: unknown, className?: string }) {
+const formatted = useOrderItemFormatter(item as Parameters<typeof useOrderItemFormatter>[0]);
   if (!formatted) return null;
 
   return (
@@ -26,7 +36,7 @@ export function ItemDetailsDisplay({ item, className }: { item: any, className?:
         </p>
       </div>
 
-      {formatted.options.map((option: any, idx: number) => {
+      {(formatted.options as OptionItem[]).map((option, idx) => {
         
         // ✅ LAYOUT PACOTE
         if (formatted.isPackage) {
@@ -40,7 +50,7 @@ export function ItemDetailsDisplay({ item, className }: { item: any, className?:
                 </p>
               </div>
               <div className="ml-4 flex flex-wrap gap-x-2">
-                {option.accompaniments?.map((acc: any, i: number) => (
+                {option.accompaniments?.map((acc, i) => (
                   <span key={i} className="text-[9px] text-slate-400 font-bold">• {acc.name}</span>
                 ))}
               </div>
@@ -56,7 +66,7 @@ export function ItemDetailsDisplay({ item, className }: { item: any, className?:
               {option.groupName && (
                 <span className="opacity-40 uppercase text-[7px] mr-1">{option.groupName}:</span>
               )}
-              {option.name || option}
+              {option.name}
             </span>
           </div>
         );

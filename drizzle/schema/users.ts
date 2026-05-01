@@ -1,3 +1,5 @@
+// server/drizzle/schema/users.ts
+
 import { relations } from "drizzle-orm";
 import {
   mysqlTable,
@@ -7,17 +9,15 @@ import {
   int,
   timestamp,
   mysqlEnum,
-  text,
-  char,
   smallint,
-  index // ✅ Adicionado para performance
+  index
 } from "drizzle-orm/mysql-core";
 
-import { orders } from "./orders.js";
-import { couponUsage } from "./marketing.js";
-import { loyaltyHistory } from "./loyalty.js";
-import { mediaLibrary } from "./config.js";
-import { encryptedText } from "../../server/encryption.js"; 
+import { orders } from "./orders";
+import { couponUsage } from "./marketing";
+import { loyaltyHistory } from "./loyalty";
+import { mediaLibrary } from "./config";
+import { encryptedText } from "../../server/encryption"; 
 
 // ====================================================
 // --- 1. TABELA PRINCIPAL (USERS) ---
@@ -25,25 +25,38 @@ import { encryptedText } from "../../server/encryption.js";
 export const users = mysqlTable("users", {
   id: varchar("id", { length: 255 }).primaryKey(),
   
-  // ✅ INDICES DE BUSCA (Blind Index)
-  // Renomeado para documentIndex para bater com o código do seu roteador
+  // Índices para busca (hashes ou termos normalizados)
   nameIndex: varchar("name_index", { length: 255 }),
   documentIndex: varchar("document_index", { length: 255 }), 
   phoneIndex: varchar("phone_index", { length: 255 }),
   
   email: varchar("email", { length: 255 }).notNull().unique(),
   
-  // Dados Encriptados
-  name: encryptedText("name"), // ✅ Alterado de text para encryptedText
+  name: encryptedText("name"), 
   customerDocument: encryptedText("customer_document"), 
   phone: encryptedText("phone"), 
   
-  // Auxiliar para suporte/exibição rápida
   phoneLast4: varchar("phone_last4", { length: 4 }),
   
-  role: mysqlEnum("role", ["admin", "user"]).default("user").notNull(),
+  role: mysqlEnum('role', ['admin', 'user', 'nutri']).default('user'),
   password: varchar("password", { length: 255 }),
-  loyaltyBalance: int("loyalty_balance").default(0).notNull(), 
+
+  // --- CAMPOS DE RECUPERAÇÃO DE SENHA ---
+  resetToken: varchar("reset_token", { length: 255 }),
+  resetExpires: timestamp("reset_token_expires_at"),
+
+  needsPasswordReset: int("needs_password_reset").default(0),
+
+  availablePoints: int("loyalty_balance").default(0).notNull(), 
+  
+  /**
+   * ✅ SISTEMA DE CRÉDITOS IA
+   * aiCredits: Saldo mensal de consultas para o Gourmet AI.
+   * Padrão: 2 créditos por mês.
+   */
+  aiCredits: int("ai_credits").default(2).notNull(), // Nova coluna adicionada aqui
+
+  referralCode: varchar("referral_code", { length: 50 }),
   
   birthDate: varchar("birth_date", { length: 255 }), 
   birthYear: smallint("birth_year"),
@@ -52,11 +65,13 @@ export const users = mysqlTable("users", {
   
   lastSignedIn: timestamp("last_signed_in"),
   createdAt: timestamp("created_at").defaultNow(),
-  updated_at: timestamp("updated_at").defaultNow().onUpdateNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(), 
 }, (table) => ({
-  // ✅ Adicionando índices de performance para as buscas em hash
   nameIdx: index("name_search_idx").on(table.nameIndex),
   docIdx: index("doc_search_idx").on(table.documentIndex),
+  emailIdx: index("email_idx").on(table.email),
+  // Índice opcional se você for criar um admin de monitoramento de uso de IA
+  aiCreditsIdx: index("ai_credits_idx").on(table.aiCredits),
 }));
 
 // ====================================================
@@ -75,9 +90,10 @@ export const user_profiles = mysqlTable("user_profiles", {
   state: encryptedText("state"), 
   
   totalSpent: decimal("total_spent", { precision: 15, scale: 2 }).default("0.00"),
+  professional_title: varchar("professional_title", { length: 100 }),
   
   createdAt: timestamp("created_at").defaultNow(),
-  updated_at: timestamp("updated_at").defaultNow().onUpdateNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
 // ====================================================
@@ -103,12 +119,12 @@ export const userAddresses = mysqlTable("user_addresses", {
   isDefault: boolean("is_default").default(false),
   
   createdAt: timestamp("created_at").defaultNow(),
-  updated_at: timestamp("updated_at").defaultNow().onUpdateNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
-// --- RELAÇÕES (Corrigidas para refletir o ID String) ---
+// --- RELAÇÕES ---
 export const usersRelations = relations(users, ({ one, many }) => ({
-  profile: one(user_profiles, { fields: [users.id], references: [user_profiles.userId] }),
+  profile: one(user_profiles), 
   orders: many(orders),
   addresses: many(userAddresses),
   loyaltyHistory: many(loyaltyHistory),

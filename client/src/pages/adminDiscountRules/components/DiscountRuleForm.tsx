@@ -1,16 +1,46 @@
+import React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Plus, Loader2, Zap, Percent, Banknote } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
+// ✅ Interface para o estado do formulário
+interface DiscountFormState {
+  name: string;
+  priority: string | number;
+  type: 'percentage' | 'fixed';
+  min_quantity?: string | number;
+  minQuantity?: string | number;
+  max_quantity?: string | number;
+  maxQuantity?: string | number;
+  value: string | number;
+}
+
+// ✅ Interface UNIFICADA (Sem duplicidade e sem 'any')
+interface DiscountRuleFormProps {
+  state: {
+    formState: DiscountFormState;
+    editingId: string | number | null;
+  };
+  actions: {
+    handleSubmit: (e: React.FormEvent) => void;
+    // Tipagem correta para o Dispatch do Estado
+    setFormState: React.Dispatch<React.SetStateAction<DiscountFormState>>;
+  };
+  mutations: {
+    isPending: boolean;
+  };
+  onCancel: () => void;
+}
+
+export function DiscountRuleForm({ state, actions, mutations, onCancel }: DiscountRuleFormProps) {
   const { formState } = state;
 
   return (
     <form 
       onSubmit={actions.handleSubmit} 
-      className="space-y-8 animate-in fade-in duration-500"
+      className="space-y-8 animate-in fade-in duration-500 text-left"
     >
       <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-8">
         
@@ -23,7 +53,7 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
             className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg focus:ring-2 focus:ring-emerald-500/10" 
             placeholder="Ex: Combo Família 10%" 
             value={formState.name} 
-            onChange={e => actions.setFormState({...formState, name: e.target.value})} 
+            onChange={e => actions.setFormState({ ...formState, name: e.target.value })} 
             required
           />
         </div>
@@ -36,8 +66,8 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
           <Input 
             type="number"
             className="h-14 rounded-2xl bg-slate-50 border-none font-black text-center text-lg" 
-            value={formState.priority} 
-            onChange={e => actions.setFormState({...formState, priority: e.target.value})} 
+            value={formState.priority || ""} 
+            onChange={e => actions.setFormState({ ...formState, priority: e.target.value })} 
           />
         </div>
 
@@ -49,30 +79,30 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
           <div className="flex gap-4">
             <button
               type="button"
-              onClick={() => actions.setFormState({ ...formState, discountType: 'percentage' })}
+              onClick={() => actions.setFormState({ ...formState, type: 'percentage' })}
               className={cn(
                 "flex-1 h-16 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all active:scale-95",
-                formState.discountType === 'percentage' 
+                formState.type === 'percentage' 
                   ? "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm" 
                   : "border-slate-100 bg-white text-slate-400 hover:border-slate-200"
               )}
             >
-              <Percent size={18} className={formState.discountType === 'percentage' ? "animate-pulse" : ""} />
+              <Percent size={18} className={formState.type === 'percentage' ? "animate-pulse" : ""} />
               <span className="font-black uppercase text-[10px] tracking-widest">Porcentagem</span>
             </button>
 
             <button
               type="button"
-              onClick={() => actions.setFormState({ ...formState, discountType: 'fixed' })}
+              onClick={() => actions.setFormState({ ...formState, type: 'fixed' })}
               className={cn(
                 "flex-1 h-16 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all active:scale-95",
-                formState.discountType === 'fixed' 
+                formState.type === 'fixed' 
                   ? "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm" 
                   : "border-slate-100 bg-white text-slate-400 hover:border-slate-200"
               )}
             >
-              <Banknote size={18} className={formState.discountType === 'fixed' ? "animate-pulse" : ""} />
-              <span className="font-black uppercase text-[10px] tracking-widest">Valor Fixo (€)</span>
+              <Banknote size={18} className={formState.type === 'fixed' ? "animate-pulse" : ""} />
+              <span className="font-black uppercase text-[10px] tracking-widest">Valor Fixo (R$)</span>
             </button>
           </div>
         </div>
@@ -85,8 +115,8 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
           <Input 
             type="number"
             className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-center" 
-            value={formState.minQuantity} 
-            onChange={e => actions.setFormState({...formState, minQuantity: e.target.value})} 
+            value={formState.min_quantity ?? formState.minQuantity ?? ""} 
+            onChange={e => actions.setFormState({ ...formState, min_quantity: e.target.value })} 
             required
           />
         </div>
@@ -97,10 +127,10 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
           </Label>
           <Input 
             type="number"
-            placeholder="∞"
             className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-center" 
-            value={formState.maxQuantity || ""} 
-            onChange={e => actions.setFormState({...formState, maxQuantity: e.target.value})} 
+            placeholder="∞"
+            value={formState.max_quantity ?? formState.maxQuantity ?? ""} 
+            onChange={e => actions.setFormState({ ...formState, max_quantity: e.target.value })} 
           />
         </div>
 
@@ -111,14 +141,14 @@ export function DiscountRuleForm({ state, actions, mutations, onCancel }: any) {
           </Label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-emerald-600 text-sm opacity-50">
-              {formState.discountType === 'percentage' ? '%' : '€'}
+              {formState.type === 'percentage' ? '%' : 'R$'}
             </span>
             <Input 
               type="number" 
               step="0.01"
               className="h-14 pl-10 rounded-2xl bg-slate-50 border-none font-black text-xl text-emerald-600 focus:ring-2 focus:ring-emerald-500/10" 
-              value={formState.discount_value} 
-              onChange={e => actions.setFormState({...formState, discount_value: e.target.value})} 
+              value={formState.value || ""} 
+              onChange={e => actions.setFormState({ ...formState, value: e.target.value })} 
               required
             />
           </div>

@@ -24,7 +24,7 @@ Preencha os seguintes campos:
 |-------|-------|---------|
 | `openId` | ID único (obrigatório) | `user-admin-001` |
 | `name` | Nome completo | `João Admin` |
-| `email` | Email | `admin@gourmetsaudavel.com.br` |
+| `email` | Email | `admin@gourmetsaudavel.com` |
 | `role` | **admin** | `admin` |
 | `loginMethod` | Método de login | `manual` |
 | `createdAt` | Data/hora atual | `2024-12-01 14:30:00` |

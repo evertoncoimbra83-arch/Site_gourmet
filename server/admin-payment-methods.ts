@@ -1,13 +1,12 @@
-import { eq, desc, asc, and } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { getDb } from "./db";
 import { 
     paymentMethods, 
     foodCardBrands, 
-    orders 
-} from "../drizzle/schema"; 
-import { z } from "zod";
+} from "../drizzle/schema/index"; 
+import crypto from "crypto";
 
-// Tipos base (assumindo que estes tipos são exportados pelo seu schema, o que corrigimos)
+// Tipos base sincronizados com o Schema
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
 export type InsertPaymentMethod = typeof paymentMethods.$inferInsert;
 export type FoodCardBrand = typeof foodCardBrands.$inferSelect;
@@ -37,31 +36,28 @@ export async function createPaymentMethod(data: Omit<InsertPaymentMethod, 'id'>)
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const methodData = {
-        ...data,
-        // Converte o valor do minAmount para string (decimal no DB)
-        minAmount: data.minAmount.toString(), 
-    };
+    const newId = crypto.randomUUID();
 
-    const [newMethod] = await db.insert(paymentMethods).values(methodData as any);
+    // ✅ CORREÇÃO: Removido 'any' e usado o tipo de inserção correto do Drizzle
+    await db.insert(paymentMethods).values({
+        ...(data as InsertPaymentMethod),
+        id: newId,
+    });
     
-    return newMethod;
+    return { id: newId };
 }
 
 /**
  * Atualiza um método de pagamento existente.
  */
-export async function updatePaymentMethod(id: number, data: Partial<InsertPaymentMethod>) {
+export async function updatePaymentMethod(id: string, data: Partial<InsertPaymentMethod>) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
     
-    const updateData: any = { ...data };
-
-    if (updateData.minAmount !== undefined) {
-        updateData.minAmount = updateData.minAmount.toString();
-    }
-    
-    await db.update(paymentMethods).set(updateData).where(eq(paymentMethods.id, id));
+    // ✅ CORREÇÃO TS2561: Alterado 'updated_at' para 'updatedAt' conforme o Schema do Drizzle
+    await db.update(paymentMethods)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(paymentMethods.id, id));
     
     return { success: true };
 }
@@ -69,11 +65,10 @@ export async function updatePaymentMethod(id: number, data: Partial<InsertPaymen
 /**
  * Remove um método de pagamento.
  */
-export async function deletePaymentMethod(id: number) {
+export async function deletePaymentMethod(id: string) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // Lógica para desativar em vez de deletar, se houver pedidos
     await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
     
     return { success: true };
@@ -103,25 +98,31 @@ export async function createFoodCardBrand(data: Omit<InsertFoodCardBrand, 'id'>)
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const [newBrand] = await db.insert(foodCardBrands).values(data as any);
+    const newId = crypto.randomUUID();
+
+    // ✅ CORREÇÃO: Removido 'any' e usado cast para o tipo de inserção do Schema
+    await db.insert(foodCardBrands).values({
+        ...(data as InsertFoodCardBrand),
+        id: newId
+    });
     
-    return newBrand;
+    return { id: newId };
 }
 
 /**
  * Remove uma marca de cartão-refeição.
  */
-export async function deleteFoodCardBrand(id: number) {
+export async function deleteFoodCardBrand(id: string) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    await db.delete(foodCardBrands).where(eq(foodCardBrands.id, id));
+    await db.delete(foodCardBrands).where(eq(foodCardBrands.id, id)); 
     
     return { success: true };
 }
 
 // =========================================================================
-// 3. FUNÇÃO AUXILIAR PARA O FRONTEND (listPaymentMethods)
+// 3. FUNÇÃO AUXILIAR PARA O FRONTEND
 // =========================================================================
 
 /**

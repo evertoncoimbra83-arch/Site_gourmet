@@ -1,4 +1,4 @@
-import React, { createContext, getContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react"; // ✅ Trocado getContext por useContext
 
 type Theme = "light" | "dark";
 
@@ -22,7 +22,7 @@ export function ThemeProvider({
   switchable = false,
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
-    if (switchable) {
+    if (switchable && typeof window !== "undefined") {
       const stored = localStorage.getItem("theme");
       return (stored as Theme) || defaultTheme;
     }
@@ -56,7 +56,9 @@ export function ThemeProvider({
 }
 
 export function useTheme() {
-  const context = getContext(ThemeContext);
+  // ✅ Corrigido para usar o hook padrão do React
+  const context = useContext(ThemeContext);
+  
   if (!context) {
     throw new Error("useTheme must be used within ThemeProvider");
   }

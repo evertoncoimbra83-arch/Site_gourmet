@@ -1,8 +1,8 @@
+// client/src/pages/adminShowcases/components/ShowcaseDrawer.tsx
 import React from "react";
 import { 
   Sheet, 
   SheetContent, 
-  SheetHeader, 
   SheetTitle,
   SheetDescription 
 } from "@/components/ui/sheet";
@@ -12,17 +12,34 @@ import { Switch } from "@/components/ui/switch";
 import { Search, CheckCircle2, Loader2, LayoutTemplate, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// --- INTERFACES ---
+
+interface Product {
+  id: number;
+  name?: string;
+  title?: string;
+  price?: number | string;
+}
+
+interface ShowcaseData {
+  id?: string | number;
+  title: string;
+  active: boolean;
+  /** ✅ ALTERADO: Sincronizado com o backend */
+  items: number[]; 
+}
+
 interface ShowcaseDrawerProps {
   open: boolean;
   onClose: () => void;
-  editingShowcase: any;
-  allProducts: any; 
+  editingShowcase: ShowcaseData | null;
+  allProducts: Product[] | null; 
   searchTerm: string;
   onSearchChange: (value: string) => void;
   onToggleProduct: (id: number) => void;
   onSave: () => void;
   isSaving: boolean;
-  onFieldChange: (field: string, value: any) => void;
+  onFieldChange: <K extends keyof ShowcaseData>(field: K, value: ShowcaseData[K]) => void;
 }
 
 export function ShowcaseDrawer({
@@ -38,10 +55,8 @@ export function ShowcaseDrawer({
   onFieldChange
 }: ShowcaseDrawerProps) {
   
-  // Normalização da lista de produtos (suporta array direto ou objeto com chave .dishes)
-  const productsList = Array.isArray(allProducts) 
-    ? allProducts 
-    : (allProducts?.dishes || []);
+  // Normalização da lista de produtos (Simplificada para bater com o hook)
+  const productsList: Product[] = Array.isArray(allProducts) ? allProducts : [];
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -74,7 +89,7 @@ export function ShowcaseDrawer({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-10">
           
           {/* CONFIGURAÇÕES BÁSICAS */}
-          <section className="space-y-4 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-50">
+          <section className="space-y-4 bg-white p-8 rounded-4xl shadow-sm border border-slate-50">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Título da Vitrine</label>
               <Input 
@@ -110,12 +125,13 @@ export function ShowcaseDrawer({
 
             <div className="grid gap-3">
               {productsList
-                .filter((p: any) => {
+                .filter((p) => {
                   const nameToFilter = p.name || p.title || "";
                   return nameToFilter.toLowerCase().includes(searchTerm.toLowerCase());
                 })
-                .map((prod: any) => {
-                  const isSelected = editingShowcase?.products?.includes(prod.id);
+                .map((prod) => {
+                  /** ✅ ALTERADO: Verificando em 'items' em vez de 'products' */
+                  const isSelected = editingShowcase?.items?.includes(prod.id);
                   
                   return (
                     <div 
@@ -154,7 +170,7 @@ export function ShowcaseDrawer({
               })}
               
               {productsList.length === 0 && (
-                <div className="py-20 text-center border-2 border-dashed border-slate-100 rounded-[2.5rem] bg-slate-50/50">
+                <div className="py-20 text-center border-2 border-dashed border-slate-100 rounded-4xl bg-slate-50/50">
                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Nenhum produto encontrado</p>
                 </div>
               )}

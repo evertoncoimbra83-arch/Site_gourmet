@@ -3,24 +3,33 @@
 import fs from "fs";
 import path from "path";
 
+/**
+ * @types/node is required for this script to access 'process'.
+ */
+declare const process: { cwd: () => string; env: Record<string, string | undefined>; exit: (code?: number) => never };
+
 const ROOT = process.cwd();
 
-// --- CONFIGURAÇÕES APRIMORADAS ---
-const INCLUDE_DIRS = [
-  "server",
-  "client/src",
-  "drizzle", // ✅ Essencial para o DB (Schemas e Migrations)
-  "scripts", // Útil se tiver scripts de seed do banco
-];
+type ReportMode = "full" | "security" | "frontend" | "backend";
+const REPORT_MODE = (process.env.REPORT_MODE || "full") as ReportMode;
+const SAVE_HISTORY = process.env.REPORT_HISTORY === "1";
 
-// ✅ Arquivos de raiz importantes para contexto profundo
+const DIRS_BY_MODE: Record<ReportMode, string[]> = {
+  full: ["server", "client/src", "drizzle", "scripts"],
+  security: ["server", "client/src/_core", "client/src/lib", "client/src/pages/checkout", "client/src/pages/cart", "drizzle"],
+  frontend: ["client/src"],
+  backend: ["server", "drizzle"],
+};
+
+const INCLUDE_DIRS = DIRS_BY_MODE[REPORT_MODE] ?? DIRS_BY_MODE.full;
+
 const ROOT_FILES = [
   "package.json",
   "tsconfig.json",
-  "drizzle.config.ts", // 🔍 Configuração do DB
+  "drizzle.config.ts",
   "vite.config.ts",
   "tailwind.config.ts",
-  ".env.example",      // 🔍 Variáveis de ambiente (sem senhas reais)
+  ".env.example",
 ];
 
 const IGNORE_DIRS = new Set([
@@ -30,20 +39,59 @@ const IGNORE_DIRS = new Set([
   "build",
   ".next",
   "coverage",
+  ".turbo",
+  ".vercel",
+]);
+
+const IGNORE_FILES = new Set([
+  "project-report.json",
+  "project-report.md",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lockb",
+]);
+
+const IGNORE_EXTS = new Set([
+  ".avif",
+  ".bmp",
+  ".csv",
+  ".eot",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".mov",
+  ".mp3",
+  ".mp4",
+  ".otf",
+  ".pdf",
+  ".png",
+  ".rar",
+  ".svg",
+  ".ttf",
+  ".webm",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".zip",
 ]);
 
 const INCLUDE_EXTS = new Set([
-  ".ts", ".tsx",
-  ".js", ".jsx", ".mjs", ".cjs",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
   ".json",
-  ".sql",    // 🔍 Migrations SQL
-  ".prisma", 
+  ".sql",
+  ".prisma",
   ".css",
-  ".env.example"
+  ".md",
 ]);
 
-const MAX_FILE_KB = 300; // Aumentei um pouco para pegar arquivos maiores se necessário
-// --- FIM DAS CONFIGURAÇÕES ---
+const MAX_FILE_KB = 300;
 
 interface FileEntry {
   path: string;
@@ -52,181 +100,357 @@ interface FileEntry {
   language: string;
 }
 
+interface SecurityHint {
+  file: string;
+  issue: string;
+}
+
+interface ReportSummary {
+  mode: ReportMode;
+  totalEntries: number;
+  totalFilesWithContent: number;
+  omittedLargeFiles: number;
+  criticalFiles: string[];
+  securityHints: SecurityHint[];
+  generatedAt: string;
+}
+
 interface ReportStructure {
   timestamp: string;
   root: string;
+  summary: ReportSummary;
   tree: string[];
   files: FileEntry[];
+}
+
+type Entry = { type: "dir" | "file"; path: string };
+
+function warnReadFailure(scope: string, error: unknown) {
+  const reason = error instanceof Error ? error.message : "erro desconhecido";
+  console.warn(`[project-report] Nao foi possivel ler ${scope}: ${reason}`);
 }
 
 function isIgnoredDir(name: string) {
   return IGNORE_DIRS.has(name);
 }
 
-// Caminha pelos diretórios recursivamente
+function isEnvFile(filePath: string) {
+  const fileName = path.basename(filePath);
+  return fileName === ".env" || fileName.startsWith(".env.");
+}
+
+function isAllowedEnvFile(filePath: string) {
+  return path.basename(filePath) === ".env.example";
+}
+
+function isIgnoredFile(filePath: string) {
+  const fileName = path.basename(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (IGNORE_FILES.has(fileName)) return true;
+  if (isEnvFile(filePath) && !isAllowedEnvFile(filePath)) return true;
+  return IGNORE_EXTS.has(ext);
+}
+
 function walkDir(startDir: string) {
-  const result: { type: "dir" | "file"; path: string }[] = [];
-  if (!fs.existsSync(startDir)) return result; 
+  const result: Entry[] = [];
+  if (!fs.existsSync(startDir)) return result;
 
   function walk(current: string) {
     try {
       const entries = fs.readdirSync(current, { withFileTypes: true });
+
       for (const entry of entries) {
-        if (entry.name.startsWith(".")) continue; 
-        
         const fullPath = path.join(current, entry.name);
         const relPath = path.relative(ROOT, fullPath).replace(/\\/g, "/");
 
         if (entry.isDirectory()) {
-          if (isIgnoredDir(entry.name)) continue;
+          if (entry.name.startsWith(".") || isIgnoredDir(entry.name)) continue;
           result.push({ type: "dir", path: relPath });
           walk(fullPath);
-        } else {
-          result.push({ type: "file", path: relPath });
+          continue;
         }
+
+        if (isIgnoredFile(relPath)) continue;
+        result.push({ type: "file", path: relPath });
       }
-    } catch (e) {
-      console.warn(`⚠️ Não foi possível ler: ${current}`);
+    } catch (error: unknown) {
+      warnReadFailure(path.relative(ROOT, current).replace(/\\/g, "/"), error);
     }
   }
+
   walk(startDir);
   return result;
 }
 
 function getLanguage(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
-    if (path.basename(filePath).startsWith(".env")) return "bash";
-    
-    switch (ext) {
-        case ".ts":
-        case ".tsx": return "typescript";
-        case ".js":
-        case ".jsx":
-        case ".mjs":
-        case ".cjs": return "javascript";
-        case ".json": return "json";
-        case ".sql": return "sql";
-        case ".prisma": return "prisma";
-        case ".css": return "css";
-        case ".html": return "html";
-        case ".md": return "markdown";
-        default: return "txt";
-    }
+  const ext = path.extname(filePath).toLowerCase();
+  if (isAllowedEnvFile(filePath)) return "bash";
+
+  switch (ext) {
+    case ".ts":
+    case ".tsx":
+      return "typescript";
+    case ".js":
+    case ".jsx":
+    case ".mjs":
+    case ".cjs":
+      return "javascript";
+    case ".json":
+      return "json";
+    case ".sql":
+      return "sql";
+    case ".prisma":
+      return "prisma";
+    case ".css":
+      return "css";
+    case ".html":
+      return "html";
+    case ".md":
+      return "markdown";
+    default:
+      return "txt";
+  }
 }
 
 function shouldIncludeContent(filePath: string): boolean {
-  const ext = path.extname(filePath);
+  if (isIgnoredFile(filePath)) return false;
+  if (isAllowedEnvFile(filePath)) return true;
+
+  const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
-  return INCLUDE_EXTS.has(ext) || ROOT_FILES.includes(fileName) || fileName.startsWith(".env");
+  return INCLUDE_EXTS.has(ext) || ROOT_FILES.includes(fileName);
+}
+
+function isCriticalFile(filePath: string) {
+  const p = filePath.toLowerCase();
+
+  return [
+    "checkout",
+    "cart",
+    "auth",
+    "payment",
+    "coupon",
+    "loyalty",
+    "shipping",
+    "upload",
+    "media",
+    "admin",
+    "security",
+    "middleware",
+    "trpc",
+    "order",
+    "user",
+    "address",
+  ].some((term) => p.includes(term));
+}
+
+function collectSecurityHints(filePath: string, content: string): SecurityHint[] {
+  const hints: SecurityHint[] = [];
+  const isSafeParseHelper = filePath.replace(/\\/g, "/") === "server/lib/safe-parse.ts";
+
+  const checks: Array<[RegExp, string]> = [
+    [/\bas any\b/g, "usa 'as any'"],
+    [/\bunknown as\b/g, "usa 'unknown as'"],
+    [/\beval\s*\(/g, "usa eval()"],
+    [/localStorage\.setItem\s*\(\s*["'`](token|auth|session)/gi, "possivel token/session em localStorage"],
+    [/JSON\.parse\s*\(/g, "usa JSON.parse; verificar try/catch"],
+    [/dangerouslySetInnerHTML/g, "usa dangerouslySetInnerHTML"],
+    [/innerHTML\s*=/g, "atribui innerHTML diretamente"],
+    [/Number\s*\([^)]*\)\s*\|\|\s*0/g, "conversao Number(...) || 0 fragil"],
+    [/parseFloat\s*\(/g, "usa parseFloat; validar entrada"],
+    [/parseInt\s*\(/g, "usa parseInt; validar entrada"],
+  ];
+
+  for (const [regex, issue] of checks) {
+    if (isSafeParseHelper && issue === "usa JSON.parse; verificar try/catch") {
+      continue;
+    }
+
+    if (regex.test(content)) {
+      hints.push({ file: filePath, issue });
+    }
+  }
+
+  return hints;
 }
 
 function generateReportData(): ReportStructure {
-  let allEntries: { type: "dir" | "file"; path: string }[] = [];
+  let allEntries: Entry[] = [];
+  let omittedLargeFiles = 0;
+  const generatedAt = new Date().toISOString();
+  const securityHints: SecurityHint[] = [];
 
-  // 1. Arquivos da Raiz
   for (const file of ROOT_FILES) {
+    if (isIgnoredFile(file)) continue;
     if (fs.existsSync(path.join(ROOT, file))) {
       allEntries.push({ type: "file", path: file });
     }
   }
 
-  // 2. Diretórios Definidos
   for (const dir of INCLUDE_DIRS) {
     const abs = path.join(ROOT, dir);
     if (!fs.existsSync(abs)) continue;
-    const entries = walkDir(abs);
-    allEntries = allEntries.concat(entries);
+    allEntries = allEntries.concat(walkDir(abs));
   }
 
-  // 3. Gerar Árvore Visual
-  const treeLines: string[] = allEntries
-    .map(e => e.path)
-    .sort();
-    
-  // 4. Ler Conteúdo
+  const seen = new Set<string>();
+  allEntries = allEntries.filter((entry) => {
+    const key = `${entry.type}:${entry.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const treeLines = allEntries.map((entry) => entry.path).sort();
+
   const filesContent: FileEntry[] = [];
+
   for (const entry of allEntries) {
     if (entry.type !== "file") continue;
+
     const relPath = entry.path;
-    
     if (!shouldIncludeContent(relPath)) continue;
 
     const absPath = path.join(ROOT, relPath);
+
     try {
-        const stats = fs.statSync(absPath);
-        const sizeKB = stats.size / 1024;
+      const stats = fs.statSync(absPath);
+      const sizeKB = stats.size / 1024;
+      const normalizedSizeKB = Number(sizeKB.toFixed(2));
 
-        if (sizeKB > MAX_FILE_KB) {
-        filesContent.push({ path: relPath, content: `[CONTEÚDO OMITIDO: Arquivo muito grande (${sizeKB.toFixed(2)} KB)]`, sizeKB, language: getLanguage(relPath) });
-        continue;
-        }
-
-        let content = fs.readFileSync(absPath, "utf8");
-        content = content.replace(/\u0000/g, ""); // Remove nulos
-        
+      if (sizeKB > MAX_FILE_KB) {
+        omittedLargeFiles += 1;
         filesContent.push({
-        path: relPath,
-        content: content,
-        sizeKB: parseFloat(sizeKB.toFixed(2)),
-        language: getLanguage(relPath)
+          path: relPath,
+          content: `[CONTEUDO OMITIDO: arquivo muito grande (${normalizedSizeKB} KB)]`,
+          sizeKB: normalizedSizeKB,
+          language: getLanguage(relPath),
         });
-    } catch (err) {
-        console.error(`Erro ao ler arquivo ${relPath}`);
+        continue;
+      }
+
+      const content = fs.readFileSync(absPath, "utf8").replace(/\0/g, "");
+
+      securityHints.push(...collectSecurityHints(relPath, content));
+
+      filesContent.push({
+        path: relPath,
+        content,
+        sizeKB: normalizedSizeKB,
+        language: getLanguage(relPath),
+      });
+    } catch (error: unknown) {
+      warnReadFailure(relPath, error);
     }
   }
-  
+
+  const criticalFiles = filesContent
+    .map((file) => file.path)
+    .filter(isCriticalFile)
+    .sort();
+
   return {
-    timestamp: new Date().toISOString(),
+    timestamp: generatedAt,
     root: ROOT,
+    summary: {
+      mode: REPORT_MODE,
+      totalEntries: allEntries.length,
+      totalFilesWithContent: filesContent.length,
+      omittedLargeFiles,
+      criticalFiles,
+      securityHints,
+      generatedAt,
+    },
     tree: treeLines,
     files: filesContent,
   };
 }
 
-// --- FUNÇÃO EXTRA: Gerar Markdown (Melhor para LLMs) ---
 function generateMarkdown(report: ReportStructure): string {
-    let md = `# Relatório do Projeto\n\n`;
-    md += `Gerado em: ${report.timestamp}\n\n`;
-    
-    md += `## Estrutura do Projeto\n\n`;
-    md += "```\n";
-    md += report.tree.join("\n");
+  let md = "# Relatorio do Projeto\n\n";
+  md += `Gerado em: ${report.timestamp}\n\n`;
+
+  md += "## Resumo\n\n";
+  md += `- Modo: ${report.summary.mode}\n`;
+  md += `- Total de entradas: ${report.summary.totalEntries}\n`;
+  md += `- Arquivos com conteudo: ${report.summary.totalFilesWithContent}\n`;
+  md += `- Arquivos grandes omitidos: ${report.summary.omittedLargeFiles}\n`;
+  md += `- Arquivos criticos detectados: ${report.summary.criticalFiles.length}\n`;
+  md += `- Alertas tecnicos detectados: ${report.summary.securityHints.length}\n`;
+  md += `- Gerado em: ${report.summary.generatedAt}\n\n`;
+
+  if (report.summary.criticalFiles.length > 0) {
+    md += "## Arquivos Criticos Detectados\n\n";
+    for (const file of report.summary.criticalFiles) {
+      md += `- ${file}\n`;
+    }
+    md += "\n";
+  }
+
+  if (report.summary.securityHints.length > 0) {
+    md += "## Alertas Tecnicos / Security Hints\n\n";
+    for (const hint of report.summary.securityHints) {
+      md += `- \`${hint.file}\`: ${hint.issue}\n`;
+    }
+    md += "\n";
+  }
+
+  md += "## Estrutura do Projeto\n\n";
+  md += "```\n";
+  md += report.tree.join("\n");
+  md += "\n```\n\n";
+
+  md += "## Conteudo dos Arquivos\n\n";
+
+  report.files.forEach((file) => {
+    md += `### Arquivo: \`${file.path}\`\n\n`;
+    md += `\`\`\`${file.language}\n`;
+    md += file.content;
     md += "\n```\n\n";
+    md += "---\n\n";
+  });
 
-    md += `## Conteúdo dos Arquivos\n\n`;
-    
-    report.files.forEach(file => {
-        md += `### Arquivo: \`${file.path}\`\n\n`;
-        md += "```" + file.language + "\n";
-        md += file.content;
-        md += "\n```\n\n";
-        md += "---\n\n";
-    });
-
-    return md;
+  return md;
 }
 
-// Execução Principal
+function writeHistoryFiles(report: ReportStructure, markdown: string) {
+  if (!SAVE_HISTORY) return;
+
+  const reportsDir = path.join(ROOT, "project-reports");
+  fs.mkdirSync(reportsDir, { recursive: true });
+
+  const safeTimestamp = report.timestamp.replace(/[:.]/g, "-");
+  fs.writeFileSync(
+    path.join(reportsDir, `project-report-${safeTimestamp}.json`),
+    JSON.stringify(report, null, 2),
+    "utf8",
+  );
+
+  fs.writeFileSync(
+    path.join(reportsDir, `project-report-${safeTimestamp}.md`),
+    markdown,
+    "utf8",
+  );
+}
+
 try {
-    console.log("🔍 Escaneando projeto...");
-    const report = generateReportData();
+  const report = generateReportData();
+  const markdown = generateMarkdown(report);
 
-    // 1. Salva JSON
-    const outputJSON = JSON.stringify(report, null, 2);
-    const jsonPath = path.join(ROOT, "project-report.json");
-    fs.writeFileSync(jsonPath, outputJSON, "utf8");
-    console.log(`✅ JSON gerado: ${jsonPath}`);
+  const jsonPath = path.join(ROOT, "project-report.json");
+  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), "utf8");
 
-    // 2. Salva Markdown (Novo!)
-    const outputMD = generateMarkdown(report);
-    const mdPath = path.join(ROOT, "project-report.md");
-    fs.writeFileSync(mdPath, outputMD, "utf8");
-    console.log(`✅ MARKDOWN gerado: ${mdPath}`);
-    
-    console.log(`\n📊 Total de arquivos processados: ${report.files.length}`);
-    console.log("👉 Use o arquivo .md para colar no chat da IA.");
+  const mdPath = path.join(ROOT, "project-report.md");
+  fs.writeFileSync(mdPath, markdown, "utf8");
 
-} catch(e: any) {
-    console.error("❌ Erro fatal:", e.message);
-    process.exit(1);
+  writeHistoryFiles(report, markdown);
+
+  console.log(`[project-report] Relatorio gerado com sucesso em modo "${REPORT_MODE}".`);
+  console.log(`[project-report] JSON: ${jsonPath}`);
+  console.log(`[project-report] Markdown: ${mdPath}`);
+} catch (error: unknown) {
+  const reason = error instanceof Error ? error.message : "erro desconhecido";
+  console.warn(`[project-report] Falha ao gerar relatorio: ${reason}`);
+  process.exit(1);
 }

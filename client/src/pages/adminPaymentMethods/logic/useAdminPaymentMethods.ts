@@ -1,11 +1,39 @@
+// e:/IA/projects/Site_React/client/src/pages/adminPaymentMethods/logic/useAdminPaymentMethods.ts
+
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
-import { toast } from "@/components/ui/use-toast";
+
+// --- INTERFACES ---
+
+export interface PaymentMethod {
+  id: string | number;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  brand_name?: string | null;
+  brandName?: string | null;
+  brand_logo_url?: string | null;
+  brandLogoUrl?: string | null;
+  discount_percentage?: number | string | null;
+  discountPercentage?: number | string | null;
+  isActive: boolean;
+}
+
+interface PaymentSavePayload {
+  name: string;
+  description?: string;
+  icon?: string;
+  brand_name?: string;
+  brandName?: string;
+  brand_logo_url?: string;
+  discount_percentage?: number | string;
+  discountPercentage?: number | string;
+}
 
 export function useAdminPaymentMethods() {
   const utils = trpc.useUtils();
   const [isOpen, setIsOpen] = useState(false);
-  const [editingMethod, setEditingMethod] = useState<any>(null);
+  const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
 
   // 1. QUERIES
   const { data: methods, isLoading } = trpc.admin.paymentMethods.listAll.useQuery();
@@ -13,40 +41,35 @@ export function useAdminPaymentMethods() {
   // 2. MUTATIONS
   const createMutation = trpc.admin.paymentMethods.create.useMutation({
     onSuccess: () => {
-      toast.success("Novo método cadastrado!");
       utils.admin.paymentMethods.listAll.invalidate();
       setIsOpen(false);
-    },
-    onError: (err: any) => toast.error("Erro ao criar: " + err.message)
+    }
   });
 
   const updateMutation = trpc.admin.paymentMethods.update.useMutation({
     onSuccess: async () => {
-      toast.success("Configurações atualizadas!");
       await utils.admin.paymentMethods.listAll.invalidate();
       setIsOpen(false);
       setEditingMethod(null);
-    },
-    onError: (err: any) => toast.error("Erro ao atualizar: " + err.message)
+    }
   });
 
   const deleteMutation = trpc.admin.paymentMethods.delete.useMutation({
     onSuccess: () => {
-      toast.success("Método removido.");
       utils.admin.paymentMethods.listAll.invalidate();
-    },
-    onError: (err: any) => toast.error("Erro ao remover: " + err.message)
+    }
   });
 
   // 3. ACTIONS
-  const handleEdit = (method: any) => {
+  const handleEdit = (method: PaymentMethod) => {
     setEditingMethod(method);
     setIsOpen(true);
   };
 
   const handleToggleActive = (id: string | number, currentStatus: boolean) => {
+    // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
     updateMutation.mutate({ 
-      id: String(id), 
+      id: Number(id), 
       isActive: !currentStatus 
     });
   };
@@ -54,25 +77,23 @@ export function useAdminPaymentMethods() {
   /**
    * ✅ HANDLER DE SALVAMENTO REVISADO
    */
-  const handleSave = (data: any) => {
-    // 1. Extraímos apenas o nome do arquivo da URL (evita salvar /uploads//uploads/...)
-    // Se data.brand_logo_url for "/uploads/pix.png", vira "pix.png"
+  const handleSave = (data: PaymentSavePayload) => {
     const cleanLogoUrl = data.brand_logo_url?.split('/').pop() || "";
 
     const payload = {
       name: data.name,
-      description: data.description,
-      icon: data.icon,
-      // Garante que enviamos exatamente o que o Zod espera no backend
+      description: data.description || "",
+      icon: data.icon || "",
       brand_name: data.brand_name || data.brandName || "",
       brand_logo_url: cleanLogoUrl, 
       discount_percentage: Number(data.discount_percentage || data.discountPercentage || 0),
     };
 
     if (editingMethod) {
+      // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
       updateMutation.mutate({ 
         ...payload, 
-        id: String(editingMethod.id) 
+        id: Number(editingMethod.id) 
       });
     } else {
       createMutation.mutate({ 
@@ -96,7 +117,7 @@ export function useAdminPaymentMethods() {
       handleToggleActive,
       handleSave 
     },
-    data: { methods: methods || [] },
+    data: { methods: (methods as unknown as PaymentMethod[]) || [] },
     mutations: { createMutation, updateMutation, deleteMutation }
   };
 }

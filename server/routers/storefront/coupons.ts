@@ -7,7 +7,8 @@ import { TRPCError } from "@trpc/server";
 
 export const couponsRouter = router({
   /**
-   * 🎟️ VALIDAR: Usado no checkout/carrinho para aplicar desconto
+   * 🎟️ VALIDAR: Usado para verificar a existência e regras do cupom.
+   * Feedback: O Interceptor Global cuidará do erro caso o cupom falhe.
    */
   validate: publicProcedure
     .input(z.object({ code: z.string().toUpperCase().trim() }))
@@ -19,25 +20,29 @@ export const couponsRouter = router({
         and(
           eq(coupons.code, input.code),
           eq(coupons.isActive, true),
-          // Verifica se a data atual está entre validFrom e validUntil (ou se são nulos)
+          // Validação de janela temporal (ou nulo para cupons vitalícios)
           or(isNull(coupons.validFrom), lte(coupons.validFrom, now)),
           or(isNull(coupons.validUntil), gte(coupons.validUntil, now))
         )
       ).limit(1);
 
       if (!coupon) {
+        // Dispara o toast.error no frontend via Interceptor
         throw new TRPCError({ 
           code: "NOT_FOUND", 
-          message: "Cupom inválido, expirado ou inexistente." 
+          message: "Este cupom não é válido, expirou ou não existe." 
         });
       }
 
+      // Sincronização de campos para garantir que o front receba Numbers puros
       return {
+        id: coupon.id,
         code: coupon.code,
         discountType: coupon.discountType,
-        discountValue: Number((coupon as any).discount_value || 0),
+        discountValue: Number(coupon.discountValue || 0),
         minOrderValue: Number(coupon.minOrderValue || 0),
-        maxDiscount: coupon.maxDiscount ? Number(coupon.maxDiscount) : null
+        maxDiscount: coupon.maxDiscount ? Number(coupon.maxDiscount) : null,
+        description: coupon.description || ""
       };
     }),
 });

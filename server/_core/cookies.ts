@@ -1,14 +1,14 @@
 import type { CookieOptions, Request } from "express";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1","192.168.24.6", "192.168.24.10","::1"]);
 
-function isIpAddress(host: string) {
-  // Basic IPv4 check and IPv6 presence detection.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  return host.includes(":");
-}
-
+/**
+ * Verifica se a requisição é segura (HTTPS) ou se vem de um proxy seguro.
+ */
 function isSecureRequest(req: Request) {
+  // Se for localhost, NUNCA deve ser considerado secure (para permitir cookies via HTTP)
+  if (LOCAL_HOSTS.has(req.hostname)) return false;
+
   if (req.protocol === "https") return true;
 
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -25,17 +25,22 @@ export function getSessionCookieOptions(
   req: Request
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
   
+  const isLocal = LOCAL_HOSTS.has(req.hostname);
   const secure = isSecureRequest(req);
 
-  // CORREÇÃO CRÍTICA:
-  // Navegadores modernos rejeitam "SameSite: None" se "Secure" for false.
-  // Se estamos em HTTP (localhost), devemos usar "Lax".
-  const sameSite = secure ? "none" : "lax";
+  /**
+   * ✅ LÓGICA DE SAMESITE:
+   * 1. Em produção (VPS/HTTPS): Usamos "none" para permitir cross-site se necessário, 
+   * mas "lax" é mais seguro se o front e back estiverem no mesmo domínio.
+   * 2. Em Localhost (HTTP): "lax" é obrigatório, pois "none" exige HTTPS.
+   */
+  const sameSite = isLocal ? "lax" : (secure ? "none" : "lax");
 
   return {
     httpOnly: true,
     path: "/",
     sameSite: sameSite,
+    // No localhost, secure SERÁ false, permitindo que o navegador grave o cookie.
     secure: secure,
   };
 }

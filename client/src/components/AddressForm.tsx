@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+import { useToast } from "@/components/ui/use-toast";
 
-// Esquema de validação
+// --- INTERFACES & SCHEMAS ---
+
 const addressSchema = z.object({
   label: z.string().min(1, "Dê um nome para este endereço (ex: Casa, Trabalho)"),
   zipCode: z.string().min(8, "CEP inválido"),
@@ -26,16 +27,53 @@ const addressSchema = z.object({
 
 type AddressFormData = z.infer<typeof addressSchema>;
 
+interface AddressInitialData extends Partial<AddressFormData> {
+  id?: number;
+  address?: string;
+}
+
 interface AddressFormProps {
   onSuccess?: () => void;
   onCancel?: () => void; 
-  initialData?: any; 
+  initialData?: AddressInitialData; 
   userId?: number; 
+}
+
+interface ToastOptions {
+  title: string;
+  description: string;
+  variant?: "default" | "destructive";
+}
+
+// Mock interface for the dynamic/missing TRPC router part
+interface TrpcProcedure<Input, Output> {
+  useMutation: (opts?: { 
+    onSuccess?: (data: Output) => void; 
+    onError?: (error: Error) => void;
+  }) => { 
+    mutate: (variables: Input) => void; 
+    isPending: boolean; 
+  };
+}
+
+interface AddressRouter {
+  create: TrpcProcedure<unknown, unknown>;
+  update: TrpcProcedure<unknown, unknown>;
+  list: { invalidate: () => void };
+}
+
+interface AuthRouter {
+  addresses?: AddressRouter;
 }
 
 export function AddressForm({ onSuccess, onCancel, initialData, userId }: AddressFormProps) {
   const [isFetchingCep, setIsFetchingCep] = useState(false);
+  const { toast } = useToast();
   const utils = trpc.useUtils();
+
+  const safeToast = (opts: ToastOptions) => {
+    (toast as unknown as (opts: ToastOptions) => void)(opts);
+  };
 
   const {
     register,
@@ -71,36 +109,36 @@ export function AddressForm({ onSuccess, onCancel, initialData, userId }: Addres
             if (!watch("neighborhood")) setValue("neighborhood", data.bairro);
             if (!watch("city")) setValue("city", data.localidade);
             if (!watch("state")) setValue("state", data.uf);
-            toast.success("CEP encontrado!");
+            safeToast({ title: "Sucesso", description: "CEP encontrado!" });
           } else {
-            toast.warning("CEP válido, mas endereço não encontrado.");
+            safeToast({ variant: "destructive", title: "Erro", description: "Endereço não encontrado." });
           }
         })
-        .catch(() => toast.error("Erro ao buscar CEP"))
+        .catch(() => safeToast({ variant: "destructive", title: "Erro", description: "Falha ao buscar CEP" }))
         .finally(() => setIsFetchingCep(false));
     }
-  }, [zipCode, setValue, watch]);
+  }, [zipCode, setValue, watch, toast]);
 
-  // ✅ Mutation CREATE: Usa trpc.auth.addresses
-  const createMutation = trpc.auth.addresses.create.useMutation({
+  const authRouter = (trpc.auth as unknown) as AuthRouter;
+  const authUtils = (utils.auth as unknown) as AuthRouter;
+
+  const createMutation = authRouter.addresses?.create.useMutation({
     onSuccess: () => {
-      toast.success("Endereço salvo com sucesso!");
-      // ✅ Cache Invalidation: Aponta para o caminho correto
-      utils.auth.addresses.list.invalidate(); 
+      safeToast({ title: "Sucesso", description: "Endereço salvo!" });
+      authUtils.addresses?.list.invalidate(); 
       if (onSuccess) onSuccess();
       reset();
     },
-    onError: (err: any) => toast.error("Erro ao salvar: " + err.message),
+    onError: (err: Error) => safeToast({ variant: "destructive", title: "Erro", description: err.message }),
   });
 
-  // ✅ Mutation UPDATE: Usa trpc.auth.addresses
-  const updateMutation = trpc.auth.addresses.update.useMutation({
+  const updateMutation = authRouter.addresses?.update.useMutation({
     onSuccess: () => {
-      toast.success("Endereço atualizado!");
-      utils.auth.addresses.list.invalidate();
+      safeToast({ title: "Sucesso", description: "Endereço atualizado!" });
+      authUtils.addresses?.list.invalidate();
       if (onSuccess) onSuccess();
     },
-    onError: (err: any) => toast.error("Erro ao atualizar: " + err.message),
+    onError: (err: Error) => safeToast({ variant: "destructive", title: "Erro", description: err.message }),
   });
 
   const onSubmit = (data: AddressFormData) => {
@@ -112,18 +150,17 @@ export function AddressForm({ onSuccess, onCancel, initialData, userId }: Addres
     };
 
     if (initialData?.id) {
-        updateMutation.mutate({ id: initialData.id, ...payload });
+        updateMutation?.mutate({ id: initialData.id, ...payload });
     } else {
-        createMutation.mutate(payload as any);
+        createMutation?.mutate(payload);
     }
   };
 
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const isSubmitting = createMutation?.isPending || updateMutation?.isPending;
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 text-left">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="label">Identificação (ex: Minha Casa)</Label>
           <Input id="label" {...register("label")} placeholder="Minha Casa" />

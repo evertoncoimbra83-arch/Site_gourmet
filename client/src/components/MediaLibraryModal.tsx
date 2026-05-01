@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/_core/trpc";
 import {
   Dialog,
@@ -6,134 +6,173 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, Upload, Trash2, Check } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+import { Folder, ChevronLeft, Image as ImageIcon, Loader2 } from "lucide-react";
 
-interface MediaLibraryModalProps {
-  open: boolean;
-  onClose: () => void;
-  onSelect: (url: string) => void;
-  selectedUrl?: string;
+interface CloudinaryImage {
+  id: string;
+  url: string;
+  name: string;
+  format: string;
+  folder?: string;
 }
 
-export default function MediaLibraryModal({
-  open,
-  onClose,
+interface MediaLibraryModalProps {
+  onSelect: (url: string) => void;
+  trigger?: React.ReactNode;
+  defaultFolder?: string;
+}
+
+const DEFAULT_FOLDERS = ["logo", "pratos", "banners", "nutris", "geral"];
+
+function normalizeFolder(folder?: string | null) {
+  const normalized = (folder || "all").toLowerCase().trim();
+  return normalized || "all";
+}
+
+export function MediaLibraryModal({
   onSelect,
-  selectedUrl,
+  trigger,
+  defaultFolder,
 }: MediaLibraryModalProps) {
-  const utils = trpc.useUtils();
+  const [isOpen, setIsOpen] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(
+    defaultFolder || null,
+  );
+  const normalizedFolder = normalizeFolder(currentFolder);
 
-  const { data: media, isLoading } = trpc.admin.media.list.useQuery(undefined, {
-    enabled: open,
-  });
-  const uploadMutation = trpc.admin.media.upload.useMutation();
-  const deleteMutation = trpc.admin.media.delete.useMutation();
-
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Helper para garantir que a imagem apareça dentro do modal
-  const getImageUrl = (url: string) => {
-    if (!url) return "";
-    if (url.startsWith('http') || url.startsWith('/')) return url;
-    return `/uploads/${url}`;
-  };
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64Data = (reader.result as string).split(",")[1];
-        await uploadMutation.mutateAsync({
-          filename: file.name,
-          mimeType: file.type,
-          base64Data,
-        });
-        toast.success("Imagem enviada!");
-        utils.admin.media.list.invalidate();
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      toast.error("Erro no upload");
-    } finally {
-      setUploading(false);
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentFolder(defaultFolder || null);
     }
+  }, [defaultFolder, isOpen]);
+
+  const { data: folders = [] } = trpc.admin.media.listFolders.useQuery(undefined, {
+    enabled: isOpen,
+  });
+  const { data: images, isLoading } = trpc.media.getImagesByFolder.useQuery(
+    { folder: normalizedFolder },
+    { enabled: isOpen && !!currentFolder },
+  );
+
+  const availableFolders = useMemo(() => {
+    return Array.from(new Set(["all", ...DEFAULT_FOLDERS, ...folders])).sort((a, b) => {
+      if (a === "all") return -1;
+      if (b === "all") return 1;
+      return a.localeCompare(b);
+    });
+  }, [folders]);
+
+  const handleSelect = (url: string) => {
+    onSelect(url);
+    setIsOpen(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-175 max-h-[90vh] flex flex-col p-6 overflow-hidden">
-        <DialogHeader className="mb-4">
-          <DialogTitle className="text-2xl font-bold uppercase italic tracking-tighter">
-            Biblioteca de <span className="text-emerald-600">Mídia</span>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        {trigger || (
+          <button type="button" className="rounded border p-2">
+            Abrir Galeria
+          </button>
+        )}
+      </DialogTrigger>
+
+      <DialogContent className="flex h-[80vh] max-w-4xl flex-col overflow-hidden rounded-4xl border-none p-0 shadow-2xl outline-none">
+        <DialogHeader className="shrink-0 bg-slate-900 p-6 text-white">
+          <DialogTitle className="flex items-center gap-2 text-xl font-black uppercase italic tracking-tighter">
+            <ImageIcon size={20} className="text-emerald-400" /> Biblioteca de Midia
           </DialogTitle>
-          <DialogDescription>
-            Selecione um arquivo para vincular ao método de pagamento.
+          <DialogDescription className="sr-only">
+            Navegue pelas pastas da biblioteca
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto pr-2 space-y-6 custom-scrollbar">
-          {/* Upload Area */}
-          <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer relative group">
-            <input
-              type="file"
-              className="absolute inset-0 opacity-0 cursor-pointer z-10"
-              onChange={handleFileSelect}
-              accept="image/*"
-            />
-            <div className="flex flex-col items-center gap-2">
-              <Upload className="h-8 w-8 text-slate-400 group-hover:text-emerald-600 transition-colors" />
-              <p className="text-xs font-bold uppercase text-slate-500">
-                {uploading ? "Enviando..." : "Clique para subir nova imagem"}
-              </p>
-            </div>
+        <div className="custom-scrollbar flex-1 overflow-y-auto bg-slate-50 p-6">
+          <div className="mb-6 flex items-center justify-between">
+            {currentFolder ? (
+              <button
+                type="button"
+                onClick={() => setCurrentFolder(null)}
+                className="flex items-center gap-2 text-[10px] font-black uppercase text-emerald-600 transition-colors hover:text-slate-900"
+              >
+                <ChevronLeft size={14} /> Voltar para Pastas
+              </button>
+            ) : (
+              <span className="text-[10px] font-black uppercase italic tracking-widest text-slate-400">
+                Selecione uma pasta para navegar
+              </span>
+            )}
           </div>
 
-          {/* Grid de Imagens */}
-          {isLoading ? (
-            <div className="flex justify-center py-10"><Loader2 className="animate-spin text-emerald-600" /></div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-              {media?.map((item: any) => (
+          {!currentFolder ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {availableFolders.map((folder) => (
                 <div
-                  key={item.id}
-                  className={`relative aspect-square rounded-xl overflow-hidden border-2 cursor-pointer group transition-all ${
-                    selectedUrl?.includes(item.url) ? "border-emerald-500 ring-2 ring-emerald-100" : "border-slate-100 hover:border-emerald-200"
-                  }`}
-                  onClick={() => {
-                    const fileName = item.url.split('/').pop();
-                    onSelect(fileName);
-                    onClose();
-                  }}
+                  key={folder}
+                  onClick={() => setCurrentFolder(folder)}
+                  className="group flex cursor-pointer flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-6 transition-all duration-300 hover:border-emerald-500 hover:shadow-xl"
                 >
-                  <img
-                    src={getImageUrl(item.url)}
-                    alt="media"
-                    className="w-full h-full object-contain p-2"
+                  <Folder
+                    size={40}
+                    className="fill-amber-100 text-amber-400 transition-all group-hover:fill-amber-400"
                   />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <Button 
-                      size="icon" 
-                      variant="destructive" 
-                      className="h-8 w-8"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteMutation.mutate({ id: item.id }, { onSuccess: () => utils.admin.media.list.invalidate() });
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </div>
+                  <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    {folder === "all" ? "todas" : folder}
+                  </span>
                 </div>
               ))}
+            </div>
+          ) : isLoading ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <Loader2 className="animate-spin text-emerald-500" size={32} />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                Buscando na biblioteca...
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                {normalizedFolder === "all"
+                  ? "Todas as imagens"
+                  : `Pasta: ${normalizedFolder}`}
+              </p>
+
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {(images as CloudinaryImage[])?.map((image) => (
+                  <div
+                    key={image.id}
+                    onClick={() => handleSelect(image.url)}
+                    className="group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border-2 border-transparent bg-white shadow-sm transition-all hover:border-emerald-500"
+                  >
+                    <img
+                      src={image.url.replace("/upload/", "/upload/w_400,f_auto,q_auto/")}
+                      alt={image.name}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    />
+                    <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-700 shadow-sm">
+                      {image.folder || "geral"}
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center bg-emerald-600/40 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="rounded-full bg-white px-3 py-1.5 shadow-xl">
+                        <span className="text-[9px] font-black uppercase text-emerald-600">
+                          Selecionar
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {(!images || images.length === 0) && (
+                  <div className="col-span-full flex flex-col items-center justify-center py-20 text-slate-300">
+                    <ImageIcon size={48} strokeWidth={1} />
+                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Nenhuma imagem nesta pasta
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

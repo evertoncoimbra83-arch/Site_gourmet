@@ -1,121 +1,169 @@
-import { useState, useEffect, useMemo } from "react";
+// e:/IA/projects/Site_React/client/src/pages/adminLoyalty/logic/useAdminLoyalty.ts
+
+import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
-import { toast } from "@/components/ui/use-toast";
+import { appToast as toast } from "@/lib/app-toast"; 
 import { keepPreviousData } from "@tanstack/react-query";
+
+// --- INTERFACES ---
+export interface RedemptionRule {
+  minOrderValue: number;
+  maxDiscount: number;
+}
+
+export interface LoyaltyCustomer {
+  id: string; 
+  name: string;
+  email: string;
+  points: number;
+}
+
+export interface LoyaltyTransaction {
+  id: string;
+  points?: number; // Compatibilidade com nomes do banco
+  points_change?: number;
+  pointsChange?: number;
+  type: string;
+  reason: string | null;
+  description: string | null;
+  createdAt?: string | Date | null;
+  created_at?: string | Date | null;
+}
+
+export interface LoyaltySettings {
+  enabled: boolean;
+  conversionRatePoints: number;
+  pointsPerSignup: number;
+  redemptionRatePoints: number;
+  redemptionRateMoney: number;
+  redemptionRules: RedemptionRule[];
+  pointsExpirationDays: number;
+  [key: string]: unknown;
+}
 
 export function useAdminLoyalty() {
   const utils = trpc.useUtils();
-  
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
-  const [formData, setFormData] = useState<any>({});
+  const [selectedCustomer, setSelectedCustomer] = useState<LoyaltyCustomer | null>(null);
   
   const [manualPoints, setManualPoints] = useState<number>(0);
   const [manualReason, setManualReason] = useState("");
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [search]);
+  const [formData, setFormData] = useState<Partial<LoyaltySettings>>({
+    redemptionRules: [],
+    enabled: false,
+    conversionRatePoints: 1,
+    redemptionRatePoints: 100,
+    redemptionRateMoney: 1
+  });
 
-  // 1. QUERIES
-  const { data: settings, isLoading: loadingSettings } = trpc.admin.loyaltySettings.get.useQuery();
+  const { data: settings } = trpc.admin.loyaltySettings.get.useQuery();
   
-  const { data: customersData, isLoading: loadingCustomers } = trpc.admin.loyaltySettings.getCustomers.useQuery(
+  const customersQuery = trpc.admin.loyaltySettings.getCustomers.useQuery(
     { page, limit: 10, search: debouncedSearch || undefined },
     { placeholderData: keepPreviousData }
   );
 
-  const { data: history, isLoading: loadingHistory } = trpc.admin.loyaltySettings.getCustomerHistory.useQuery(
-    { userId: selectedCustomer?.id },
+  const historyQuery = trpc.admin.loyaltySettings.getCustomerHistory.useQuery(
+    { userId: String(selectedCustomer?.id || "") }, 
     { enabled: !!selectedCustomer }
   );
 
-  // ✅ NORMALIZAÇÃO SIMPLIFICADA
-  // Como o backend agora já envia 'points' e 'totalSpent' limpos, apenas garantimos o tipo Number
-  const processedCustomers = useMemo(() => {
-    if (!customersData?.items) return [];
-    
-    return customersData.items.map((c: any) => ({
-      ...c,
-      name: c.name || "Cliente",
-      points: Number(c.points || 0),
-      totalSpent: Number(c.totalSpent || 0)
-    }));
-  }, [customersData]);
-
-  // ✅ SINCRONIZAÇÃO DO CLIENTE SELECIONADO
-  // Se o saldo do cliente mudar na lista, atualiza o modal/detalhe dele automaticamente
   useEffect(() => {
-    if (selectedCustomer && processedCustomers.length > 0) {
-      const updated = processedCustomers.find(c => c.id === selectedCustomer.id);
-      if (updated && (updated.points !== selectedCustomer.points || updated.totalSpent !== selectedCustomer.totalSpent)) {
-        setSelectedCustomer(updated);
-      }
+    const handler = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  useEffect(() => {
+    if (settings) {
+      const s = settings as Record<string, unknown>;
+      setFormData({
+        ...s,
+        redemptionRules: typeof s.redemptionRules === 'string' 
+          ? JSON.parse(s.redemptionRules) 
+          : (Array.isArray(s.redemptionRules) ? s.redemptionRules : [])
+      });
     }
-  }, [processedCustomers, selectedCustomer]);
-
-  useEffect(() => {
-    if (settings) setFormData(settings);
   }, [settings]);
 
-  // 2. MUTATIONS
   const updateSettings = trpc.admin.loyaltySettings.update.useMutation({
     onSuccess: () => {
-      toast.success("Regras de fidelidade atualizadas!");
       utils.admin.loyaltySettings.get.invalidate();
-    },
-    onError: (err) => toast.error("Erro ao atualizar: " + err.message)
+      toast.success("Configurações salvas!");
+    }
   });
 
-  const addManualPointsMutation = trpc.admin.loyaltySettings.addManualPoints.useMutation({
-    onSuccess: () => {
-      toast.success("Saldo do cliente atualizado!");
+  const adjustMutation = trpc.admin.loyaltySettings.addManualPoints.useMutation({
+    onSuccess: (res) => {
+      utils.admin.loyaltySettings.getCustomerHistory.invalidate();
+      utils.admin.loyaltySettings.getCustomers.invalidate();
       setManualPoints(0);
       setManualReason("");
-      // Invalida ambos para garantir que a lista e o histórico deem refresh
-      utils.admin.loyaltySettings.getCustomerHistory.invalidate({ userId: selectedCustomer?.id });
-      utils.admin.loyaltySettings.getCustomers.invalidate();
+      toast.success(res?.message || "Saldo atualizado com sucesso!");
     },
-    onError: (err) => toast.error("Erro no ajuste: " + err.message)
+    onError: (err: { message: string }) => toast.error(`Erro: ${err.message}`)
   });
 
-  // 3. ACTIONS
-  const handleSaveSettings = async () => {
-    try {
-      await updateSettings.mutateAsync({
-        ...formData,
-        conversionRatePoints: Number(formData.conversionRatePoints),
-        redemptionRatePoints: Number(formData.redemptionRatePoints),
-        pointsExpirationDays: Number(formData.pointsExpirationDays),
-      });
-    } catch (e) {}
-  };
+  // ✅ NOVA MUTATION: Deletar Transação
+  const deleteMutation = trpc.admin.loyaltySettings.deleteTransactions.useMutation({
+    onSuccess: () => {
+      utils.admin.loyaltySettings.getCustomerHistory.invalidate();
+      utils.admin.loyaltySettings.getCustomers.invalidate();
+      toast.success("Entrada removida com sucesso!");
+    },
+    onError: (err: { message: string }) => toast.error(`Erro ao deletar: ${err.message}`)
+  });
+
+  const handleSaveSettings = () => updateSettings.mutate(formData as Record<string, unknown>);
 
   const handleManualAdjustment = () => {
     if (!selectedCustomer) return;
-    if (manualPoints === 0) return toast.error("Informe um valor");
-
-    addManualPointsMutation.mutate({
-      userId: selectedCustomer.id,
+    adjustMutation.mutate({
+      userId: String(selectedCustomer.id),
       points: manualPoints,
-      reason: manualReason || "Ajuste manual administrativo"
+      reason: manualReason || "Ajuste manual",
+      customerName: selectedCustomer.name
+    });
+  };
+
+  // ✅ NOVA AÇÃO: Handle para deletar
+  const handleDeleteTransaction = (transactionId: string | number) => {
+    if (!selectedCustomer) {
+      toast.error("Nenhum cliente selecionado.");
+      return;
+    }
+
+    if (!window.confirm("Tem certeza que deseja excluir esta movimentação? Isso não estornará os pontos do cliente automaticamente.")) {
+      return;
+    }
+
+    // ✅ CORREÇÃO: Enviando no formato que o seu backend espera
+    deleteMutation.mutate({ 
+      userId: String(selectedCustomer.id), 
+      transactionIds: [String(transactionId)] 
     });
   };
 
   return {
-    state: { page, search, selectedCustomer, formData, manualPoints, manualReason, loadingSettings, loadingCustomers, loadingHistory },
-    actions: { setPage, setSearch, setSelectedCustomer, setFormData, setManualPoints, setManualReason, handleSaveSettings, handleManualAdjustment },
-    data: { 
-      customers: processedCustomers, 
-      totalPages: customersData?.totalPages || 1,
-      history: history || [] 
+    state: { 
+      page, search, selectedCustomer, formData, 
+      manualPoints, manualReason,
+      isPending: adjustMutation.isPending || deleteMutation.isPending // ✅ Agora considera o delete também
     },
-    mutations: { updateSettings, addManualPoints: addManualPointsMutation }
+    actions: { 
+      setPage, setSearch, setSelectedCustomer, setFormData, 
+      setManualPoints, setManualReason,
+      handleSaveSettings, handleManualAdjustment,
+      handleDeleteTransaction // ✅ Adicionado às ações
+    },
+    data: { 
+      customers: (customersQuery.data?.items as unknown as LoyaltyCustomer[]) || [],
+      history: (historyQuery.data as unknown as LoyaltyTransaction[]) || [],
+      totalCount: customersQuery.data?.total || 0,
+      totalPages: customersQuery.data?.totalPages || 1
+    },
+    mutations: { updateSettings, deleteMutation }
   };
 }

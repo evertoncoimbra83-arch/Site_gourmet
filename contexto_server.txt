@@ -10275,7 +10275,7 @@ describe("WooCommerce API Integration", () => {
   it("should be able to construct WooCommerce API URL", () => {
     const apiUrl = `${ENV.woocommerceUrl}/wp-json/wc/v3`;
     expect(apiUrl).toBeDefined();
-    expect(apiUrl).toContain("gourmetsaudavel.com.br");
+    expect(apiUrl).toContain("gourmetsaudavel.com");
   });
 
   it("should have valid consumer credentials format", () => {

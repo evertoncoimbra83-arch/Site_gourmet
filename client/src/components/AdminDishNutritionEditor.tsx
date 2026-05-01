@@ -2,73 +2,109 @@ import React, { useState } from 'react';
 import { trpc } from '@/_core/trpc';
 import { Search, Plus, Trash2, Calculator, Loader2 } from 'lucide-react';
 
+// --- INTERFACES ---
+
+interface IngredientResult {
+  id: string | number;
+  name: string;
+  unit?: string;
+  energyKcal?: number;
+  proteins?: number;
+}
+
+interface SelectedItem {
+  ingredientId: string | number;
+  name: string;
+  quantity: string;
+  energyKcal?: number;
+  proteins?: number;
+}
+
+// Interface para contornar cache de tipos do tRPC no Admin
+interface NutritionRouter {
+  searchIngredients: {
+    useQuery: (args: { query: string }, opts: { enabled: boolean }) => {
+      data: IngredientResult[] | undefined;
+      isFetching: boolean;
+    };
+  };
+}
+
 export function DishNutritionEditor({ dishId }: { dishId: number }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedItems, setSelectedItems] = useState<any[]>([]);
+  const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
 
-  // 1. Busca os ingredientes da TACO enquanto você digita
-  const { data: searchResults, isFetching } = trpc.admin.nutrition.searchIngredients.useQuery(searchTerm, {
-    enabled: searchTerm.length > 2
-  });
+  // ✅ CORREÇÃO TS2339: Casting seguro para interface NutritionRouter
+  const nutritionApi = (trpc.admin as unknown as { nutritionIngredients: NutritionRouter }).nutritionIngredients;
+  
+  const { data: searchResults, isFetching } = nutritionApi.searchIngredients.useQuery(
+    { query: searchTerm }, 
+    { enabled: searchTerm.length > 2 }
+  );
 
-  // 2. Mutation para salvar a composição no banco
-  // ✅ Corrigido: Em mutations, usamos 'isPending' em vez de 'isLoading' nas versões recentes
-  const saveMutation = trpc.admin.nutrition.saveDishComposition.useMutation({
+  const utils = trpc.useUtils();
+  
+  const saveMutation = trpc.admin.dishes.update.useMutation({
     onSuccess: () => {
+      utils.admin.dishes.getById.invalidate(dishId);
       alert("Ficha técnica salva e nutrientes calculados!");
     }
   });
 
-  const addItem = (ingredient: any) => {
+  const addItem = (ingredient: IngredientResult) => {
     if (selectedItems.find(i => i.ingredientId === ingredient.id)) return;
     setSelectedItems([...selectedItems, { 
       ingredientId: ingredient.id, 
       name: ingredient.name, 
-      quantity: "100" // padrão 100g
+      quantity: "100",
+      energyKcal: ingredient.energyKcal,
+      proteins: ingredient.proteins
     }]);
     setSearchTerm("");
   };
 
   const handleSave = () => {
     saveMutation.mutate({
-      dishId,
+      id: dishId,
       composition: selectedItems.map(i => ({
         ingredientId: i.ingredientId,
-        quantity: Number(i.quantity) // Garante que é número
+        quantity: i.quantity 
       }))
     });
   };
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow border border-slate-100">
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-slate-800">
-        <Calculator className="w-5 h-5 text-emerald-600" /> Ficha Técnica Nutricional
+    <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm">
+      <h2 className="text-xl font-black uppercase italic mb-4 flex items-center gap-2 text-slate-800">
+        <Calculator className="w-5 h-5 text-emerald-600" /> Ficha Técnica
       </h2>
 
-      {/* Busca de Ingredientes (TACO) */}
+      {/* Busca de Ingredientes */}
       <div className="relative mb-6">
-        <div className="flex items-center border rounded-lg px-3 py-2 bg-slate-50 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+        <div className="flex items-center border-2 border-slate-50 rounded-2xl px-4 py-3 bg-slate-50 focus-within:bg-white focus-within:border-emerald-100 transition-all">
           <Search className="w-5 h-5 text-slate-400" />
           <input 
-            className="bg-transparent border-none focus:ring-0 w-full ml-2 text-sm"
-            placeholder="Pesquisar na Tabela TACO (ex: Frango, Arroz...)"
+            className="bg-transparent border-none focus:ring-0 w-full ml-2 text-sm font-bold"
+            placeholder="Pesquisar na Tabela TACO..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          {isFetching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+          {isFetching && <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />}
         </div>
 
-        {/* Resultados da Busca */}
         {searchResults && searchResults.length > 0 && (
-          <div className="absolute z-10 w-full bg-white border rounded-b-lg shadow-xl max-h-60 overflow-y-auto">
-            {searchResults.map(ing => (
+          <div className="absolute z-50 w-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl max-h-64 overflow-y-auto p-2">
+            {searchResults.map((ing) => (
               <button 
                 key={ing.id}
                 onClick={() => addItem(ing)}
-                className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b last:border-none flex justify-between items-center transition-colors"
+                className="w-full text-left px-4 py-3 hover:bg-emerald-50 rounded-xl flex justify-between items-center transition-colors group"
               >
-                <span className="text-sm text-slate-700">{ing.name}</span>
-                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded uppercase">{ing.source || 'TACO'}</span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-black uppercase text-slate-700">{ing.name}</span>
+                  <span className="text-[10px] text-slate-400 font-bold">{ing.unit || 'g'}</span>
+                </div>
+                <Plus className="w-4 h-4 text-slate-300 group-hover:text-emerald-500" />
               </button>
             ))}
           </div>
@@ -78,13 +114,18 @@ export function DishNutritionEditor({ dishId }: { dishId: number }) {
       {/* Lista de Ingredientes do Prato */}
       <div className="space-y-3">
         {selectedItems.length === 0 && (
-          <p className="text-center py-8 text-slate-400 text-sm italic">Nenhum ingrediente adicionado ainda.</p>
+          <div className="text-center py-10 border-2 border-dashed border-slate-100 rounded-3xl">
+            <p className="text-slate-300 text-xs font-black uppercase italic">Nenhum ingrediente adicionado</p>
+          </div>
         )}
         
         {selectedItems.map((item, index) => (
-          <div key={index} className="flex items-center gap-4 p-3 border rounded-lg bg-slate-50/50">
-            <div className="flex-1 font-medium text-slate-700 text-sm">{item.name}</div>
-            <div className="flex items-center gap-2">
+          <div key={`${item.ingredientId}-${index}`} className="flex items-center gap-4 p-4 border border-slate-50 rounded-2xl bg-slate-50/50">
+            <div className="flex-1 flex flex-col text-left">
+              <span className="text-[11px] font-black uppercase text-slate-600 italic">{item.name}</span>
+            </div>
+            
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-slate-100">
               <input 
                 type="number"
                 value={item.quantity}
@@ -93,13 +134,14 @@ export function DishNutritionEditor({ dishId }: { dishId: number }) {
                   newItems[index].quantity = e.target.value;
                   setSelectedItems(newItems);
                 }}
-                className="w-20 border rounded px-2 py-1 text-sm text-center focus:ring-emerald-500/20"
+                className="w-14 border-none bg-transparent p-0 text-sm font-black text-center text-emerald-600 focus:ring-0"
               />
-              <span className="text-slate-500 text-sm">g</span>
+              <span className="text-[10px] font-black text-slate-300 uppercase">g</span>
             </div>
+            
             <button 
               onClick={() => setSelectedItems(selectedItems.filter((_, i) => i !== index))}
-              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded transition-all"
+              className="text-slate-300 hover:text-red-500 p-2 transition-all"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -110,17 +152,13 @@ export function DishNutritionEditor({ dishId }: { dishId: number }) {
       {selectedItems.length > 0 && (
         <button 
           onClick={handleSave}
-          // ✅ Corrigido: isPending substitui isLoading em mutations
           disabled={saveMutation.isPending}
-          className="mt-6 w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="mt-8 w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-3"
         >
           {saveMutation.isPending ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Calculando Nutrientes...
-            </>
+            <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            "Salvar Ficha Técnica"
+            "Consolidar Ficha Técnica"
           )}
         </button>
       )}

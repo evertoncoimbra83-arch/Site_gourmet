@@ -1,52 +1,96 @@
 import { z } from "zod";
-import { router, adminProcedure } from "../../_core/trpc.js";
+import { router, adminProcedure } from "../../_core/trpc";
+import { TRPCError } from "@trpc/server";
+// ✅ Removido import de discountRules (eslint: no-unused-vars)
 import { 
     discountRuleInput, 
     listDiscountRules,
     createDiscountRule,
     updateDiscountRule,
     deleteDiscountRule
-} from "../../discountRules.js"; 
+} from "../../discountRules"; 
 
 /**
- * Roteador de Regras de Desconto (Admin)
- * Gerencia o fluxo de descontos progressivos e automáticos.
- * Rota: admin.discountRules.*
+ * 🏷️ Roteador de Regras de Desconto (Admin)
  */
 export const adminDiscountRulesRouter = router({
   
-  // 1) Listar todas as regras
   list: adminProcedure.query(async () => {
-    return await listDiscountRules();
+    try {
+      return await listDiscountRules();
+    } catch {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Erro ao listar regras de desconto.",
+      });
+    }
   }),
 
-  // 2) Criar nova regra
   create: adminProcedure
     .input(discountRuleInput) 
     .mutation(async ({ input }) => {
-      return await createDiscountRule(input);
+      try {
+        const result = await createDiscountRule(input);
+        return {
+          success: true,
+          data: result,
+          message: `Regra "${input.name}" criada com sucesso!`
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Erro ao criar regra";
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
     }),
 
-  // 3) Atualizar regra existente
   update: adminProcedure
     .input(
       discountRuleInput.extend({ 
-        // Garante que o ID seja tratado como número para o MySQL INT
         id: z.coerce.number() 
       })
     )
     .mutation(async ({ input }) => {
-      const { id, ...data } = input;
-      // O 'id' aqui já chega como number puro
-      return await updateDiscountRule(id, data as any);
+      try {
+        /**
+         * ✅ CORREÇÃO TS2339:
+         * Se o seu 'discountRuleInput' já usa 'type' e 'value',
+         * não precisamos tentar ler 'discountType'.
+         * A desestruturação abaixo garante que passamos o objeto limpo para a função.
+         */
+        const { id, ...data } = input;
+
+        // ✅ CORREÇÃO ESLint: Tipamos o data para evitar o 'any'
+        const result = await updateDiscountRule(id, data as Parameters<typeof updateDiscountRule>[1]);
+        
+        return {
+          success: true,
+          data: result,
+          message: `Regra de desconto "${input.name}" atualizada!`
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Erro ao atualizar regra";
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
     }),
 
-  // 4) Deletar regra
   delete: adminProcedure
     .input(z.object({ 
-        id: z.coerce.number() 
+        id: z.coerce.number(),
+        name: z.string().optional() 
     }))
     .mutation(async ({ input }) => {
-      return await deleteDiscountRule(input.id);
+      try {
+        await deleteDiscountRule(input.id);
+        return {
+          success: true,
+          message: input.name 
+            ? `Regra "${input.name}" removida.` 
+            : "Regra de desconto excluída com sucesso."
+        };
+      } catch {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro ao excluir a regra de desconto.",
+        });
+      }
     }),
 });

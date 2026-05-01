@@ -17,7 +17,7 @@ async function restoreDatabase() {
   });
 
   try {
-    console.log("📥 Iniciando restauração do banco de dados...");
+    
 
     // Ler arquivos CSV
     const csvDir = "/home/ubuntu/db-backup";
@@ -31,7 +31,7 @@ async function restoreDatabase() {
       const content = fs.readFileSync(filePath, "utf-8");
       const records = parse(content, { columns: true });
 
-      console.log(`📊 Restaurando tabela: ${tableName} (${records.length} registros)`);
+      
 
       for (const record of records) {
         const columns = Object.keys(record);
@@ -43,14 +43,14 @@ async function restoreDatabase() {
         try {
           await connection.execute(sql, values);
         } catch (err) {
-          console.error(`❌ Erro ao inserir em ${tableName}:`, err.message);
+          
         }
       }
     }
 
-    console.log("✅ Restauração concluída!");
+    
   } catch (error) {
-    console.error("❌ Erro na restauração:", error);
+    
   } finally {
     await connection.end();
   }

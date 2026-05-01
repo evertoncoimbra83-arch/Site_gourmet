@@ -1,5 +1,5 @@
-import { mysqlTable, varchar, text, timestamp, serial, int } from "drizzle-orm/mysql-core";
-import { users } from "./users.js";
+import { mysqlTable, varchar, text, timestamp, serial } from "drizzle-orm/mysql-core";
+import { users } from "./users";
 
 export const auditLogs = mysqlTable("audit_logs", {
   // ✅ SERIAL define automaticamente: INT NOT NULL AUTO_INCREMENT PRIMARY KEY

@@ -1,255 +1,168 @@
+// client/src/pages/checkout/components/CheckoutAddress.tsx
+
 import React, { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { 
-  Truck, 
-  Store, 
-  MapPin, 
-  Plus, 
-  CheckCircle2, 
-  AlertTriangle,
-  Loader2,
-  Info,
-  AlertCircle
-} from "lucide-react";
+import { useCheckout } from "../context/CheckoutContext"; 
+import { CheckoutAddressForm } from "./CheckoutAddressForm"; 
+import { MapPin, Plus, CheckCircle2, AlertTriangle, Loader2, Store } from "lucide-react";
+import { trpc } from "@/_core/trpc";
 import { cn } from "@/lib/utils";
-import type { CheckoutVM } from "../logic/useCheckoutLogic";
-import { CheckoutAddressForm } from "./CheckoutAddressForm";
 
-export default function CheckoutAddress(vm: CheckoutVM) {
+export function CheckoutAddress() {
+  const { 
+    logistics, 
+    actions, 
+    isLoading,
+    machineState // ✅ Pegamos o estado da máquina para controle de UI
+  } = useCheckout();
+
   const [showForm, setShowForm] = useState(false);
+  const utils = trpc.useUtils();
 
-  const {
-    addressesList = [],
-    selectedAddressId,
-    handleAddressSelect,
-    selectedShippingType,
-    handleShippingTypeChange,
-    isValidatingZip,
-    isZipOutOfArea,
-    isBelowMin,
-    shippingCost,
-    minOrderAmount,
-    minOrderMessage,
-    subtotal,
-    pickupEnabled,
-    pickupLabel,
-    pickupInstruction,
-    storeAddress // ✅ Recebido dinamicamente do Logic
-  } = vm;
+  const { 
+    addresses, 
+    selectedAddressId, 
+    type: selectedShippingType, 
+    errorMessage,
+    canDeliver
+  } = logistics;
 
-  // 🧮 Cálculo de quanto falta para liberar o delivery
-  const missingValue = Math.max(0, minOrderAmount - subtotal);
-  const formatBRL = (val: number) => val.toFixed(2).replace('.', ',');
+  // ✅ Estados derivados da Máquina para simplificar a renderização
+  const isValidating = machineState === 'shipping_validating';
+  const isLocked = machineState === 'submitting' || machineState === 'success';
+
+  // Se o modo for retirada, mostramos o estado de "Mudo"
+  if (selectedShippingType === "pickup") {
+    return (
+      <div className="p-8 border-2 border-dashed border-slate-200 rounded-4xl bg-slate-50/50 text-center space-y-3 animate-in fade-in">
+        <div className="h-12 w-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+          <Store size={24} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Retirada Selecionada</p>
+          <p className="text-xs text-slate-500 font-medium">Seu pedido será preparado para retirada em nossa loja.</p>
+        </div>
+        
+        {canDeliver && !isLocked ? (
+          <button 
+            onClick={() => actions.setShippingType("delivery")}
+            className="text-[9px] font-black uppercase text-emerald-600 underline hover:text-emerald-700 transition-colors"
+          >
+            Mudar para Entrega
+          </button>
+        ) : !canDeliver && (
+          <p className="text-[9px] font-black uppercase text-amber-600 italic">
+            Adicione mais itens para liberar entrega
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* --- TÍTULO --- */}
-      <div className="flex items-center gap-3 ml-2">
-        <div className="h-8 w-8 rounded-full bg-slate-950 flex items-center justify-center text-white shadow-lg">
-          <MapPin size={14} strokeWidth={3} />
+    <div className={cn(
+      "space-y-6 animate-in fade-in duration-500 relative transition-opacity",
+      isLocked && "opacity-60 pointer-events-none" // Trava o componente se estiver finalizando
+    )}>
+      <div className="flex items-center justify-between px-1">
+        <div className="text-left">
+          <h3 className="text-xl font-black text-slate-900 tracking-tight">Onde entregamos?</h3>
+          <p className="text-xs text-slate-500 font-medium">
+            Selecione um endereço para sua entrega
+          </p>
         </div>
-        <h2 className="text-xl font-black uppercase italic tracking-tighter text-slate-900">
-          Entrega ou Retirada
-        </h2>
-      </div>
-
-      {/* --- SELETOR DE MODO --- */}
-      <div className={cn("grid gap-4", pickupEnabled ? "grid-cols-2" : "grid-cols-1")}>
-        <button
-          type="button"
-          onClick={() => handleShippingTypeChange("delivery")}
-          className={cn(
-            "p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-2 group relative overflow-hidden",
-            selectedShippingType === "delivery"
-              ? "border-emerald-500 bg-emerald-50/30 ring-4 ring-emerald-500/5"
-              : "border-slate-100 bg-white hover:border-slate-200"
-          )}
-        >
-          <Truck className={cn("transition-colors", selectedShippingType === "delivery" ? "text-emerald-600" : "text-slate-300")} />
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">Entrega</span>
-          
-          {/* Indicador de erro no botão de delivery */}
-          {selectedShippingType === "delivery" && (isBelowMin || (selectedAddressId && isZipOutOfArea)) && (
-            <div className="absolute top-3 right-3 text-amber-500 animate-pulse">
-              <AlertCircle size={14} />
-            </div>
-          )}
-        </button>
-
-        {pickupEnabled && (
-          <button
-            type="button"
-            onClick={() => handleShippingTypeChange("pickup")}
-            className={cn(
-              "p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-2 group relative overflow-hidden",
-              selectedShippingType === "pickup"
-                ? "border-emerald-500 bg-emerald-50/30 ring-4 ring-emerald-500/5"
-                : "border-slate-100 bg-white hover:border-slate-200"
-            )}
+        
+        {!showForm && !isLocked && (
+          <button 
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-4 py-2 rounded-full hover:bg-emerald-100 transition-colors shadow-sm"
           >
-            <Store className={cn("transition-colors", selectedShippingType === "pickup" ? "text-emerald-600" : "text-slate-300")} />
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">
-              {pickupLabel || "Retirada"}
-            </span>
+            <Plus size={14} /> Novo Endereço
           </button>
         )}
       </div>
 
-      <Card className="border-none shadow-xl shadow-slate-200/40 rounded-[2.5rem] bg-white overflow-hidden">
-        <CardContent className="p-8">
-          
-          {selectedShippingType === "pickup" ? (
-            /* --- MODO RETIRADA --- */
-            <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
-              <div className="flex flex-col items-center text-center space-y-3">
-                <div className="h-16 w-16 rounded-3xl bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-sm border border-emerald-100">
-                  <Store size={32} strokeWidth={1.5} />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 uppercase italic tracking-tight text-lg">{pickupLabel}</h3>
-                  <p className="text-sm font-medium text-slate-500 mt-1">{storeAddress}</p>
-                  <Badge className="mt-4 bg-emerald-100 text-emerald-700 border-none uppercase text-[9px] font-black px-3 py-1">
-                    Taxa: Grátis
-                  </Badge>
-                </div>
-              </div>
+      {showForm ? (
+        <CheckoutAddressForm 
+          onSuccess={() => {
+            setShowForm(false);
+            utils.store.addresses.list.invalidate();
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+      ) : (
+        <div className="grid gap-4">
+          {addresses.length > 0 ? (
+            addresses.map((addr) => {
+              const isSelected = String(selectedAddressId) === String(addr.id);
+              return (
+                <button
+                  key={addr.id}
+                  disabled={isLocked || isValidating}
+                  onClick={() => actions.setAddress(String(addr.id))}
+                  className={cn(
+                    "relative flex items-center gap-4 p-5 rounded-4xl border-2 transition-all text-left",
+                    isSelected 
+                      ? "border-emerald-500 bg-emerald-50/20 shadow-xl shadow-emerald-900/5" 
+                      : "border-slate-50 hover:border-slate-200 bg-white",
+                    isValidating && isSelected && "animate-pulse border-emerald-300"
+                  )}
+                >
+                  <div className={cn(
+                    "p-3 rounded-2xl transition-colors",
+                    isSelected ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <MapPin size={20} />
+                  </div>
 
-              {pickupInstruction && (
-                <div className="p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex gap-4 items-start shadow-inner">
-                  <div className="bg-white p-2 rounded-full shadow-sm text-emerald-500 shrink-0">
-                    <Info size={16} />
+                  <div className="flex-1 pr-8">
+                    <p className="font-black text-slate-800 text-sm leading-tight">
+                      {addr.street}, {addr.number}
+                    </p>
+                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-tighter mt-1">
+                      {addr.neighborhood} • {addr.city}
+                    </p>
                   </div>
-                  <div className="space-y-1 text-left">
-                    <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Informações Importantes</p>
-                    <p className="text-[11px] text-slate-600 font-medium leading-relaxed">{pickupInstruction}</p>
-                  </div>
-                </div>
-              )}
-            </div>
+
+                  {isSelected && (
+                    <div className="absolute right-6 text-emerald-500 animate-in zoom-in duration-300">
+                      {isValidating ? (
+                        <Loader2 size={24} className="animate-spin text-emerald-500" />
+                      ) : (
+                        <CheckCircle2 size={24} className="text-white fill-emerald-500" />
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })
           ) : (
-            
-            /* --- MODO ENTREGA --- */
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-              
-              {/* ALERTAS DE BLOQUEIO */}
-              <div className="space-y-3">
-                {isBelowMin && (
-                  <div className="flex items-start gap-3 p-4 bg-amber-50 text-amber-800 rounded-2xl border border-amber-200/60 shadow-sm animate-in zoom-in-95">
-                    <AlertTriangle size={20} className="shrink-0 text-amber-500 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-black uppercase tracking-tight">Pedido Mínimo não atingido</p>
-                      <p className="text-xs font-medium">
-                        Compre mais <span className="font-black underline text-amber-900">R$ {formatBRL(missingValue)}</span> para liberar a entrega.
-                      </p>
-                      <p className="text-[9px] opacity-70">O valor mínimo de produtos é R$ {formatBRL(minOrderAmount)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {selectedAddressId && isZipOutOfArea && (
-                  <div className="flex items-start gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100 animate-in zoom-in-95 shadow-sm">
-                    <AlertCircle size={20} className="shrink-0 mt-0.5" />
-                    <div className="space-y-1 text-left">
-                      <p className="text-[10px] font-black uppercase tracking-tight">Região Indisponível</p>
-                      <p className="text-[11px] leading-tight font-medium">
-                        Sentimos muito, mas este endereço está fora da nossa área de cobertura. Escolha outro local ou use a opção de "Retirada".
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-between items-center border-b border-slate-50 pb-4">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Seus Endereços</p>
-                {!showForm && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowForm(true)} className="text-emerald-600 font-black text-[9px] uppercase rounded-xl">
-                    <Plus size={14} className="mr-1" /> Novo Endereço
-                  </Button>
-                )}
-              </div>
-
-              {showForm ? (
-                <CheckoutAddressForm 
-                  createAddressMutation={vm.createAddressMutation} // Passando a mutação correta agora
-                  onSuccess={() => setShowForm(false)}
-                  onCancel={() => setShowForm(false)}
-                />
-              ) : (
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {addressesList.length === 0 ? (
-                    <div className="text-center py-8 bg-slate-50/50 rounded-2xl border border-dashed border-slate-100">
-                       <p className="text-xs text-slate-400 font-medium">Você ainda não possui endereços salvos.</p>
-                       <Button variant="link" onClick={() => setShowForm(true)} className="text-emerald-600 font-bold text-xs mt-1 underline">Cadastrar Primeiro Endereço</Button>
-                    </div>
-                  ) : (
-                    addressesList.map((addr: any) => {
-                      const isActive = selectedAddressId === String(addr.id);
-                      const hasError = isActive && isZipOutOfArea;
-                      return (
-                        <button
-                          key={addr.id}
-                          type="button"
-                          onClick={() => handleAddressSelect(String(addr.id))}
-                          className={cn(
-                            "w-full p-5 rounded-[1.5rem] border-2 text-left transition-all relative group",
-                            isActive
-                              ? (hasError ? "border-red-200 bg-red-50/30 ring-1 ring-red-200" : "border-emerald-500 bg-emerald-50/20 shadow-sm")
-                              : "border-slate-50 bg-slate-50/30 hover:border-slate-200 hover:bg-white"
-                          )}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-1 pr-8">
-                              <p className={cn("text-[10px] font-black uppercase tracking-tighter", hasError ? "text-red-400" : "text-slate-400")}>
-                                {addr.label || "Casa"}
-                              </p>
-                              <p className="text-xs font-bold text-slate-900 leading-tight">
-                                {addr.street}, {addr.number}
-                              </p>
-                              <p className="text-[10px] text-slate-500 font-medium">
-                                {addr.neighborhood} - {addr.city}/{addr.state}
-                              </p>
-                            </div>
-                            {isActive && (
-                              <div className={cn("p-1 rounded-full shadow-sm", hasError ? "bg-red-500 text-white" : "bg-emerald-500 text-white")}>
-                                {hasError ? <AlertTriangle size={14} strokeWidth={3} /> : <CheckCircle2 size={14} strokeWidth={3} />}
-                              </div>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-
-              {/* RODAPÉ DO FRETE */}
-              {selectedAddressId && !showForm && !isZipOutOfArea && (
-                <div className="pt-4 border-t border-slate-100 animate-in zoom-in-95">
-                  {isValidatingZip ? (
-                    <div className="flex items-center justify-center py-4 text-slate-400 gap-2 bg-slate-50 rounded-xl">
-                      <Loader2 size={16} className="animate-spin text-emerald-600" />
-                      <span className="text-[10px] font-black uppercase">Calculando Frete...</span>
-                    </div>
-                  ) : (
-                    <div className="flex justify-between items-center bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100/50 shadow-inner">
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-emerald-500 text-white border-none uppercase text-[8px] font-black px-2.5">
-                          Taxa de Entrega
-                        </Badge>
-                        <span className="font-black text-slate-900 text-sm">
-                          {shippingCost === 0 ? "GRÁTIS" : `R$ ${formatBRL(shippingCost)}`}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="py-12 text-center border-2 border-dashed border-slate-100 rounded-4xl">
+               <MapPin size={32} className="mx-auto text-slate-200 mb-2" />
+               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nenhum endereço cadastrado</p>
             </div>
           )}
-        </CardContent>
-      </Card>
+
+          <div className="space-y-2 px-1 text-left">
+            {errorMessage && !isValidating && (
+              <div className="flex items-center gap-3 p-4 rounded-3xl bg-red-50 border border-red-100 text-red-600 animate-in slide-in-from-top-2">
+                <AlertTriangle size={18} className="shrink-0" />
+                <p className="text-[11px] font-black uppercase tracking-tight">
+                  {errorMessage}
+                </p>
+              </div>
+            )}
+
+            {(isLoading || isValidating) && (
+              <div className="flex items-center justify-center gap-2 py-2 text-slate-400">
+                <Loader2 size={14} className="animate-spin" />
+                <span className="text-[10px] font-black uppercase tracking-widest italic">
+                  {isValidating ? "Validando frete..." : "Carregando..."}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

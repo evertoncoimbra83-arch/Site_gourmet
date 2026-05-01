@@ -1,32 +1,32 @@
-import { ReactNode, useEffect } from "react";
-import { useLocation } from "wouter"; 
+import React, { ReactNode, useEffect } from "react"; // ✅ Adicionado React para corrigir escopo JSX
+import { useLocation, useNavigate } from "react-router-dom"; 
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react"; // ✅ Removido ShieldAlert não utilizado
 import { getLoginUrl } from "@/const";
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  requiredRole?: "admin" | "user";
+  requiredRole?: "admin" | "user" | "nutri";
 }
 
 export default function ProtectedRoute({
   children,
   requiredRole = "user",
 }: ProtectedRouteProps) {
-  const [currentLocation, setLocation] = useLocation(); 
-  const { user, loading, isAuthenticated } = useAuth();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   
+  const { user, loading, isAuthenticated } = useAuth();
   const LOGIN_PATH = getLoginUrl();
 
   useEffect(() => {
-    // 1. Não faz nada enquanto o tRPC está buscando os dados (F5)
+    // 1. Não faz nada enquanto o Auth está carregando
     if (loading) return; 
 
     // 2. Se não estiver autenticado, manda para o login
-    // A checagem isLoginPage evita loops infinitos de redirecionamento
     if (!isAuthenticated || !user) {
-      if (currentLocation !== LOGIN_PATH) {
-        setLocation(LOGIN_PATH);
+      if (pathname !== LOGIN_PATH) {
+        navigate(LOGIN_PATH, { replace: true });
       }
       return;
     }
@@ -34,30 +34,43 @@ export default function ProtectedRoute({
     // 3. Se estiver autenticado mas for um 'user' tentando entrar em rota 'admin'
     if (requiredRole === "admin" && user.role !== "admin") {
       console.warn("🚫 Acesso negado: Redirecionando para a home.");
-      setLocation("/"); 
+      navigate("/", { replace: true }); 
     }
     
-  }, [loading, isAuthenticated, user, requiredRole, currentLocation, setLocation, LOGIN_PATH]); 
+  }, [loading, isAuthenticated, user, requiredRole, pathname, navigate, LOGIN_PATH]); 
 
   // --- RENDERIZAÇÃO ---
 
-  // Enquanto o estado de autenticação é desconhecido (carregando o me)
+  // Enquanto o estado de autenticação é desconhecido
   if (loading) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center">
-          <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-          <p className="text-muted-foreground animate-pulse">Verificando acesso...</p>
+      <div className="min-h-screen w-full flex items-center justify-center bg-white text-left">
+        <div className="flex flex-col items-center gap-6 animate-in fade-in duration-500">
+          <div className="relative">
+            <div className="h-20 w-20 bg-slate-900 rounded-[2rem] flex items-center justify-center shadow-2xl">
+               <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+            </div>
+            {/* Efeito de brilho ao fundo */}
+            <div className="absolute -inset-4 bg-emerald-500/10 blur-3xl rounded-full -z-10" />
+          </div>
+          
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
+              Sincronizando <span className="text-emerald-500">Segurança</span>
+            </h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">
+              Validando credenciais de acesso...
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Proteção visual imediata: Se não tem usuário ou role errada, não mostra nada
-  // O useEffect acima cuidará de mudar a URL logo em seguida
+  // Proteção visual imediata para evitar "flicker" de conteúdo proibido
   if (!isAuthenticated || !user) return null;
   if (requiredRole === "admin" && user.role !== "admin") return null;
 
-  // Tudo ok! Renderiza a página protegida
-  return <>{children}</>;
+  // Tudo ok! Renderiza o conteúdo protegido
+  return <React.Fragment>{children}</React.Fragment>;
 }

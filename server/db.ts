@@ -1,17 +1,17 @@
+// server/db.ts
 import "dotenv/config";
 import { drizzle, MySql2Database } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import { eq } from "drizzle-orm";
 import { generateIdFromEntropySize } from "lucia";
 import * as schema from "../drizzle/schema"; 
-import { users, user_profiles } from "../drizzle/schema";
+import { users } from "../drizzle/schema";
 
 // =========================================================
 // 1. CONFIGURAÇÃO E CONEXÃO (Singleton)
 // =========================================================
 
-// Tipagem explícita para evitar o erro "Property 'users' does not exist"
-type DrizzleDB = MySql2Database<typeof schema>;
+export type DrizzleDB = MySql2Database<typeof schema>;
 
 let dbInstance: DrizzleDB | undefined;
 let pool: mysql.Pool | undefined;
@@ -23,27 +23,23 @@ export async function getDb(): Promise<DrizzleDB> {
     throw new Error("DATABASE_URL não encontrada no .env");
   }
 
-  try {
-    if (!pool) {
-      pool = mysql.createPool({
-        uri: process.env.DATABASE_URL,
-        waitForConnections: true,
-        connectionLimit: 10,
-        maxIdle: 10,
-        idleTimeout: 60000,
-        queueLimit: 0,
-      });
-    }
-
-    // Inicializa o Drizzle com o schema injetado
-    dbInstance = drizzle(pool, { schema, mode: "default" });
-    
-    console.log("✅ Database Pool Initialized (MySQL)");
-    return dbInstance;
-  } catch (error) {
-    console.error("❌ Falha ao conectar no banco de dados:", error);
-    throw error;
+  if (!pool) {
+    pool = mysql.createPool({
+      uri: process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit: 10,
+      maxIdle: 10,
+      idleTimeout: 60000,
+      queueLimit: 0,
+      // ✅ FIX: Força o charset UTF8MB4 na conexão para evitar caracteres corrompidos (Mojibake)
+      charset: 'utf8mb4',
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+    });
   }
+
+  dbInstance = drizzle(pool, { schema, mode: "default" });
+  return dbInstance;
 }
 
 // =========================================================
@@ -56,19 +52,16 @@ type UpsertUserInput = {
   email?: string | null;
   loginMethod?: string | null;
   role?: "admin" | "user" | null;
+  lastSignedIn?: Date; 
 };
 
 /**
  * Atualiza ou insere um usuário baseado no openId.
- * Ajustado para IDs em formato String (UUID/Lucia).
  */
 export async function upsertUser(input: UpsertUserInput) {
   const db = await getDb();
 
-  if (!input?.openId?.trim()) {
-    console.warn("[Database] upsertUser chamado sem openId válido.");
-    return null;
-  }
+  if (!input?.openId?.trim()) return null;
 
   const openId = input.openId.trim();
 
@@ -79,31 +72,31 @@ export async function upsertUser(input: UpsertUserInput) {
 
   if (existing) {
     // 2. UPDATE
+    const updateData = {
+      name: input.name ?? existing.name,
+      email: input.email?.toLowerCase() ?? existing.email ?? "", 
+      loginMethod: input.loginMethod ?? existing.loginMethod,
+      lastSignedIn: input.lastSignedIn ?? new Date(),
+    };
+
     await db.update(users)
-      .set({
-        name: input.name ?? existing.name,
-        email: input.email?.toLowerCase() ?? existing.email,
-        loginMethod: input.loginMethod ?? existing.loginMethod,
-        lastSignedIn: new Date(),
-      })
+      .set(updateData)
       .where(eq(users.id, existing.id));
     
-    return existing;
+    return { ...existing, ...updateData };
   }
 
   // 3. INSERT (Novo Usuário)
-  // Geramos o ID string manualmente antes do insert, pois MySQL não suporta .returning() para UUIDs
   const newId = generateIdFromEntropySize(15);
   
-  const newUserValues = {
+  const newUserValues: typeof users.$inferInsert = {
     id: newId,
-    openId,
-    name: input.name ?? null,
-    email: input.email?.toLowerCase() ?? null,
+    openId: openId,
+    name: input.name ?? "Usuário",
+    email: input.email?.toLowerCase() ?? "",
     loginMethod: input.loginMethod ?? "external",
     role: (input.role as "admin" | "user") ?? "user",
-    lastSignedIn: new Date(),
-    loyaltyBalance: 0,
+    lastSignedIn: input.lastSignedIn ?? new Date(),
   };
 
   await db.insert(users).values(newUserValues);
@@ -117,11 +110,11 @@ export async function upsertUser(input: UpsertUserInput) {
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
 
-  // O db.query já lida com o schema injetado, resolvendo o erro de tipagem '{}'
+  // O uso de .query.users garante que o Drizzle utilize o mapeamento do schema.ts
   const result = await db.query.users.findFirst({
     where: eq(users.openId, openId),
     with: {
-      profile: true // Requer que a relação 'profile' esteja definida no schema/users.ts
+      profile: true 
     }
   });
 

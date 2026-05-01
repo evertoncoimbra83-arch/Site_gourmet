@@ -1,4 +1,8 @@
 import { ENV } from "./env";
+import {
+  MAX_AI_PROMPT_LENGTH,
+  sanitizeTextForStorage,
+} from "../lib/ai-safety.js";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -170,6 +174,28 @@ const normalizeMessage = (message: Message) => {
   };
 };
 
+const validateMessages = (messages: Message[]) => {
+  if (!messages.length) {
+    throw new Error("LLM invoke requires at least one message");
+  }
+
+  const totalTextLength = messages.reduce((sum, message) => {
+    const parts = ensureArray(message.content);
+    return (
+      sum +
+      parts.reduce((partSum, part) => {
+        if (typeof part === "string") return partSum + part.length;
+        if (part.type === "text") return partSum + part.text.length;
+        return partSum;
+      }, 0)
+    );
+  }, 0);
+
+  if (totalTextLength > MAX_AI_PROMPT_LENGTH) {
+    throw new Error("LLM input exceeds the maximum allowed size");
+  }
+};
+
 const normalizeToolChoice = (
   toolChoice: ToolChoice | undefined,
   tools: Tool[] | undefined
@@ -279,6 +305,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  validateMessages(messages);
+
   const payload: Record<string, unknown> = {
     model: "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
@@ -328,5 +356,17 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = (await response.json()) as InvokeResult;
+  const firstChoice = result.choices?.[0];
+  if (
+    firstChoice &&
+    typeof firstChoice.message.content === "string"
+  ) {
+    firstChoice.message.content = sanitizeTextForStorage(
+      firstChoice.message.content,
+      MAX_AI_PROMPT_LENGTH,
+    );
+  }
+
+  return result;
 }

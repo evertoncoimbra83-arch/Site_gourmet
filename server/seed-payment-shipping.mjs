@@ -1,10 +1,11 @@
 import { seedPaymentMethods } from "./payment-methods.ts";
 import { seedShippingZones } from "./shipping.ts";
 
-console.log("🌱 Seeding payment methods and shipping zones...");
+
 
 await seedPaymentMethods();
 await seedShippingZones();
 
-console.log("✅ Seed completed!");
+
+// eslint-disable-next-line no-undef
 process.exit(0);

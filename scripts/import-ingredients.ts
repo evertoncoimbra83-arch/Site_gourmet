@@ -6,20 +6,20 @@ import { ingredients } from '../drizzle/schema';
 async function importTacoData() {
   const db = await getDb();
   if (!db) {
-    console.error("❌ Não foi possível conectar à base de dados.");
+    
     return;
   }
 
   const filePath = './alimentos_corrigido.jsonl'; 
   if (!fs.existsSync(filePath)) {
-    console.error(`❌ Arquivo não encontrado: ${filePath}`);
+    
     return;
   }
 
   const fileStream = fs.createReadStream(filePath);
   const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
-  console.log("🚀 Iniciando importação robusta (TBCA)...");
+  
 
   // ✅ Função para limpar hífens, "tr", "NA" e converter para decimal válido
   const parseVal = (val: any): string => {
@@ -68,17 +68,17 @@ async function importTacoData() {
       });
 
       count++;
-      if (count % 500 === 0) console.log(`⏳ Processados ${count} itens...`);
+      if (count % 500 === 0) 
 
     } catch (err) {
       errors++;
-      console.error(`❌ Erro no item ${count + 1}:`, (err as any).sqlMessage || err);
+      
     }
   }
 
-  console.log(`\n✅ Importação Finalizada!`);
-  console.log(`📊 Sucessos: ${count}`);
-  console.log(`⚠️ Falhas: ${errors}`);
+  
+  
+  
   
   process.exit(0);
 }

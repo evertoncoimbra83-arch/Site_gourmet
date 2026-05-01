@@ -1,11 +1,11 @@
-import { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react"; // ✅ Adicionado React
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MaskedInput } from "@/components/masked-input";
-import { toast } from "@/components/ui/use-toast";
+// ✅ Removido toast não utilizado para limpar ESLint
 import { cn } from "@/lib/utils";
 import { 
   Edit, Save, X, ShieldCheck, Phone, Cake, 
@@ -13,14 +13,28 @@ import {
 } from "lucide-react";
 import { usePasswordStrength } from "@/_core/hooks/usePasswordStrength";
 
-// --- Helpers de Formatação ---
-function onlyDigits(v: string) { return (v || "").replace(/\D/g, ""); }
+// --- Tipagem do Usuário ---
+export interface UserProfile {
+  name?: string;
+  email?: string;
+  document?: string;
+  customerDocument?: string;
+  phone?: string;
+  whatsapp?: string;
+  birthDate?: string | Date;
+  birth_date?: string | Date;
+  documentSource?: 'order' | string;
+}
 
-function isoToDisplay(isoDate: any) {
+// --- Helpers de Formatação ---
+function onlyDigits(v: string | undefined | null) { 
+  return (v || "").replace(/\D/g, ""); 
+}
+
+function isoToDisplay(isoDate: string | Date | undefined | null) {
   if (!isoDate) return "";
   const date = new Date(isoDate);
   if (isNaN(date.getTime())) return "";
-  
   const day = String(date.getUTCDate()).padStart(2, '0');
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const year = date.getUTCFullYear();
@@ -33,20 +47,20 @@ function displayToIso(displayDate: string) {
   return `${y}-${m}-${d}`;
 }
 
-function formatInitialCPF(v: string) {
+function formatInitialCPF(v: string | undefined | null) {
   const clean = onlyDigits(v);
   if (!clean || clean.length !== 11) return clean || "";
   return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
-function formatInitialPhone(v: string) {
+function formatInitialPhone(v: string | undefined | null) {
   const clean = onlyDigits(v);
   if (!clean) return "";
   if (clean.length === 11) return clean.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
   return clean.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3");
 }
 
-export function PersonalDataTab({ user }: { user: any }) {
+export function PersonalDataTab({ user }: { user: UserProfile }) {
   const utils = trpc.useUtils();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -80,21 +94,17 @@ export function PersonalDataTab({ user }: { user: any }) {
 
   const updateProfileMutation = trpc.profile.update.useMutation({
     onSuccess: async () => {
-      toast.success("Dados atualizados com sucesso!");
       setIsEditing(false);
       await utils.profile.get.invalidate(); 
       await utils.auth.me.invalidate(); 
-    },
-    onError: (err) => toast.error("Erro ao salvar: " + err.message)
+    }
   });
 
   const changePasswordMutation = trpc.profile.changePassword.useMutation({
     onSuccess: () => {
-      toast.success("Senha alterada com sucesso!");
       setShowPasswordForm(false);
       setPasswords({ current: "", new: "" });
-    },
-    onError: (err) => toast.error(err.message)
+    }
   });
 
   const isCpfValid = useMemo(() => {
@@ -131,88 +141,86 @@ export function PersonalDataTab({ user }: { user: any }) {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6 animate-in fade-in duration-500 max-w-full overflow-x-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
+          <h3 className="text-lg md:text-xl font-black text-slate-900 uppercase italic tracking-tighter">
             Dados pessoais
           </h3>
-          <p className="text-sm text-slate-500 font-medium">
+          <p className="text-xs md:text-sm text-slate-500 font-medium">
             Gerencie suas informações de contato e identificação.
           </p>
         </div>
 
-        {!isEditing ? (
-          <Button
-            variant="secondary"
-            className="rounded-xl font-bold uppercase text-[10px] tracking-widest shadow-sm"
-            onClick={() => setIsEditing(true)}
-          >
-            <Edit className="h-4 w-4 mr-2" /> Editar
-          </Button>
-        ) : (
-          <div className="flex gap-2">
+        <div className="flex w-full sm:w-auto gap-2">
+          {!isEditing ? (
             <Button
-              onClick={handleSave}
-              disabled={updateProfileMutation.isPending || !isCpfValid}
-              className="rounded-xl font-bold uppercase text-[10px] tracking-widest bg-[#2D5A3D] hover:bg-[#1e3d29] text-white transition-all active:scale-95"
+              variant="secondary"
+              className="w-full sm:w-auto rounded-xl font-bold uppercase text-[10px] tracking-widest shadow-sm"
+              onClick={() => setIsEditing(true)}
             >
-              {updateProfileMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              Salvar
+              <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleCancel}
-              className="rounded-xl font-bold uppercase text-[10px] tracking-widest"
-            >
-              <X className="h-4 w-4 mr-2" /> Cancelar
-            </Button>
-          </div>
-        )}
+          ) : (
+            <div className="flex w-full gap-2">
+              <Button
+                onClick={handleSave}
+                disabled={updateProfileMutation.isPending || !isCpfValid}
+                className="flex-1 sm:flex-none rounded-xl font-bold uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 border-none"
+              >
+                {updateProfileMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                Salvar
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleCancel}
+                className="flex-1 sm:flex-none rounded-xl font-bold uppercase text-[10px] tracking-widest"
+              >
+                <X className="h-4 w-4 mr-2" /> Cancelar
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <Card className="rounded-4xl border-slate-100 shadow-sm overflow-hidden bg-white">
-        <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-4">
-          <CardTitle className="text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2 text-slate-400">
-            <ShieldCheck className="h-4 w-4 text-[#D4AF37]" />
+      <Card className="rounded-3xl md:rounded-4xl border-slate-100 shadow-sm overflow-hidden bg-white">
+        <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 md:py-4">
+          <CardTitle className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2 text-slate-400">
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
             Segurança e Identificação
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="p-8 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome completo</Label>
+        <CardContent className="p-4 md:p-8 space-y-4 md:space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+            <div className="space-y-1.5 md:space-y-2">
+              <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome completo</Label>
               <Input
-                className="h-12 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:border-[#D4AF37]/30 transition-all font-bold text-slate-700"
+                className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:border-emerald-500/30 transition-all font-bold text-slate-700"
                 value={formData.name}
                 disabled={!isEditing}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">E-mail de acesso</Label>
+            <div className="space-y-1.5 md:space-y-2">
+              <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">E-mail de acesso</Label>
               <Input
-                className="h-12 rounded-2xl bg-slate-100 border-transparent font-bold text-slate-400 cursor-not-allowed"
+                className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-100 border-transparent font-bold text-slate-400 cursor-not-allowed"
                 value={formData.email}
                 disabled={true}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className={cn("text-[10px] font-black uppercase tracking-widest ml-1", !isCpfValid ? "text-red-500" : "text-slate-400")}>
-                CPF {user?.documentSource === 'order' && "• (Recuperado de pedidos)"}
+            <div className="space-y-1.5 md:space-y-2">
+              <Label className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1", !isCpfValid ? "text-red-500" : "text-slate-400")}>
+                CPF {user?.documentSource === 'order' && "• (Recuperado)"}
               </Label>
               <MaskedInput
                 mask="___.___.___-__"
                 replacement={{ _: /\d/ }}
                 className={cn(
-                  "h-12 rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-[#D4AF37]/30 transition-all",
+                  "h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-emerald-500/30 transition-all",
                   !isCpfValid && "border-red-200 bg-red-50 text-red-700"
                 )}
                 value={formData.document}
@@ -222,14 +230,14 @@ export function PersonalDataTab({ user }: { user: any }) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+            <div className="space-y-1.5 md:space-y-2">
+              <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
                 <Phone className="h-3 w-3" /> WhatsApp
               </Label>
               <MaskedInput
                 mask="(__) _____-____"
                 replacement={{ _: /\d/ }}
-                className="h-12 rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-[#D4AF37]/30 transition-all"
+                className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-emerald-500/30 transition-all"
                 value={formData.phone}
                 disabled={!isEditing}
                 placeholder="(00) 00000-0000"
@@ -237,14 +245,14 @@ export function PersonalDataTab({ user }: { user: any }) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
-                <Cake className="h-3 w-3" /> Data de Nascimento
+            <div className="space-y-1.5 md:space-y-2">
+              <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                <Cake className="h-3 w-3" /> Nascimento
               </Label>
               <MaskedInput
                 mask="__/__/____"
                 replacement={{ _: /\d/ }}
-                className="h-12 rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-[#D4AF37]/30 transition-all"
+                className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-50 border-transparent font-bold text-slate-700 focus:bg-white focus:border-emerald-500/30 transition-all"
                 value={formData.birthDate}
                 disabled={!isEditing}
                 placeholder="DD/MM/AAAA"
@@ -255,61 +263,59 @@ export function PersonalDataTab({ user }: { user: any }) {
         </CardContent>
       </Card>
 
-      <div className="pt-4 border-t border-slate-100">
+      <div className="pt-2">
         {!showPasswordForm ? (
           <Button 
             variant="outline" 
             onClick={() => setShowPasswordForm(true)} 
-            className="rounded-xl border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-widest"
+            className="w-full sm:w-auto rounded-xl border-slate-200 text-slate-500 font-bold uppercase text-[9px] tracking-widest h-10"
           >
-            <Lock className="h-4 w-4 mr-2" /> Alterar Senha de Acesso
+            <Lock className="h-3 w-3 mr-2" /> Alterar Senha
           </Button>
         ) : (
-          <Card className="rounded-4xl border-amber-100 bg-amber-50/30 overflow-hidden animate-in slide-in-from-top-4">
-            <CardHeader className="py-4 border-b border-amber-100 flex flex-row items-center justify-between">
-              <CardTitle className="text-[11px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4" /> Segurança da Conta
+          <Card className="rounded-3xl border-emerald-100 bg-emerald-50/30 overflow-hidden animate-in slide-in-from-top-4">
+            <CardHeader className="py-3 md:py-4 border-b border-emerald-100 flex flex-row items-center justify-between px-4 md:px-8">
+              <CardTitle className="text-[10px] font-black uppercase tracking-widest text-emerald-700 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4" /> Segurança
               </CardTitle>
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setShowPasswordForm(false)} 
-                className="h-8 w-8 p-0 rounded-full hover:bg-amber-100"
+                className="h-8 w-8 p-0 rounded-full hover:bg-emerald-100"
               >
                 <X className="h-4 w-4"/>
               </Button>
             </CardHeader>
-            <CardContent className="p-8 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase text-amber-700">Senha Atual</Label>
+            <CardContent className="p-4 md:p-8 space-y-4 md:space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase text-emerald-700 ml-1">Senha Atual</Label>
                   <Input 
                     type="password" 
-                    placeholder="Sua senha de hoje" 
-                    className="h-12 rounded-2xl bg-white border-amber-100 font-bold" 
+                    className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-white border-emerald-100 font-bold" 
                     value={passwords.current} 
                     onChange={e => setPasswords({...passwords, current: e.target.value})} 
                   />
                 </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label className="text-[10px] font-black uppercase text-amber-700">Nova Senha</Label>
-                    {passwords.new && <span className={cn("text-[9px] font-black uppercase", colorClass)}>{label}</span>}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center px-1">
+                    <Label className="text-[9px] font-black uppercase text-emerald-700">Nova Senha</Label>
+                    {passwords.new && <span className={cn("text-[8px] font-black uppercase", colorClass)}>{label}</span>}
                   </div>
                   <div className="relative">
                     <Input 
                       type={showPass ? "text" : "password"} 
-                      placeholder="Mínimo 6 caracteres" 
-                      className="h-12 rounded-2xl bg-white border-amber-100 font-bold pr-12" 
+                      className="h-11 md:h-12 rounded-xl md:rounded-2xl bg-white border-emerald-100 font-bold pr-12" 
                       value={passwords.new} 
                       onChange={e => setPasswords({...passwords, new: e.target.value})} 
                     />
                     <button 
                       type="button" 
                       onClick={() => setShowPass(!showPass)} 
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-amber-300 hover:text-amber-500 transition-colors"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-300"
                     >
-                      {showPass ? <EyeOff className="h-5 w-5"/> : <Eye className="h-5 w-5"/>}
+                      {showPass ? <EyeOff className="h-4 w-4"/> : <Eye className="h-4 w-4"/>}
                     </button>
                   </div>
                   {passwords.new && (
@@ -328,7 +334,7 @@ export function PersonalDataTab({ user }: { user: any }) {
                   newPassword: passwords.new 
                 })} 
                 disabled={changePasswordMutation.isPending || strength < 2} 
-                className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-xs tracking-widest shadow-lg active:scale-[0.98] transition-all"
+                className="w-full h-11 md:h-12 rounded-xl md:rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all border-none"
               >
                 {changePasswordMutation.isPending ? <Loader2 className="animate-spin h-5 w-5" /> : "Confirmar Nova Senha"}
               </Button>
@@ -338,13 +344,13 @@ export function PersonalDataTab({ user }: { user: any }) {
       </div>
 
       {user?.documentSource === 'order' && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-100 flex items-center gap-3 animate-in slide-in-from-bottom-2">
-          <div className="bg-white p-2 rounded-full shadow-sm">
-            <ShieldCheck className="h-4 w-4 text-[#D4AF37]" />
+        <div className="p-3 md:p-4 rounded-xl md:rounded-2xl bg-emerald-50 border border-emerald-100 flex items-start sm:items-center gap-3">
+          <div className="bg-white p-2 rounded-full shadow-sm shrink-0">
+            <ShieldCheck className="h-3 w-3 md:h-4 md:w-4 text-emerald-500" />
           </div>
-          <p className="text-[11px] font-bold text-amber-700 uppercase tracking-tight leading-tight">
+          <p className="text-[9px] md:text-[10px] font-bold text-emerald-700 uppercase tracking-tight leading-snug">
             Notamos que seu CPF não estava no cadastro, mas o recuperamos do seu último pedido. 
-            Confirme se está correto e clique em salvar para manter seus dados atualizados.
+            Clique em salvar para confirmar sua identidade. 🍏
           </p>
         </div>
       )}

@@ -12,8 +12,7 @@ export const Analytics = {
     }
   },
 
-  // Rastrear eventos específicos (ex: "Adicionou ao Carrinho")
-  track: (event: string, properties?: Record<string, any>) => {
+  track: (event: string, properties?: Record<string, unknown>) => {
     posthog.capture(event, properties);
   },
 

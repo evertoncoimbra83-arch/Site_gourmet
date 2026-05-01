@@ -1,10 +1,12 @@
+// ROTA: /storefront/profile
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+// ✅ FIX: 'sql' removido das importações pois não está sendo usado
+import { eq, desc } from "drizzle-orm";
 import { hash, verify } from "@node-rs/argon2"; 
 import { router, protectedProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
-import { decrypt, encrypt } from "../../encryption.js";
+import { decrypt, encrypt, piiHash, normalizeDigits } from "../../encryption.js";
 import { logAction } from "../../db/lib/audit.js";
 import crypto from "crypto";
 
@@ -15,49 +17,41 @@ import {
 } from "../../../drizzle/schema/index.js";
 
 // --- HELPERS DE PRIVACIDADE ---
-function unseal(val: any): string {
-  if (!val) return "";
-  const str = String(val);
+function unseal(val: string | null | unknown): string {
+  if (!val || typeof val !== "string") return "";
+  const str = val;
   try {
     if (str.split(':').length !== 3) return str;
     const decoded = decrypt(str);
     return decoded || str;
-  } catch (e) {
+  } catch {
     return str;
   }
 }
 
-const generateBlindIndex = (value: string) => {
-  if (!value) return null;
-  const cleanValue = value.replace(/\D/g, "");
-  return crypto.createHash("sha256").update(cleanValue).digest("hex");
-};
-
 export const profileRouter = router({
   
   /**
-   * 👤 GET: Retorna o perfil completo usando apenas o UUID unificado
+   * 👤 GET: Perfil Completo
    */
   get: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    const targetId = ctx.user.id; // 🎯 UUID Direto
+    const targetId = ctx.user.id;
 
     const [row] = await db.select().from(users).where(eq(users.id, targetId)).limit(1);
 
     if (!row) {
-      console.error(`[AUTH] Perfil não encontrado no banco para ID: ${targetId}`);
       throw new TRPCError({ code: "NOT_FOUND", message: "Perfil não encontrado." });
     }
 
     let finalDoc = unseal(row.customerDocument);
     
-    // Fallback: Se o CPF estiver vazio, tenta recuperar do histórico de pedidos usando o UUID
     if (!finalDoc || finalDoc.length < 5) { 
        const [lastOrder] = await db
          .select({ doc: orders.customerDocument })
          .from(orders)
          .where(eq(orders.userId, targetId))
-         .orderBy(desc(orders.id))
+         .orderBy(desc(orders.createdAt))
          .limit(1);
        if (lastOrder?.doc) finalDoc = unseal(lastOrder.doc);
     }
@@ -70,11 +64,13 @@ export const profileRouter = router({
       phone: unseal(row.phone),
       birthDate: row.birthDate ? String(row.birthDate).split('T')[0] : null,
       birthYear: row.birthYear ? Number(row.birthYear) : null,
+      hasPassword: !!row.password,
+      referralCode: row.referralCode || null,
     };
   }),
 
   /**
-   * 📝 UPDATE: Atualiza dados usando o UUID unificado
+   * 📝 UPDATE: Dados Cadastrais
    */
   update: protectedProcedure
     .input(z.object({
@@ -83,96 +79,123 @@ export const profileRouter = router({
       phone: z.string().optional(),
       birthDate: z.string().optional().nullable(),
       birthYear: z.number().optional().nullable(),
+      referralCode: z.string().optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const targetId = ctx.user.id;
-
-      const updateData: any = { updatedAt: new Date() };
+      
+      const updateData: Partial<typeof users.$inferInsert> = { 
+        updatedAt: new Date() 
+      };
 
       if (input.name?.trim()) {
         updateData.name = encrypt(input.name.trim());
+        updateData.nameIndex = input.name.trim().toLowerCase();
       }
 
       if (input.cpf) {
-        const cleanCpf = input.cpf.replace(/\D/g, "");
+        const cleanCpf = normalizeDigits(input.cpf);
         if (cleanCpf.length === 11) {
             updateData.customerDocument = encrypt(cleanCpf); 
-            updateData.customerDocumentHash = generateBlindIndex(cleanCpf); 
+            updateData.documentIndex = piiHash(cleanCpf);
         }
       }
 
       if (input.phone) {
-        const cleanPhone = input.phone.replace(/\D/g, "");
-        if (cleanPhone.length >= 8) {
-            updateData.phone = encrypt(cleanPhone); 
+        const cleanPhone = normalizeDigits(input.phone);
+        if (cleanPhone.length >= 10) {
+          updateData.phone = encrypt(cleanPhone); 
+          updateData.phoneIndex = piiHash(cleanPhone);
         }
       }
 
       if (input.birthDate) {
         const dateOnly = input.birthDate.split('T')[0];
         updateData.birthDate = dateOnly;
-        if (!input.birthYear) {
-          updateData.birthYear = Number(dateOnly.split('-')[0]);
-        }
+        updateData.birthYear = input.birthYear || Number(dateOnly.split('-')[0]);
       }
 
-      if (input.birthYear !== undefined) {
-        updateData.birthYear = input.birthYear;
+      if (input.referralCode !== undefined) {
+        updateData.referralCode = input.referralCode?.trim() || null;
       }
 
       try {
-        await db.update(users).set(updateData).where(eq(users.id, targetId));
+        await db.update(users)
+          .set(updateData)
+          .where(eq(users.id, targetId));
+
         await logAction(ctx, "UPDATE_PROFILE", "users", { entityId: targetId });
-        return { success: true };
-      } catch (e) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao salvar dados." });
+        
+        return { 
+          success: true, 
+          message: "Seus dados foram atualizados!" 
+        };
+      } catch {
+        // ✅ FIX: Removido 'error' não utilizado do catch
+        throw new TRPCError({ 
+          code: "INTERNAL_SERVER_ERROR", 
+          message: "Erro ao salvar dados. Verifique se o CPF já está em uso." 
+        });
       }
     }),
 
   /**
-   * 🔑 CHANGE PASSWORD: Unificado na tabela users (ajuste conforme seu schema)
+   * 🔑 CHANGE PASSWORD
    */
   changePassword: protectedProcedure
     .input(z.object({
-      currentPassword: z.string(),
-      newPassword: z.string().min(6),
+      currentPassword: z.string().optional(),
+      newPassword: z.string().min(6, "A nova senha deve ter no mínimo 6 caracteres"),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const targetId = ctx.user.id; 
+      const targetId = ctx.user.id;
 
-      // Assumindo que o password agora está na tabela users unificada
       const [userRow] = await db
         .select({ password: users.password })
         .from(users)
         .where(eq(users.id, targetId))
         .limit(1);
 
-      if (!userRow?.password) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não possui senha definida." });
+      if (userRow?.password) {
+        if (!input.currentPassword) {
+          throw new TRPCError({ 
+            code: "BAD_REQUEST", 
+            message: "Para sua segurança, digite a senha atual." 
+          });
+        }
 
-      const isMatch = await verify(userRow.password, input.currentPassword);
-      if (!isMatch) throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha atual incorreta." });
+        const isMatch = await verify(userRow.password, input.currentPassword);
+        if (!isMatch) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "A senha atual está incorreta." });
+        }
+      }
 
       const hashedNewPassword = await hash(input.newPassword); 
       
-      await db.update(users).set({ password: hashedNewPassword }).where(eq(users.id, targetId));
+      await db.update(users)
+        .set({ 
+          password: hashedNewPassword,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, targetId));
+
       await logAction(ctx, "CHANGE_PASSWORD", "users", { entityId: targetId });
-      return { success: true };
+      
+      return { success: true, message: "Senha alterada com sucesso! 🛡️" };
     }),
 
   /**
-   * 📍 ADDRESSES (GET): Busca direta por UUID
+   * 📍 ADDRESSES (GET)
    */
   getAddresses: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    const targetId = ctx.user.id;
-
     const rows = await db
       .select()
       .from(addresses)
-      .where(eq(addresses.userId, targetId))
-      .orderBy(desc(addresses.isDefault), desc(addresses.id));
+      .where(eq(addresses.userId, ctx.user.id))
+      .orderBy(desc(addresses.isDefault), desc(addresses.createdAt));
 
     return rows.map(addr => ({
       ...addr,
@@ -189,40 +212,49 @@ export const profileRouter = router({
   }),
 
   /**
-   * ➕ ADD ADDRESS: Inserção usando o UUID
+   * ➕ ADD ADDRESS
    */
   addAddress: protectedProcedure
     .input(z.object({
       label: z.string().min(1),
-      zipCode: z.string(),
-      street: z.string(),
-      number: z.string(),
-      neighborhood: z.string(),
-      city: z.string(),
-      state: z.string(),
+      zipCode: z.string().min(8),
+      street: z.string().min(1),
+      number: z.string().min(1),
+      neighborhood: z.string().min(1),
+      city: z.string().min(1),
+      state: z.string().length(2),
       complement: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const targetId = ctx.user.id;
+      const userId = ctx.user.id;
 
-      const existing = await db.select().from(addresses).where(eq(addresses.userId, targetId)).limit(1);
-      const isDefault = existing.length === 0;
+      const [existing] = await db
+        .select({ id: addresses.id })
+        .from(addresses)
+        .where(eq(addresses.userId, userId))
+        .limit(1);
+      
+      const isDefault = !existing;
+
+      const cleanZip = normalizeDigits(input.zipCode);
 
       await db.insert(addresses).values({
-        id: `ADDR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
-        userId: targetId,
+        id: crypto.randomUUID(),
+        userId: userId,
         label: encrypt(input.label),
-        zipCode: encrypt(input.zipCode),
+        zipCode: encrypt(cleanZip),
         street: encrypt(input.street),
         number: encrypt(input.number),
         neighborhood: encrypt(input.neighborhood),
         city: encrypt(input.city),
         state: encrypt(input.state),
-        complement: input.complement ? encrypt(input.complement) : "",
+        complement: input.complement ? encrypt(input.complement) : null,
         isDefault: isDefault,
-      } as any);
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
 
-      return { success: true };
+      return { success: true, message: "Endereço cadastrado!" };
     }),
 });

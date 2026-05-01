@@ -1,119 +1,208 @@
-import { useState, useEffect } from "react";
-import { trpc } from "@/_core/trpc";
-import { Button } from "@/components/ui/button";
+import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea"; // Certifique-se de ter este componente
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { toast } from "@/components/ui/use-toast";
-import { Loader2, ShieldCheck, Lock, Key } from "lucide-react"; // ✅ Corrigido para Key
+import { Loader2, ShieldCheck, Lock, Key, Eye, EyeOff, BrainCircuit, BarChart3, FileJson } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-export function GoogleAuthConfig() {
-  const [enabled, setEnabled] = useState(false);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-
-  // Busca configurações (Agora o 'get' retorna o objeto googleLogin unido)
-  const { data: currentConfigs, isLoading: isFetching } = trpc.admin.storeSettings.get.useQuery();
-
-  // ✅ SINCRONIZAÇÃO COM O BANCO
-  useEffect(() => {
-    // Usamos o cast 'as any' caso o cache do tRPC ainda não tenha atualizado o Schema no seu editor
-    const config = (currentConfigs as any)?.googleLogin;
-    
-    if (config) {
-      setEnabled(config.enabled ?? false);
-      setClientId(config.clientId ?? "");
-      setClientSecret(config.clientSecret ?? "");
-    }
-  }, [currentConfigs]);
-
-  const mutation = trpc.admin.storeSettings.saveGoogleConfig.useMutation({
-    onSuccess: () => {
-      toast.success("Credenciais protegidas e salvas com sucesso!");
-    },
-    onError: (err) => toast.error(`Falha ao salvar: ${err.message}`)
-  });
-
-  const handleSave = () => {
-    if (!clientId || !clientSecret) {
-      return toast.error("Por favor, preencha o Client ID e o Secret.");
-    }
-    mutation.mutate({ enabled, clientId, clientSecret });
+interface SecurityConfigProps {
+  state: {
+    formData: {
+      geminiApiKey?: string;
+      googleLoginEnabled?: boolean;
+      googleClientId?: string;
+      googleClientSecret?: string;
+      googleAnalyticsId?: string; // ✅ Adicionado
+      gaServiceAccount?: string;  // ✅ Adicionado
+  ga4PropertyId?: string;
+    };
+    isLoading: boolean;
+    isPending: boolean;
   };
+  actions: {
+    updateField: (field: string, value: string | boolean) => void;
+  };
+}
+
+export function SecurityConfig({ state, actions }: SecurityConfigProps) {
+  const [showSecret, setShowSecret] = useState(false);
+  const [showGemini, setShowGemini] = useState(false);
+  const [showJSON, setShowJSON] = useState(false);
+
+  const { formData, isLoading } = state;
 
   return (
-    <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden border border-slate-100">
-      <CardHeader className="p-8 bg-slate-50/50 border-b border-slate-100">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="text-emerald-600" size={22} /> 
-              Autenticação <span className="text-emerald-600">Google</span>
-            </CardTitle>
-            <CardDescription className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-              <Lock size={12} /> Criptografia AES-256-GCM Ativa
-            </CardDescription>
+    <div className="space-y-6 text-left">
+      
+      {/* --- 1. CARD GEMINI AI --- */}
+      <Card className="rounded-4xl border-none shadow-sm bg-white overflow-hidden border border-slate-100">
+        <CardHeader className="p-8 bg-emerald-50/20 border-b border-emerald-100/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-slate-900 flex items-center gap-2">
+                <BrainCircuit className="text-emerald-600" size={22} /> 
+                Inteligência <span className="text-emerald-600">Gemini AI</span>
+              </CardTitle>
+              <CardDescription className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                <Lock size={12} /> Motor de Prescrição Ativo
+              </CardDescription>
+            </div>
+            {isLoading && <Loader2 className="animate-spin text-emerald-500" size={20} />}
           </div>
-          <Switch 
-            disabled={isFetching}
-            checked={enabled} 
-            onCheckedChange={setEnabled}
-            className="data-[state=checked]:bg-emerald-600"
-          />
-        </div>
-      </CardHeader>
-
-      <CardContent className="p-8 space-y-6">
-        {isFetching ? (
-          <div className="py-10 flex flex-col items-center gap-2">
-            <Loader2 className="animate-spin text-slate-300" />
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sincronizando...</span>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-3">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1">
-                  <Key size={10} /> Google Client ID
-                </Label>
+        </CardHeader>
+        <CardContent className="p-8">
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                <Key size={10} /> Google Gemini API Key
+              </Label>
+              <div className="relative">
                 <Input 
-                  placeholder="000000000-xxx.apps.googleusercontent.com" 
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-xs text-slate-700"
+                  type={showGemini ? "text" : "password"}
+                  value={formData.geminiApiKey || ""}
+                  onChange={(e) => actions.updateField('geminiApiKey', e.target.value)}
+                  className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-[11px] shadow-inner pr-12"
+                  placeholder="Insira a chave do AI Studio..."
+                  disabled={isLoading}
                 />
-              </div>
-
-              <div className="space-y-3">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1">
-                  <Lock size={10} /> Google Client Secret
-                </Label>
-                <Input 
-                  type="password"
-                  placeholder="••••••••••••••••" 
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                  className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-xs text-slate-700"
-                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowGemini(!showGemini)} 
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors"
+                >
+                  {showGemini ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
+        </CardContent>
+      </Card>
 
-            <Button 
-              onClick={handleSave} 
-              disabled={mutation.isPending}
-              className="w-full h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl transition-all active:scale-95"
-            >
-              {mutation.isPending ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="animate-spin w-4 h-4" />
-                  <span>CRIPTOGRAFANDO DADOS...</span>
-                </div>
-              ) : "ATUALIZAR CREDENCIAIS"}
-            </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {/* --- 2. CARD ANALYTICS & BI (NOVO) --- */}
+      <Card className="rounded-4xl border-none shadow-sm bg-white overflow-hidden border border-slate-100">
+        <CardHeader className="p-8 bg-blue-50/20 border-b border-blue-100/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-slate-900 flex items-center gap-2">
+                <BarChart3 className="text-blue-600" size={22} /> 
+                Business <span className="text-blue-600">Intelligence</span>
+              </CardTitle>
+              <CardDescription className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                <Lock size={12} /> Sincronização Google Cloud
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8 space-y-6">
+          <div className="space-y-3">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+              <Key size={10} /> Google Analytics ID (G-XXXX)
+            </Label>
+            <Input 
+              value={formData.googleAnalyticsId || ""} 
+              onChange={(e) => actions.updateField('googleAnalyticsId', e.target.value)} 
+              placeholder="G-..."
+              className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-[11px] shadow-inner"
+              disabled={isLoading}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <Flex justifyContent="between" alignItems="center">
+               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                 <FileJson size={10} /> Service Account JSON (BI API)
+               </Label>
+               <button 
+                  type="button" 
+                  onClick={() => setShowJSON(!showJSON)}
+                  className="text-[9px] font-black uppercase text-blue-600 hover:underline"
+                >
+                  {showJSON ? "Ocultar" : "Mostrar JSON"}
+               </button>
+            </Flex>
+            <Textarea 
+              value={formData.gaServiceAccount || ""} 
+              onChange={(e) => actions.updateField('gaServiceAccount', e.target.value)} 
+              placeholder='{ "type": "service_account", ... }'
+              className={cn(
+                "min-h-30 rounded-2xl bg-slate-50 border-none font-mono text-[10px] shadow-inner resize-none transition-all",
+                !showJSON && "blur-sm select-none"
+              )}
+              disabled={isLoading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* --- 3. CARD GOOGLE AUTH --- */}
+      <Card className="rounded-4xl border-none shadow-sm bg-white overflow-hidden border border-slate-100">
+        <CardHeader className="p-8 bg-slate-50/40 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="text-slate-600" size={22} /> 
+                Autenticação <span className="text-slate-600">Google</span>
+              </CardTitle>
+              <CardDescription className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                <Lock size={12} /> Criptografia AES-256 GCM
+              </CardDescription>
+            </div>
+            <Switch 
+              checked={!!formData.googleLoginEnabled} 
+              onCheckedChange={(val) => actions.updateField('googleLoginEnabled', val)} 
+              disabled={isLoading} 
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                <Key size={10} /> Client ID
+              </Label>
+              <Input 
+                value={formData.googleClientId || ""} 
+                onChange={(e) => actions.updateField('googleClientId', e.target.value)} 
+                className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-[11px] shadow-inner"
+                disabled={isLoading}
+              />
+            </div>
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                <Lock size={10} /> Client Secret
+              </Label>
+              <div className="relative">
+                <Input 
+                  type={showSecret ? "text" : "password"} 
+                  value={formData.googleClientSecret || ""} 
+                  onChange={(e) => actions.updateField('googleClientSecret', e.target.value)} 
+                  className="h-14 rounded-2xl bg-slate-50 border-none font-mono text-[11px] shadow-inner pr-12"
+                  disabled={isLoading}
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowSecret(!showSecret)} 
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+    </div>
   );
+}
+
+// Helper local para o Flex do Tremor (se não quiser importar o componente inteiro)
+interface FlexProps {
+  children: React.ReactNode;
+  justifyContent?: "start" | "end" | "center" | "between" | "around" | "evenly";
+  alignItems?: "start" | "end" | "center" | "baseline" | "stretch";
+}
+
+function Flex({ children, justifyContent = "between", alignItems = "center" }: FlexProps) {
+    return <div className={`flex justify-${justifyContent} items-${alignItems}`}>{children}</div>;
 }

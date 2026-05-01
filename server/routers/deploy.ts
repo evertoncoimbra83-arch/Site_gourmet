@@ -5,67 +5,85 @@ import AdmZip from 'adm-zip';
 import { exec } from 'child_process';
 import { fileURLToPath } from 'url';
 
-// ✅ Correção para __dirname em ES Modules (Vite/Node moderno)
+// ✅ Interface estrita para o arquivo vindo do middleware
+interface UploadedFile {
+  name: string;
+  mv(path: string): Promise<void>;
+  mimetype: string;
+  data: Buffer;
+  tempFilePath: string;
+  truncated: boolean;
+  size: number;
+  md5: string;
+}
+
+// ✅ Extensão da interface Request para reconhecer 'files' sem usar 'any'
+interface RequestWithFiles extends Request {
+  files?: Record<string, UploadedFile | UploadedFile[]>;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
-
-// 🔑 O TypeScript agora reconhecerá 'env' se os @types/node estiverem instalados
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET;
 
 /**
- * ✅ Interface para estender o Request do Express
- * Resolve o erro: Property 'files' does not exist
+ * 🚀 ROTA DE DEPLOY AUTOMATIZADO
+ * Reforçada com validação de tipos e segurança de segredo.
  */
-interface RequestWithFiles extends Request {
-  files?: any; // Ou use o tipo UploadedFile do 'express-fileupload'
-}
-
-router.post('/deploy-98234-u9832-upgrade', async (req: RequestWithFiles, res: Response) => {
+router.post('/deploy-98234-u9832-upgrade', async (req: Request, res: Response) => {
   const apiKey = req.headers['x-api-key'];
 
-  // 1. Validação de Segurança
+  // 1. Validação de Segurança (Fronteira de Confiança)
   if (!DEPLOY_SECRET || apiKey !== DEPLOY_SECRET) {
     return res.status(404).send('Not Found');
   }
 
-  // 2. Acesso aos arquivos enviado pelo middleware express-fileupload
-  const zipFile = req.files?.package;
-  if (!zipFile) return res.status(400).send("Pacote ausente.");
+  // ✅ SOLUÇÃO TS2339: Cast seguro para a interface estendida
+  const { files } = req as RequestWithFiles;
+  
+  // Captura o arquivo 'package' enviado no FormData
+  const zipFile = files?.package;
 
-  const tempPath = path.join(__dirname, '../../temp_update.zip');
+  if (!zipFile || Array.isArray(zipFile)) {
+    return res.status(400).send("Pacote inválido ou ausente.");
+  }
+
+  const tempPath = path.resolve(__dirname, '../../temp_update.zip');
 
   try {
     // 3. Salva o arquivo temporário
     await zipFile.mv(tempPath);
 
-    // 4. Extração (AdmZip)
+    // 4. Extração segura (Sobrescreve arquivos existentes)
     const zip = new AdmZip(tempPath);
     zip.extractAllTo("./", true);
 
-    // 5. Migração e Sincronização
+    // 5. Migração e Sincronização de Banco de Dados
     exec('npm run db:push', (err) => {
       if (err) {
-        console.error("Erro Drizzle:", err);
-        return res.status(500).json({ error: "Erro na atualização do banco" });
+        return res.status(500).json({ 
+          success: false, 
+          error: "Erro na sincronização do schema Drizzle" 
+        });
       }
 
-      res.json({ success: true, message: "Sistema atualizado com sucesso!" });
+      res.json({ success: true, message: "Sistema Gourmet Saudável atualizado!" });
 
-      // 6. Reinício Seguro
+      // 6. Reinício Seguro via PM2 em produção
       if (process.env.NODE_ENV === 'production') {
         setTimeout(() => {
           exec('pm2 restart all');
-        }, 1000);
+        }, 1500);
       }
     });
 
   } catch (error) {
-    console.error("Erro Deploy:", error);
-    res.status(500).json({ error: "Falha na extração dos arquivos" });
+    const msg = error instanceof Error ? error.message : "Erro interno na extração";
+    res.status(500).json({ success: false, error: msg });
   } finally {
-    // Limpeza do arquivo temporário
+    // Limpeza de rastro (Segurança de Infraestrutura)
     if (fs.existsSync(tempPath)) {
       fs.removeSync(tempPath);
     }

@@ -1,9 +1,12 @@
-import { useCartContext } from "@/_core/CartContext";
+import { useCart as useCartFromContext } from "@/_core/CartContext";
 
-// Agora o hook apenas redireciona para o contexto global.
-// Isso garante que Header, DishSelector e CartPage vejam os mesmos dados.
+/**
+ * ✅ Hook de Redirecionamento
+ * Garante que Header, DishSelector e CartPage vejam os mesmos dados
+ * consumindo o hook exportado pelo CartContext.
+ */
 export const useCart = () => {
-  return useCartContext();
+  return useCartFromContext();
 };
 
 export type { LocalCartItem } from "@/_core/CartContext";

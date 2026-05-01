@@ -1,53 +1,85 @@
 import { router, protectedProcedure, publicProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js"; 
-import { loyaltySettings, users } from "../../../drizzle/schema/index.js"; 
+import { users } from "../../../drizzle/schema/index.js"; 
 import { sql, eq } from "drizzle-orm";
-import { z } from "zod"; // ✅ CORREÇÃO 1: Importação do Zod adicionada
+import { z } from "zod"; 
+import { getLoyaltySettings } from "../../loyalty.js"; 
+import { logger } from "../../logger.js"; 
+
+// ✅ Interface para as regras de resgate (JSON)
+interface RedemptionRule {
+  minOrderValue: number;
+  maxDiscount: number;
+}
+
+// ✅ Interface para evitar o 'any' no User
+interface UserLoyaltyRow {
+  totalSpent?: string | number;
+  total_spent?: string | number;
+  loyaltyTier?: string;
+}
+
+// ✅ Interface para as configurações (Settings) sem 'any'
+interface LoyaltySettingsResponse {
+  enabled: boolean;
+  redemptionRatePoints: number;
+  redemptionRateMoney: string | number;
+  conversionRatePoints: number;
+  conversionRateMoney: string | number;
+  redemptionRules?: RedemptionRule[];
+  redemption_rules?: RedemptionRule[];
+  minCartAmount?: string | number;
+  maxDiscountAmount?: string | number;
+}
+
+interface SqlResult extends Record<string, unknown> {
+  total_balance?: string | number;
+  points_change?: string | number;
+  reason?: string;
+  description?: string;
+  created_at?: Date;
+  id?: string;
+}
 
 /**
- * Roteador de Fidelidade - Visão do Cliente
+ * 💎 Roteador de Fidelidade - Experiência do Cliente
  */
 export const loyaltyRouter = router({
 
   /**
    * ✅ GET POINTS
-   * Busca saldo via histórico e estatísticas via tabela de usuários.
    */
   getPoints: protectedProcedure.query(async ({ ctx }) => {
-    const currentUserId = ctx.user.id;
+    const userId = ctx.user.id;
     try {
       const db = await getDb();
       
-      // Soma o saldo do histórico (mais preciso para pontos atuais)
-      const result = await db.execute(sql`
-        SELECT SUM(points_change) as total_balance 
+      const [balanceQuery] = await db.execute<SqlResult>(sql`
+        SELECT COALESCE(SUM(points_change), 0) as total_balance 
         FROM loyalty_history 
-        WHERE user_id = ${currentUserId}
+        WHERE user_id = ${userId}
       `);
 
-      // ✅ CORREÇÃO 2: Verificação do nome da coluna no schema
-      // O Drizzle usa camelCase por padrão para as propriedades. 
-      // Se 'totalSpent' deu erro, estamos acessando via objeto de colunas.
-      const userStats = await db.select()
+      const [userRow] = await db.select()
         .from(users)
-        .where(eq(users.id, currentUserId))
+        .where(eq(users.id, userId))
         .limit(1);
 
-      const data = (result as any)[0];
-      const rows = Array.isArray(data) ? data[0] : data;
-      const points = Number(rows?.total_balance || 0);
+      const rows = Array.isArray(balanceQuery) ? balanceQuery : [balanceQuery];
+      const firstRow = rows[0] as SqlResult | undefined;
+      const points = Number(firstRow?.total_balance || 0);
       
-      // Mapeia o campo correto do usuário (ajustado para o que costuma estar no seu schema)
-      const userData = userStats[0] as any;
-      const totalSpentValue = userData?.totalSpent || userData?.total_spent || "0.00";
+      const userData = userRow as unknown as UserLoyaltyRow | undefined;
+      const totalSpent = userData?.totalSpent || userData?.total_spent || "0.00";
 
       return { 
         current_points: points,
         loyaltyPoints: points,
-        totalSpent: String(totalSpentValue)
+        totalSpent: String(totalSpent),
+        tier: userData?.loyaltyTier || "Bronze" 
       };
     } catch (error) {
-      console.error("[Loyalty] Erro no getPoints:", error);
+      logger.error({ err: error, userId }, "Erro ao buscar pontos do usuário");
       return { current_points: 0, loyaltyPoints: 0, totalSpent: "0.00" };
     }
   }),
@@ -56,91 +88,113 @@ export const loyaltyRouter = router({
    * ✅ GET HISTORY
    */
   getHistory: protectedProcedure
-    .input(z.object({ limit: z.number().default(5) }).optional()) // ✅ Zod agora funciona
+    .input(z.object({ limit: z.number().default(5) }).optional())
     .query(async ({ ctx, input }) => {
       const userId = ctx.user.id;
       const limit = input?.limit ?? 5;
+      
       try {
         const db = await getDb();
-        const result = await db.execute(sql`
-          SELECT * FROM loyalty_history 
+        const [rows] = await db.execute<SqlResult>(sql`
+          SELECT id, reason, description, points_change, created_at 
+          FROM loyalty_history 
           WHERE user_id = ${userId} 
           ORDER BY created_at DESC
           LIMIT ${limit}
         `);
         
-        const rows = (result as unknown as any[])[0];
         if (!Array.isArray(rows)) return [];
 
-        return rows.map((entry: any) => ({
-          id: entry.id,
-          reason: entry.reason || "Compra Realizada",
-          description: entry.description || "Pontos acumulados",
-          pointsChange: Number(entry.points_change || 0),
-          createdAt: entry.created_at
-        }));
+        return rows.map((entry) => {
+          const e = entry as SqlResult;
+          return {
+            id: e.id,
+            reason: e.reason || "Compra Realizada",
+            description: e.description || "Pontos acumulados",
+            pointsChange: Number(e.points_change || 0),
+            createdAt: e.created_at
+          };
+        });
       } catch (error) {
-        console.error("[Loyalty] Erro no getHistory:", error);
+        logger.error({ err: error, userId }, "Erro ao buscar histórico de fidelidade");
         return [];
       }
     }),
 
   /**
-   * ✅ ROTA DE SALDO PARA O CARRINHO
-   */
-  getUserBalance: protectedProcedure
-    .query(async ({ ctx }) => {
-      const currentUserId = ctx.user.id;
-      try {
-        const db = await getDb();
-        const result = await db.execute(sql`
-          SELECT SUM(points_change) as total_balance 
-          FROM loyalty_history 
-          WHERE user_id = ${currentUserId}
-        `);
-
-        const data = (result as any)[0];
-        const rows = Array.isArray(data) ? data[0] : data;
-        
-        return { 
-          balance: Number(rows?.total_balance || 0),
-          userId: currentUserId
-        };
-      } catch (error) {
-        return { balance: 0, userId: currentUserId };
-      }
-    }),
-
-  /**
-   * ✅ CONFIGURAÇÕES GERAIS (Público)
+   * ✅ GET SETTINGS (Público)
    */
   getSettings: publicProcedure.query(async () => {
     try {
-      const db = await getDb();
-      const settings = await db.select().from(loyaltySettings).limit(1);
-      if (settings[0]) return settings[0];
-      return { redemptionRatePoints: 100, redemptionRateMoney: "1.00", enabled: false };
+      // Fazemos o cast para unknown e depois para a nossa interface estrita
+      const settings = (await getLoyaltySettings()) as unknown as LoyaltySettingsResponse;
+      
+      const rules = settings?.redemption_rules || settings?.redemptionRules;
+      
+      if (!settings || !rules || (Array.isArray(rules) && rules.length === 0)) {
+        logger.warn("⚠️ getSettings retornou regras vazias ou incompletas.");
+      }
+
+      return settings;
     } catch (error) {
-      return { redemptionRatePoints: 100, redemptionRateMoney: "1.00", enabled: false };
+      logger.error({ err: error }, "Erro crítico ao buscar configurações no loyaltyRouter");
+      return { 
+        redemptionRatePoints: 100, 
+        redemptionRateMoney: "1.00", 
+        enabled: false,
+        conversionRateMoney: "1.00",
+        conversionRatePoints: 1,
+        redemptionRules: [] as RedemptionRule[]
+      };
     }
   }),
 
-  // Mantido por compatibilidade com outras partes do site
-  getCustomerHistory: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.user.id;
-    const db = await getDb();
-    const result = await db.execute(sql`SELECT * FROM loyalty_history WHERE user_id = ${userId} ORDER BY created_at DESC`);
-    const rows = (result as any)[0];
-    if (!Array.isArray(rows)) return [];
-    return rows.map((entry: any) => ({ ...entry, points: Number(entry.points_change || 0), date: entry.created_at }));
+  /**
+   * 🔄 COMPATIBILIDADE E DEBUG DE SALDO
+   */
+  getCustomerSummary: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const db = await getDb();
+      const [result] = await db.execute<SqlResult>(sql`
+        SELECT COALESCE(SUM(points_change), 0) as total_balance 
+        FROM loyalty_history 
+        WHERE user_id = ${ctx.user.id}
+      `);
+      
+      const rows = Array.isArray(result) ? result : [result];
+      const points = Number(rows[0]?.total_balance || 0);
+
+      return { 
+        current_points: points, 
+        balance: points, 
+        points, 
+        userId: ctx.user.id 
+      };
+    } catch (error) {
+      logger.error({ err: error }, "Erro no customer summary");
+      return { current_points: 0, balance: 0, points: 0, userId: ctx.user.id };
+    }
   }),
 
-  getCustomerSummary: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
-    const result = await db.execute(sql`SELECT SUM(points_change) as total_balance FROM loyalty_history WHERE user_id = ${ctx.user.id}`);
-    const data = (result as any)[0];
-    const rows = Array.isArray(data) ? data[0] : data;
-    const points = Number(rows?.total_balance || 0);
-    return { current_points: points, balance: points, points, userId: ctx.user.id };
+  getUserBalance: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.user.id;
+    logger.debug({ userId }, "Verificando saldo do usuário via getUserBalance");
+
+    try {
+      const db = await getDb();
+      const [result] = await db.execute<SqlResult>(sql`
+        SELECT COALESCE(SUM(points_change), 0) as total_balance 
+        FROM loyalty_history 
+        WHERE user_id = ${userId}
+      `);
+      
+      const rows = Array.isArray(result) ? result : [result];
+      const balance = Number(rows[0]?.total_balance || 0);
+
+      return { balance, userId };
+    } catch (error) {
+      logger.error({ err: error }, "Erro ao buscar balance");
+      return { balance: 0, userId };
+    }
   }),
 });

@@ -1,133 +1,84 @@
 import { z } from "zod";
 import { router, adminProcedure, publicProcedure } from "../../_core/trpc.js";
-import { getDb } from "../../db.js";
-import { sql } from "drizzle-orm";
-import { TRPCError } from "@trpc/server";
-// ✅ Caminho ajustado para a lógica de banco de dados
-import * as AdminSizes from "../../admin-sizes-accompaniments.js";
+
+// ✅ Importações corrigidas para os seus arquivos reais
+import { 
+  getAllDishSizes, 
+  upsertDishSize, 
+  deleteDishSize, 
+  toggleSizeGroupLink 
+} from "../../admin-sizes.js"; 
+import { getAccsWithNutrition } from "../../accompaniments.js"; 
 
 export const sizesRouter = router({
   
   // 1. TAMANHOS (DISH SIZES)
-  // Usado no Storefront para o cliente escolher o tamanho
+  
+  /**
+   * Lista todos os tamanhos (P, M, G) para a vitrine ou admin
+   */
   list: publicProcedure.query(async () => {
-    return await AdminSizes.getAllDishSizes();
+    return await getAllDishSizes();
   }),
 
-  getById: adminProcedure
-    .input(z.object({ id: z.coerce.number() }))
-    .query(async ({ input }) => {
-      return await AdminSizes.getSizeById(input.id);
-    }),
-
-  create: adminProcedure
+  /**
+   * Cria ou Atualiza um tamanho (Usa sua função upsert)
+   */
+  upsert: adminProcedure
     .input(z.object({
+      id: z.number().optional().nullable(),
       name: z.string().min(1, "Nome é obrigatório"),
-      priceModifier: z.coerce.number().default(0),
-      weight: z.string().optional().nullable(),
-    }))
-    .mutation(async ({ input }) => {
-      return await AdminSizes.createDishSize(input);
-    }),
-
-  update: adminProcedure
-    .input(z.object({ 
-      id: z.coerce.number(),
-      name: z.string().optional(),
-      priceModifier: z.coerce.number().optional(),
-      weight: z.string().optional().nullable(),
-      isActive: z.boolean().optional(),
+      priceModifier: z.union([z.string(), z.number()]).default("0.00"),
+      mainDishWeight: z.union([z.string(), z.number()]).default(200),
+      isActive: z.boolean().default(true),
+      groupsOrder: z.array(z.number()).optional(),
     }).passthrough())
     .mutation(async ({ input }) => {
-      const { id, ...data } = input;
-      return await AdminSizes.updateDishSize(id, data);
+      const result = await upsertDishSize(input);
+      return {
+        ...result,
+        success: true,
+        message: input.id ? "Tamanho atualizado!" : "Novo tamanho criado com sucesso! 📏"
+      };
     }),
 
+  /**
+   * Remove um tamanho e seus vínculos (Transação garantida)
+   */
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      return await AdminSizes.deleteDishSize(input.id);
+      await deleteDishSize(input.id);
+      return {
+        success: true,
+        message: "Tamanho removido com sucesso."
+      };
     }),
 
-  // 2. GRUPOS DE ACOMPANHAMENTO
-  listGroups: adminProcedure.query(async () => {
-    return await AdminSizes.getAllAccompanimentGroups();
+  // 2. ACOMPANHAMENTOS E NUTRIÇÃO
+
+  /**
+   * Busca as opções de acompanhamento com dados nutricionais completos
+   */
+  listOptionsWithNutrition: adminProcedure.query(async () => {
+    return await getAccsWithNutrition();
   }),
 
-  createGroup: adminProcedure
-    .input(z.object({ name: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      return await AdminSizes.createAccompanimentGroup(input);
-    }),
+  // 3. VÍNCULOS (Link entre Tamanho e Grupo)
 
-  duplicateGroup: adminProcedure
+  /**
+   * Liga ou desliga um grupo de um tamanho específico
+   */
+  toggleLink: adminProcedure
     .input(z.object({ 
-      id: z.number(), 
-      newName: z.string().min(1) 
+      sizeId: z.number(), 
+      groupId: z.number() 
     }))
     .mutation(async ({ input }) => {
-      try {
-        return await AdminSizes.duplicateGroup(input);
-      } catch (error: any) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: error.message || "Falha ao duplicar grupo",
-        });
-      }
-    }),
-
-  // 3. OPÇÕES INDIVIDUAIS (Sub-router)
-  options: router({
-    list: adminProcedure
-      .input(z.object({ groupId: z.number() }))
-      .query(async ({ input }) => {
-        return await AdminSizes.getAccompanimentOptionsByGroup(input.groupId);
-      }),
-
-    create: adminProcedure
-      .input(z.object({ 
-        groupId: z.number(), 
-        name: z.string().min(1), 
-        priceModifier: z.coerce.number() 
-      }))
-      .mutation(async ({ input }) => {
-        return await AdminSizes.createAccompanimentOption(input);
-      }),
-
-    update: adminProcedure
-      .input(z.any())
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return await AdminSizes.updateAccompanimentOption(id, data);
-      }),
-
-    delete: adminProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return await AdminSizes.deleteAccompanimentOption(input.id);
-      }),
-  }),
-
-  // 4. VÍNCULOS (Configura quais grupos aparecem em quais tamanhos)
-  getAccompanimentGroups: adminProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Offline" });
-
-    const [rows]: any = await db.execute(sql`
-      SELECT size_id as sizeId, accompaniment_group_id as groupId FROM size_accompaniment_groups
-    `);
-    return Array.isArray(rows) ? rows : [];
-  }),
-
-  addAccompanimentGroup: adminProcedure
-    .input(z.object({ sizeId: z.coerce.number(), groupId: z.coerce.number() }))
-    .mutation(async ({ input }) => {
-      return await AdminSizes.linkAccompanimentToSize(input);
-    }),
-
-  removeAccompanimentGroup: adminProcedure
-    .input(z.object({ sizeId: z.coerce.number(), groupId: z.coerce.number() }))
-    .mutation(async ({ input }) => {
-      return await AdminSizes.unlinkAccompanimentFromSize(input.sizeId, input.groupId);
+      const result = await toggleSizeGroupLink(input.sizeId, input.groupId);
+      return {
+        ...result,
+        message: result.linked ? "Grupo vinculado! 🔗" : "Vínculo removido."
+      };
     }),
 });

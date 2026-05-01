@@ -1,63 +1,19 @@
-import * as React from "react";
-import { useDialogComposition } from "@/components/ui/dialog";
-import { useComposition } from "@/hooks/useComposition";
-import { cn } from "@/lib/utils";
+import * as React from "react"
 
-// ✅ Aplicado React.forwardRef para permitir que o hook-form acesse o elemento DOM
-const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, onKeyDown, onCompositionStart, onCompositionEnd, ...props }, ref) => {
-    
-    // Get dialog composition context if available
-    const dialogComposition = useDialogComposition();
+import { cn } from "@/lib/utils"
 
-    // Add composition event handlers to support IME (input method editor)
-    const {
-      onCompositionStart: handleCompositionStart,
-      onCompositionEnd: handleCompositionEnd,
-      onKeyDown: handleKeyDown,
-    } = useComposition<HTMLInputElement>({
-      onKeyDown: (e) => {
-        const isComposing = (e.nativeEvent as any).isComposing || dialogComposition.justEndedComposing();
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        "h-10 w-full min-w-0 border border-transparent border-b-input bg-transparent px-0 py-1 text-base transition-[color,border-color] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-b-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-b-destructive md:text-sm dark:aria-invalid:border-b-destructive/50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
 
-        if (e.key === "Enter" && isComposing) {
-          return;
-        }
-
-        onKeyDown?.(e);
-      },
-      onCompositionStart: (e) => {
-        dialogComposition.setComposing(true);
-        onCompositionStart?.(e);
-      },
-      onCompositionEnd: (e) => {
-        dialogComposition.markCompositionEnd();
-        setTimeout(() => {
-          dialogComposition.setComposing(false);
-        }, 100);
-        onCompositionEnd?.(e);
-      },
-    });
-
-    return (
-      <input
-        type={type}
-        ref={ref} // ✅ A referência agora é repassada corretamente aqui
-        data-slot="input"
-        className={cn(
-          "file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-          "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-          "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
-          className
-        )}
-        onCompositionStart={handleCompositionStart}
-        onCompositionEnd={handleCompositionEnd}
-        onKeyDown={handleKeyDown}
-        {...props}
-      />
-    );
-  }
-);
-
-Input.displayName = "Input"; // ✅ Importante para facilitar o debug no React DevTools
-
-export { Input };
+export { Input }

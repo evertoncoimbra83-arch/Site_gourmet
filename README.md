@@ -250,7 +250,7 @@ pnpm test --watch
 DATABASE_URL=mysql://user:password@host/database
 
 # WooCommerce
-WOOCOMMERCE_URL=https://gourmetsaudavel.com.br
+WOOCOMMERCE_URL=https://gourmetsaudavel.com
 WOOCOMMERCE_CONSUMER_KEY=ck_...
 WOOCOMMERCE_CONSUMER_SECRET=cs_...
 

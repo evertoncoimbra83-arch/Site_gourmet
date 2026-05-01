@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para satisfazer a regra do ESLint
 import { AdminOrdersView } from "./adminOrders/view/AdminOrdersView";
 
 /**
@@ -7,10 +8,10 @@ import { AdminOrdersView } from "./adminOrders/view/AdminOrdersView";
  */
 export default function AdminOrders() {
   return (
-    <div className="container mx-auto py-10 px-4 md:px-0 min-h-screen bg-transparent">
+    <div className="container mx-auto py-10 px-4 md:px-0 min-h-screen bg-transparent text-left">
       {/* Renderiza a View principal. 
-         Se houver erro de compilação aqui, verifique se o arquivo 
-         ./adminOrders/view/AdminOrdersView.tsx existe.
+          Se houver erro de compilação aqui, verifique se o arquivo 
+          ./adminOrders/view/AdminOrdersView.tsx existe.
       */}
       <AdminOrdersView />
     </div>

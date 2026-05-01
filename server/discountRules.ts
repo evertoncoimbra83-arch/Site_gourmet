@@ -1,28 +1,22 @@
 import { eq, desc } from "drizzle-orm"; 
-import { getDb } from "./db.js";
-import { discountRules } from "../drizzle/schema.js"; 
+import { getDb } from "./db";
+import { discountRules } from "../drizzle/schema"; 
 import { z } from "zod";
 
 // -------------------------------------------------------------
 // ESQUEMA DE VALIDAÇÃO (ZOD)
 // -------------------------------------------------------------
-
 export const discountRuleInput = z.object({
-  // ✅ Agora forçamos o ID a ser um número (ou convertido para número)
   id: z.coerce.number().optional(), 
   name: z.string().min(1, "Nome é obrigatório"),
   description: z.string().max(512).optional().nullable(),
   minQuantity: z.coerce.number().min(1),
   maxQuantity: z.coerce.number().optional().nullable(),
-  discountType: z.enum(["percentage", "fixed"]),
-  discount_value: z.coerce.number().min(0),
+  type: z.enum(["percentage", "fixed"]), 
+  value: z.coerce.number().min(0),       
   priority: z.coerce.number().optional().nullable(),
   isActive: z.boolean().optional().default(true),
 });
-
-// -------------------------------------------------------------
-// FUNÇÕES DE SERVIÇO (CRUD)
-// -------------------------------------------------------------
 
 /**
  * LISTAR REGRAS
@@ -36,14 +30,16 @@ export async function listDiscountRules() {
     
     return rules.map(rule => ({
       ...rule,
-      // ✅ Mantemos como número internamente
       id: Number(rule.id), 
       minQuantity: Number(rule.minQuantity),
-      discount_value: Number(rule.discount_value),
+      // ✅ MAPEAMENTO: Traduz o que vem do banco para o que o front espera
+      type: rule.discountType,
+      value: Number(rule.discountValue),
       isActive: Boolean(rule.isActive),
     }));
-  } catch (error: any) {
-    console.error("❌ ERRO AO LISTAR:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+    console.error("Erro ao listar regras de desconto:", errorMessage);
     return []; 
   }
 }
@@ -55,24 +51,19 @@ export async function createDiscountRule(data: z.infer<typeof discountRuleInput>
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ No INSERT, NÃO enviamos o ID (MySQL gerencia o AUTO_INCREMENT)
-    await db.insert(discountRules).values({
-      name: data.name,
-      description: data.description ?? null,
-      minQuantity: data.minQuantity,
-      maxQuantity: data.maxQuantity ?? null,
-      discountType: data.discountType,
-      discount_value: data.discount_value.toString(),
-      priority: data.priority ?? 0,
-      isActive: data.isActive,
-    });
+  // Removido try/catch inútil (no-useless-catch)
+  await db.insert(discountRules).values({
+    name: data.name,
+    description: data.description ?? null,
+    minQuantity: data.minQuantity,
+    maxQuantity: data.maxQuantity ?? null,
+    discountType: data.type,         
+    discountValue: data.value.toString(), 
+    priority: data.priority ?? 0,
+    isActive: data.isActive,
+  });
 
-    return { success: true };
-  } catch (error: any) {
-    console.error("❌ ERRO NO INSERT:", error.message);
-    throw error;
-  }
+  return { success: true };
 }
 
 /**
@@ -82,27 +73,21 @@ export async function updateDiscountRule(id: number, data: z.infer<typeof discou
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ Certifique-se de passar o ID como NUMBER para o eq()
-    await db.update(discountRules)
-      .set({
-        name: data.name,
-        description: data.description ?? null,
-        minQuantity: data.minQuantity,
-        maxQuantity: data.maxQuantity ?? null,
-        discountType: data.discountType,
-        discount_value: data.discount_value.toString(),
-        priority: data.priority ?? 0,
-        isActive: data.isActive,
-        updated_at: new Date()
-      })
-      .where(eq(discountRules.id, id)); 
+  await db.update(discountRules)
+    .set({
+      name: data.name,
+      description: data.description ?? null,
+      minQuantity: data.minQuantity,
+      maxQuantity: data.maxQuantity ?? null,
+      discountType: data.type,        
+      discountValue: data.value.toString(), 
+      priority: data.priority ?? 0,
+      isActive: data.isActive,
+      updatedAt: new Date()
+    })
+    .where(eq(discountRules.id, id)); 
 
-    return { success: true };
-  } catch (error: any) {
-    console.error("❌ ERRO NO UPDATE:", error.message);
-    throw error;
-  }
+  return { success: true };
 }
 
 /**
@@ -112,12 +97,6 @@ export async function deleteDiscountRule(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ O ID aqui deve ser number
-    await db.delete(discountRules).where(eq(discountRules.id, id));
-    return { success: true };
-  } catch (error: any) {
-    console.error("❌ ERRO AO DELETAR:", error.message);
-    throw error;
-  }
+  await db.delete(discountRules).where(eq(discountRules.id, id));
+  return { success: true };
 }

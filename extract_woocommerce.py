@@ -3,7 +3,7 @@ import requests
 import json
 from requests.auth import HTTPBasicAuth
 
-WOO_URL = 'https://gourmetsaudavel.com.br'
+WOO_URL = 'https://gourmetsaudavel.com'
 CONSUMER_KEY = 'ck_9886ee50d6a6eea496ccf24f24c21d2a496f603c'
 CONSUMER_SECRET = 'cs_95368563fa7635e00fd9fc689c9a7988f573697e'
 

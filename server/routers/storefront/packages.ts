@@ -1,176 +1,158 @@
+// client/src/server/routers/storefront/packages.router.ts
+
 import { router, publicProcedure } from "../../_core/trpc.js";
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
-import { 
-  getPackageById, 
-  getAllPackages, 
-  getAllActiveDishes,
-  updatePackageConfig 
-} from "../../packages.js"; 
+import { getPackageById, getAllPackages } from "../../packages.js"; 
 import { getDb } from "../../db.js";
 import { 
-  accompanimentGroups, 
-  accompanimentOptions, 
-  sizeAccompanimentGroups,
   dishSizes,
-  // ✅ Importamos como 'categories' para manter compatibilidade com o código abaixo
-  accompanimentCategories as categories 
-} from "../../../drizzle/schema/catalog.js";
-import { eq, and, inArray } from "drizzle-orm";
+  dishes
+} from "../../../drizzle/schema/index.js"; 
+import { eq, sql } from "drizzle-orm";
+import { safeInteger, safeJsonParse, safeNumber } from "../../lib/safe-parse.js";
 
-// --- HELPERS DE NORMALIZAÇÃO ---
+// --- INTERFACES ---
+interface DishNutritionalInfo {
+  ingredients?: string;
+  [key: string]: unknown;
+}
 
-const toNum = (val: any): number => {
-  if (val === null || val === undefined) return 0;
-  const n = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val;
-  return isNaN(n) ? 0 : n;
-};
+interface Dish {
+  id: string | number;
+  name: string;
+  price: string | number;
+  ingredients?: string;
+  nutritionalInfo?: string | DishNutritionalInfo;
+  nutritional_info?: DishNutritionalInfo;
+  nutrition?: string | DishNutritionalInfo;
+  isActive?: boolean;
+  accompaniments?: unknown[];
+}
 
-const normalizePackage = (pkg: any) => {
-  if (!pkg) return null;
-  const rawPrice = pkg.price ?? pkg.basePrice ?? pkg.base_price;
-  
-  return {
-    ...pkg, 
-    price: toNum(rawPrice),
-    basePrice: toNum(rawPrice),
-    numberOfOptions: Number(pkg.numberOfOptions || pkg.number_of_options || 0),
-    config: typeof pkg.config === 'string' ? JSON.parse(pkg.config) : pkg.config
-  };
-};
+interface PackageSlot {
+  dishes: Dish[];
+  [key: string]: unknown;
+}
 
-// --- ROUTER ---
+interface PackageResult {
+  id: string | number;
+  name: string;
+  description?: string | null;
+  highlights?: string | string[] | null; // ✅ Adicionado
+  category?: string | null;               // ✅ Adicionado
+  isPopular?: boolean | number | null;    // ✅ Adicionado
+  options: PackageSlot[];
+  [key: string]: unknown;
+}
 
 export const packagesRouter = router({
   
-  // 1. LISTAGEM GERAL
-  list: publicProcedure
-    .input(z.object({ search: z.string().nullish() }).optional())
-    .query(async () => {
-      try {
-        const result = await getAllPackages();
-        if (!result) return [];
-        return result.map(normalizePackage);
-      } catch (error) {
-        console.error("Erro listing packages:", error);
-        return [];
-      }
-    }),
+  /**
+   * 📦 LIST: Lista todos os pacotes/kits ativos para a vitrine
+   */
+  list: publicProcedure.query(async () => {
+    try {
+      const result = await getAllPackages() as unknown as PackageResult[];
+      if (!result) return [];
 
-  // 2. BUSCA POR ID (USADO NO DRAWER)
+      // ✅ Mapeia os pacotes garantindo que os novos campos cheguem tratados ao frontend
+      return result.map(pkg => ({
+        ...pkg,
+        // Garante que o frontend receba booleano para isPopular (MySQL retorna 0/1)
+        isPopular: pkg.isPopular === true || pkg.isPopular === 1 || pkg.is_popular === 1,
+        // Highlights e Category já vão como string/null para o frontend lidar no PackageCard
+      }));
+    } catch (error) {
+      console.error("Erro ao listar pacotes no storefront:", error);
+      return [];
+    }
+  }),
+
+  /**
+   * 🔍 GET BY ID: Detalhes do pacote e seus Slots para o Wizard
+   */
   getById: publicProcedure
-    .input(z.object({ 
-      id: z.union([z.string(), z.number()]).transform(v => String(v)) 
-    }))
+    .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       try {
-        const pkg = await getPackageById(input.id);
-        if (!pkg) throw new TRPCError({ code: 'NOT_FOUND', message: "Pacote não encontrado" });
-        return normalizePackage(pkg);
-      } catch (error: any) {
-        throw new TRPCError({ 
-          code: 'INTERNAL_SERVER_ERROR', 
-          message: error.message || "Erro ao buscar pacote" 
-        });
+        const result = await getPackageById(input.id) as unknown as PackageResult; 
+        if (!result) return null;
+
+        return {
+          ...result,
+          // ✅ Tratamento dos novos campos também no detalhe (caso precise no drawer)
+          isPopular: result.isPopular === true || result.isPopular === 1 || result.is_popular === 1,
+          options: (result.options || []).map((slot) => ({
+            ...slot,
+            dishes: (slot.dishes || []).map((dish) => ({
+              ...dish,
+              ingredients: dish.ingredients || (dish.nutritional_info?.ingredients) || ""
+            }))
+          }))
+        };
+      } catch (error) {
+        console.error(`Erro ao buscar pacote ${input.id}:`, error);
+        return null;
       }
     }),
 
   /**
-   * ✅ LISTAR PRATOS PARA O BUILDER COM ÍCONES NAS CATEGORIAS
+   * 📏 GET AVAILABLE SIZES: Busca os tamanhos configurados (P, M, G)
    */
-  listAllDishes: publicProcedure.query(async () => {
-    const db = await getDb();
-    
-    // Busca dados base
-    const allDishes = await getAllActiveDishes();
-    
-    // ✅ Busca categorias de acompanhamento (onde estão os ícones)
-    const allCategories = await db.select().from(categories).where(eq(categories.isActive, true));
-    
-    if (!allDishes || allDishes.length === 0) return [];
-
-    const sizes = await db
-      .select()
-      .from(dishSizes)
-      .where(eq(dishSizes.isActive, true));
-
-    return await Promise.all(allDishes.map(async (dish: any) => {
-      let accompaniments: any[] = [];
-
-      if (dish.allowAccompaniments && sizes.length > 0) {
-        const sizeIds = sizes.map(s => s.id);
-
-        // ✅ Busca grupos vinculados aos tamanhos
-        const groupLinks = await db
-          .select({
-            sizeId: sizeAccompanimentGroups.sizeId,
-            isRequired: sizeAccompanimentGroups.isRequired,
-            id: accompanimentGroups.id,
-            name: accompanimentGroups.name,
-          })
-          .from(sizeAccompanimentGroups)
-          .innerJoin(accompanimentGroups, eq(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id))
-          .where(and(
-            inArray(sizeAccompanimentGroups.sizeId, sizeIds),
-            eq(accompanimentGroups.isActive, true)
-          ));
-
-        if (groupLinks.length > 0) {
-            const allOptions = await db
-                .select()
-                .from(accompanimentOptions)
-                .where(eq(accompanimentOptions.isActive, true));
-
-            accompaniments = groupLinks.map(link => {
-                const filteredOptions = allOptions.map(opt => {
-                    const config = typeof opt.groupsConfig === 'string' 
-                        ? JSON.parse(opt.groupsConfig) 
-                        : (opt.groupsConfig || []);
-                    
-                    // Comparamos com link.id (extraído do join acima)
-                    const specific = config.find((c: any) => Number(c.group_id) === link.id);
-                    if (!specific) return null;
-
-                    // ✅ CORREÇÃO DE TIPAGEM: Usamos 'as any' para acessar iconKey e color com segurança
-                    // Isso evita o erro TS2339 se o tipo inferido estiver incompleto
-                    const categoryData = allCategories.find(c => c.id === opt.accompanimentCategoryId) as any;
-
-                    return {
-                        ...opt,
-                        priceModifier: specific.price_modifier || "0.00",
-                        // ✅ Hidrata o objeto category para o frontend renderizar o ícone
-                        category: categoryData ? {
-                            id: categoryData.id,
-                            name: categoryData.name,
-                            iconKey: categoryData.iconKey,
-                            color: categoryData.color
-                        } : null
-                    };
-                }).filter(Boolean);
-
-                return {
-                    ...link,
-                    options: filteredOptions
-                };
-            });
-        }
-      }
-
-      return {
-        ...dish,
-        accompaniments
-      };
-    }));
+  getAvailableSizes: publicProcedure.query(async () => {
+    try {
+      const db = await getDb();
+      if (!db) return [];
+      
+      const result = await db
+        .select({
+          id: dishSizes.id,
+          name: dishSizes.name,
+          mainDishWeight: sql<number>`CAST(COALESCE(${dishSizes.mainDishWeight}, 0) AS UNSIGNED)`,
+          isActive: dishSizes.isActive,
+        })
+        .from(dishSizes)
+        .where(eq(dishSizes.isActive, true));
+      
+      return result || [];
+    } catch {
+      return [];
+    }
   }),
 
-  // 4. ATUALIZAÇÃO DE CONFIGURAÇÃO (ADMIN)
-  updateConfig: publicProcedure
-    .input(z.object({ 
-      id: z.union([z.string(), z.number()]).transform(v => String(v)), 
-      config: z.any() 
-    }))
-    .mutation(async ({ input }) => {
-      const configStr = typeof input.config === 'string' ? input.config : JSON.stringify(input.config);
-      return await updatePackageConfig(input.id, configStr);
-    }),
+  /**
+   * 🥗 LIST ALL DISHES: Busca pratos para preencher os slots dos kits
+   */
+  listAllDishes: publicProcedure.query(async () => {
+    try {
+      const db = await getDb();
+      if (!db) return [];
+      
+      const dishesRaw = await db.select().from(dishes).where(eq(dishes.isActive, true)) as unknown as Dish[];
+
+      return dishesRaw.map((dish) => {
+        const rawNutri = dish.nutritionalInfo || dish.nutritional_info || dish.nutrition;
+        
+        let nutInfo: DishNutritionalInfo = {};
+        if (typeof rawNutri === 'string') {
+          nutInfo = safeJsonParse<DishNutritionalInfo>(rawNutri, {});
+        } else {
+          nutInfo = (rawNutri as DishNutritionalInfo) || {};
+        }
+
+        return {
+          ...dish,
+          id: safeInteger(dish.id),
+          price: safeNumber(dish.price),
+          nutritional_info: {
+            ...nutInfo,
+            ingredients: dish.ingredients || nutInfo.ingredients || ""
+          },
+          accompaniments: dish.accompaniments || [] 
+        };
+      });
+    } catch {
+      return [];
+    }
+  }),
 });

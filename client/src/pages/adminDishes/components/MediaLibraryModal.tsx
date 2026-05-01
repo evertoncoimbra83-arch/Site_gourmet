@@ -1,124 +1,203 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import React, { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/_core/trpc";
-import { Loader2, CheckCircle2, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CheckCircle2, ChevronLeft, Folder, ImageOff, Loader2 } from "lucide-react";
+
+interface MediaItem {
+  id: string | number;
+  url?: string;
+  filePath?: string;
+  folder?: string;
+  originalFilename?: string;
+}
 
 interface MediaLibraryModalProps {
   open: boolean;
   onClose: () => void;
   onSelect: (url: string) => void;
   selectedUrl?: string;
+  defaultFolder?: string;
 }
 
-export default function MediaLibraryModal({ open, onClose, onSelect, selectedUrl }: MediaLibraryModalProps) {
-  // ✅ Busca as imagens do banco
-  const { data: media, isLoading } = trpc.admin.media.list.useQuery(undefined, {
-    enabled: open 
-  });
+const DEFAULT_FOLDERS = ["logo", "pratos", "banners", "nutris", "geral"];
 
-  /**
-   * 🛠️ Helper para resolver a URL da imagem
-   * Se a imagem for local (/uploads/...), adiciona o endereço do servidor.
-   */
+function normalizeFolder(folder?: string | null) {
+  const normalized = (folder || "all").toLowerCase().trim();
+  return normalized || "all";
+}
+
+export default function MediaLibraryModal({
+  open,
+  onClose,
+  onSelect,
+  selectedUrl,
+  defaultFolder,
+}: MediaLibraryModalProps) {
+  const [currentFolder, setCurrentFolder] = useState<string | null>(
+    defaultFolder || null,
+  );
+  const normalizedFolder = normalizeFolder(currentFolder);
+
+  useEffect(() => {
+    if (open) {
+      setCurrentFolder(defaultFolder || null);
+    }
+  }, [defaultFolder, open]);
+
+  const { data: folders = [] } = trpc.admin.media.listFolders.useQuery(undefined, {
+    enabled: open,
+  });
+  const { data: media, isLoading } = trpc.admin.media.list.useQuery(
+    {
+      folder: normalizedFolder === "all" ? undefined : normalizedFolder,
+    },
+    { enabled: open && !!currentFolder },
+  );
+
+  const availableFolders = useMemo(() => {
+    return Array.from(new Set(["all", ...DEFAULT_FOLDERS, ...folders])).sort((a, b) => {
+      if (a === "all") return -1;
+      if (b === "all") return 1;
+      return a.localeCompare(b);
+    });
+  }, [folders]);
+
   const getFullUrl = (url: string) => {
     if (!url) return "";
     if (url.startsWith("http")) return url;
-    
-    // Altere para a porta do seu backend se for diferente de 3001
-    const BACKEND_URL = "http://localhost:3001"; 
-    const cleanUrl = url.startsWith("/") ? url : `/${url}`;
-    
-    return `${BACKEND_URL}${cleanUrl}`;
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+    const cleanPath = url
+      .replace(/\\/g, "/")
+      .replace(/^\/?public\//, "")
+      .replace(/^\//, "");
+    const finalPath = cleanPath.startsWith("uploads/")
+      ? cleanPath
+      : `uploads/${cleanPath}`;
+    return `${baseUrl}/${finalPath}`;
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col rounded-[2.5rem] border-none p-0 bg-white shadow-2xl">
-        <DialogHeader className="p-8 pb-4">
-          <DialogTitle className="text-2xl font-black uppercase italic tracking-tighter">
-            Biblioteca de <span className="text-[#D4AF37]">Mídia</span>
+      <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden rounded-4xl border-none bg-white p-0 shadow-2xl outline-none">
+        <DialogHeader className="p-8 pb-4 text-left">
+          <DialogTitle className="text-2xl font-black uppercase italic tracking-tighter text-slate-900">
+            Biblioteca de <span className="text-emerald-600">Midia</span>
           </DialogTitle>
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
-            Selecione um arquivo da sua galeria local
-          </p>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Selecione arquivos da biblioteca por pasta
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-8 pt-2">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <Loader2 className="animate-spin text-[#D4AF37]" size={48} />
-              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest animate-pulse">
-                Sincronizando arquivos...
-              </p>
+        <div className="custom-scrollbar flex-1 overflow-y-auto p-8 pt-2">
+          {currentFolder && !defaultFolder ? (
+            <button
+              type="button"
+              onClick={() => setCurrentFolder(null)}
+              className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase text-emerald-600 transition-colors hover:text-slate-900"
+            >
+              <ChevronLeft size={14} /> Voltar para Pastas
+            </button>
+          ) : null}
+
+          {!currentFolder ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {availableFolders.map((folder) => (
+                <div
+                  key={folder}
+                  onClick={() => setCurrentFolder(folder)}
+                  className="group flex cursor-pointer flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-6 transition-all hover:border-emerald-500 hover:shadow-xl"
+                >
+                  <Folder
+                    size={40}
+                    className="fill-amber-100 text-amber-400 transition-all group-hover:fill-amber-400"
+                  />
+                  <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    {folder === "all" ? "todas" : folder}
+                  </span>
+                </div>
+              ))}
             </div>
-          ) : media?.length === 0 ? (
+          ) : isLoading ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <Loader2 className="animate-spin text-emerald-600" size={48} />
+            </div>
+          ) : !media?.length ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-300">
               <ImageOff size={48} className="mb-4 opacity-20" />
-              <p className="font-bold uppercase text-[10px] tracking-widest">Nenhuma mídia encontrada</p>
+              <p className="font-bold uppercase text-[10px] text-slate-500">
+                Nenhuma imagem nesta pasta
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {media?.map((item: any) => {
-                const fullUrl = getFullUrl(item.url);
-                const isSelected = selectedUrl === item.url;
+            <div className="space-y-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                {normalizedFolder === "all"
+                  ? "Todas as imagens"
+                  : `Pasta: ${normalizedFolder}`}
+              </p>
 
-                return (
-                  <div 
-                    key={item.id}
-                    onClick={() => onSelect(item.url)}
-                    className={`
-                      relative aspect-square rounded-[1.8rem] overflow-hidden cursor-pointer border-4 transition-all duration-300 group
-                      ${isSelected 
-                        ? "border-[#D4AF37] scale-95 shadow-[0_10px_30px_rgba(212,175,55,0.3)]" 
-                        : "border-slate-100 hover:border-slate-200 hover:scale-[1.02]"}
-                    `}
-                  >
-                    <img 
-                      src={fullUrl} 
-                      className={cn(
-                        "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
-                        isSelected && "brightness-75"
-                      )} 
-                      alt={item.name || "Mídia"} 
-                    />
-                    
-                    {isSelected && (
-                      <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                        <CheckCircle2 className="text-white fill-[#D4AF37] drop-shadow-md" size={40} />
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {(media as MediaItem[])?.map((item) => {
+                  const imageUrl = item.url || item.filePath || "";
+                  const fullUrl = getFullUrl(imageUrl);
+                  const isSelected = selectedUrl === imageUrl;
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => onSelect(imageUrl)}
+                      className={`relative aspect-square cursor-pointer overflow-hidden rounded-[1.8rem] border-4 transition-all duration-300 ${
+                        isSelected
+                          ? "scale-95 border-emerald-600 shadow-lg"
+                          : "border-slate-50 hover:border-slate-200"
+                      }`}
+                    >
+                      <img
+                        src={fullUrl}
+                        className={`h-full w-full object-cover ${
+                          isSelected ? "brightness-75" : ""
+                        }`}
+                        alt={item.originalFilename || "Midia"}
+                        onError={(event: React.SyntheticEvent<HTMLImageElement>) => {
+                          event.currentTarget.src =
+                            "https://placehold.co/400x400?text=Erro+URL";
+                        }}
+                      />
+                      <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-700 shadow-sm">
+                        {item.folder || "geral"}
                       </div>
-                    )}
-
-                    {/* Overlay de hover com nome da imagem */}
-                    <div className="absolute inset-x-0 bottom-0 p-2 bg-black/40 backdrop-blur-sm translate-y-full group-hover:translate-y-0 transition-transform">
-                       <p className="text-[8px] text-white font-bold truncate text-center uppercase">
-                         {item.filename || 'Arquivo'}
-                       </p>
+                      {isSelected && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <CheckCircle2
+                            className="fill-emerald-600 text-white"
+                            size={32}
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
 
-        <div className="p-6 bg-slate-50/80 backdrop-blur-md border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[9px] font-black uppercase text-slate-400 ml-4">
-            {media?.length || 0} Arquivos detectados
-          </span>
-          <Button 
-            onClick={onClose} 
-            className="rounded-xl px-8 bg-slate-900 hover:bg-black text-white font-black text-[10px] uppercase tracking-[0.2em] h-12 transition-all active:scale-95"
+        <div className="flex justify-end border-t bg-slate-50/80 p-6">
+          <Button
+            onClick={onClose}
+            className="rounded-xl bg-emerald-600 px-8 font-black uppercase text-[10px] text-white"
           >
-            Concluir Seleção
+            Concluir
           </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
-
-/** * Helper para utilitário de classes (opcional, remova se não usar tailwind-merge) 
- */
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(" ");
-} 

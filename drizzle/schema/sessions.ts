@@ -1,29 +1,50 @@
-import { mysqlTable, varchar, datetime } from "drizzle-orm/mysql-core";
-import { authUsers } from "./auth_users.js"; // Ajuste o nome do arquivo se necessário (ex: auth_users.js)
+import { mysqlTable, varchar, datetime, text } from "drizzle-orm/mysql-core";
+import { users } from "./users"; 
 
 /**
- * TABELA DE SESSÕES (LUCIA AUTH)
- * Mantém o usuário logado entre navegações.
+ * TABELA DE SESSÕES (LUCIA AUTH + SGA TRACKING)
+ * Gerencia o estado de login e fornece dados para segurança e rastreamento de indicações.
  */
 export const sessions = mysqlTable("sessions", {
   /**
    * ✅ ID DA SESSÃO
-   * O Lucia gera strings aleatórias longas para o ID da sessão.
+   * O Lucia Auth exige que este campo seja uma String (VARCHAR).
    */
   id: varchar("id", { length: 255 }).primaryKey(),
-  
+
   /**
-   * 🚩 AJUSTE CRÍTICO: user_id
-   * Alterado para VARCHAR(255) para casar perfeitamente com authUsers.id.
-   * Sem isso, o Lucia falha ao tentar criar uma sessão para um usuário recém-logado.
+   * 🚩 USER ID
+   * Aponta para a tabela 'users'. 
    */
   userId: varchar("user_id", { length: 255 })
     .notNull()
-    .references(() => authUsers.id, { onDelete: "cascade" }), // Limpa sessões se o user for deletado
-    
+    .references(() => users.id, { onDelete: "cascade" }),
+
+  /**
+   * 🏷️ VÍNCULO DE INDICAÇÃO (REFERRAL)
+   * Armazena o código capturado da URL (?ref=...) para esta sessão específica.
+   * Isso garante que a atribuição de venda seja precisa.
+   */
+  referralCode: varchar("referral_code", { length: 100 }),
+
+  /**
+   * 🆔 GUEST ID (SESSÃO DE CONVIDADO)
+   * Útil para vincular o carrinho de quem ainda não logou à sessão atual.
+   */
+  guestId: varchar("guest_id", { length: 255 }),
+
   /**
    * ✅ EXPIRAÇÃO
-   * fsp: 3 garante precisão de milissegundos, recomendada pelo Lucia.
+   * { mode: 'date' } para compatibilidade com Lucia v3+.
    */
-  expiresAt: datetime("expires_at", { fsp: 3 }).notNull(),
+  expiresAt: datetime("expires_at", { fsp: 3, mode: "date" }).notNull(),
+
+  /**
+   * 🛡️ MONITORAMENTO
+   */
+  userAgent: text("user_agent"),
+  ipAddress: varchar("ip_address", { length: 45 }),
 });
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

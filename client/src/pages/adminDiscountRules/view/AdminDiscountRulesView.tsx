@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useAdminDiscountRules } from "../logic/useAdminDiscountRules";
 import { DiscountRuleForm } from "../components/DiscountRuleForm";
 import { Badge } from "@/components/ui/badge";
@@ -9,23 +9,41 @@ import {
   AccordionItem, 
   AccordionTrigger 
 } from "@/components/ui/accordion";
-import { Edit2, Trash2, Loader2, Zap, Plus, Settings2, LayoutGrid } from "lucide-react";
+import { Edit2, Trash2, Loader2, Zap, Plus, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// ✅ Interface unificada para remover todos os 'any'
+interface DiscountRuleItem {
+  id: number | string;
+  name: string;
+  description?: string | null;
+  min_quantity?: number;
+  minQuantity?: number;
+  max_quantity?: number;
+  maxQuantity?: number;
+  type: 'percentage' | 'fixed';
+  value: number | string;
+  priority: number | string | null;
+}
 
 export function AdminDiscountRulesView() {
   const { state, actions, data, mutations } = useAdminDiscountRules();
-  
-  // ✅ CORREÇÃO: Iniciado como string vazia para evitar erro de componente "uncontrolled"
   const [localExpandedId, setLocalExpandedId] = useState<string>("");
 
-  // ✅ Formata o valor baseado no tipo de desconto (porcentagem ou fixo)
-  const formatValue = (type: string, val: any) => {
-    const value = Number(val || 0).toFixed(2);
-    return type === "percentage" ? `${Number(val)}%` : `${value}€`;
+  const formatValue = (rule: DiscountRuleItem) => {
+    const type = rule.type || 'percentage';
+    const rawValue = rule.value ?? 0;
+    const numValue = parseFloat(String(rawValue));
+
+    if (isNaN(numValue)) return type === "percentage" ? "0%" : "0.00R$";
+
+    return type === "percentage" 
+      ? `${Math.round(numValue)}%` 
+      : `${numValue.toFixed(2)}R$`;
   };
 
   return (
-    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 text-left">
       
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -44,9 +62,9 @@ export function AdminDiscountRulesView() {
 
         <Button 
           onClick={() => {
-            // ✅ Reseta o form para garantir criação limpa
             actions.resetForm();
             setLocalExpandedId("new-rule"); 
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           className="h-16 px-10 rounded-[2rem] bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95 group"
         >
@@ -55,16 +73,14 @@ export function AdminDiscountRulesView() {
         </Button>
       </header>
 
-      {/* ACCORDION PRINCIPAL */}
       <Accordion 
         type="single" 
         collapsible 
         className="w-full space-y-6 border-none"
-        value={localExpandedId || ""} 
+        value={localExpandedId} 
         onValueChange={setLocalExpandedId}
       >
         
-        {/* SEÇÃO: CRIAR NOVA REGRA */}
         <AccordionItem value="new-rule" className="border-none">
           <AccordionContent className="pb-6">
             <div className="bg-white p-8 md:p-10 rounded-[3rem] border-2 border-dashed border-emerald-100 shadow-sm">
@@ -73,8 +89,9 @@ export function AdminDiscountRulesView() {
                   <span className="text-[10px] font-black uppercase tracking-widest">Criar nova faixa de desconto</span>
                </div>
                <DiscountRuleForm 
-                state={state} 
-                actions={actions} 
+                // ✅ CORREÇÃO: Usamos unknown como ponte segura em vez de 'any'
+                state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']} 
+                actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']} 
                 mutations={mutations} 
                 onCancel={() => setLocalExpandedId("")} 
                />
@@ -82,24 +99,13 @@ export function AdminDiscountRulesView() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* DIVISOR VISUAL */}
-        <div className="relative py-4">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-          <div className="relative flex justify-start">
-            <span className="bg-[#FBFBFC] pr-6 text-[10px] font-black uppercase tracking-[0.4em] text-slate-300">
-              Escalabilidade de Preço Ativa
-            </span>
-          </div>
-        </div>
-
-        {/* LISTAGEM DINÂMICA */}
         {state.isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-4">
              <Loader2 className="animate-spin text-emerald-600" size={32} />
              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sincronizando...</p>
           </div>
         ) : (
-          data.rules.map((rule: any) => (
+          (data.rules as DiscountRuleItem[] || []).map((rule) => (
             <AccordionItem key={rule.id} value={`edit-${rule.id}`} className="border-none">
               <div className={cn(
                 "group bg-white rounded-[2.5rem] border transition-all duration-500 overflow-hidden",
@@ -108,35 +114,33 @@ export function AdminDiscountRulesView() {
                 <div className="p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
                   
                   <div className="flex items-center gap-6">
-                    {/* Badge de Prioridade/Ordem */}
                     <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 font-black italic text-xl border border-slate-100 group-hover:text-emerald-500 transition-colors text-center">
-                      {rule.priority}
+                      {String(rule.priority || '0')}
                     </div>
                     <div className="space-y-1">
                       <h3 className="font-black text-xl uppercase italic tracking-tighter text-slate-900 leading-none">
                         {rule.name}
                       </h3>
                       <Badge className="bg-emerald-50 text-emerald-600 border-none font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-lg">
-                         {rule.minQuantity} a {rule.maxQuantity || "∞"} Itens
+                         {rule.min_quantity || rule.minQuantity} a {rule.max_quantity || rule.maxQuantity || "∞"} Itens
                       </Badge>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between md:justify-end gap-8 border-t md:border-t-0 pt-4 md:pt-0 border-slate-50">
-                    {/* Exibição do Valor de Desconto */}
                     <div className="text-right">
                       <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest mb-1">
-                        {rule.discountType === 'percentage' ? 'Percentual' : 'Valor Fixo'}
+                        { rule.type === 'percentage' ? 'Percentual' : 'Valor Fixo'}
                       </p>
                       <p className="font-black text-2xl text-emerald-600 italic tracking-tighter leading-none">
-                        {formatValue(rule.discountType, rule.discount_value)}
+                        {formatValue(rule)}
                       </p>
                     </div>
 
                     <div className="flex gap-2">
                       <AccordionTrigger 
                         className="p-0 hover:no-underline"
-                        onClick={() => actions.handleEdit(rule)}
+                        onClick={() => actions.handleEdit(rule as unknown as Parameters<typeof actions.handleEdit>[0])}
                       >
                         <div className={cn(
                           "h-12 w-12 rounded-xl flex items-center justify-center transition-all active:scale-95",
@@ -164,16 +168,12 @@ export function AdminDiscountRulesView() {
                   </div>
                 </div>
 
-                {/* ÁREA DE EDIÇÃO (FORMULÁRIO) */}
                 <AccordionContent className="p-0 border-t border-slate-50 bg-slate-50/20">
                   <div className="p-8 md:p-10">
-                    <div className="flex items-center gap-2 mb-8 text-slate-400">
-                      <Settings2 size={14} />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Editor de Regra Ativo</span>
-                    </div>
                     <DiscountRuleForm 
-                      state={state} 
-                      actions={actions} 
+                      // ✅ CORREÇÃO: Removido 'any'
+                      state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']} 
+                      actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']} 
                       mutations={mutations} 
                       onCancel={() => setLocalExpandedId("")} 
                     />

@@ -49,7 +49,7 @@ function analyzeSchemaFiles() {
 }
 
 async function generateDocs() {
-  console.log('🚀 Gerando Motor de Busca Gemini (Versão Turbo + Checkout)...');
+  
 
   // --- 1. ARQUITETURA DO CARRINHO ---
   try {
@@ -65,9 +65,9 @@ async function generateDocs() {
 O sistema utiliza \`syncCartState\` para processar itens complexos e injeta manualmente o \`discountValue\` do DB no \`getSummary\`.
 `;
       fs.writeFileSync(path.join(paths.outputDir, 'cart_architecture.md'), archDoc);
-      console.log('✅ Arquitetura do Carrinho documentada.');
+      
     }
-  } catch (e) { console.warn('⚠️ Erro ao analisar Cart Router.'); }
+  } catch (e) {  }
 
   // --- 2. STATUS DO CHECKOUT ---
   try {
@@ -89,9 +89,9 @@ O sistema utiliza \`syncCartState\` para processar itens complexos e injeta manu
 2. Deve herdar \`couponCode\` e \`discountValue\` calculados no Carrinho.
 `;
       fs.writeFileSync(path.join(paths.outputDir, 'checkout_status.md'), checkDoc);
-      console.log('✅ Status do Checkout documentado.');
+      
     }
-  } catch (e) { console.warn('⚠️ Checkout Router não encontrado.'); }
+  } catch (e) {  }
 
   // --- 3. DATABASE SCHEMA (Drizzle) ---
   try {
@@ -109,10 +109,10 @@ O sistema utiliza \`syncCartState\` para processar itens complexos e injeta manu
     });
 
     fs.writeFileSync(path.join(paths.outputDir, 'database_schema.md'), dbDoc);
-    console.log(`✅ Schema documentado (${tables.length} tabelas encontradas).`);
-  } catch (e) { console.error('❌ Erro ao analisar banco de dados:', e.message); }
+    
+  } catch (e) {  }
 
-  console.log('\n✨ Motor de busca Gemini atualizado com sucesso!');
+  
 }
 
 generateDocs();

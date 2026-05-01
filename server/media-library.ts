@@ -1,129 +1,136 @@
 /**
  * Sistema de gerenciamento de biblioteca de imagens (Media Library)
- * Upload de imagens para S3 e gerenciamento de metadados
+ * ✅ REVISADO: Armazenamento Local na VPS com Otimização Sharp
  */
 
 import { eq, desc } from "drizzle-orm";
 import { getDb } from "./db";
-// ✅ CORREÇÃO: Troca media_library pelo nome correto 'mediaLibrary'
-import { mediaLibrary } from "../drizzle/schema"; 
-import { storagePut } from "./storage"; // Presumindo que 'storage.ts' existe
+import { mediaLibrary } from "../drizzle/schema/index"; 
+import crypto from "crypto";
+import fs from "fs/promises";
+import path from "path";
+import sharp from "sharp";
 
-// Tipos base
+// ✅ Caminho absoluto para a pasta de uploads na raiz do projeto (fora da dist)
+const UPLOADS_DIR = path.resolve(process.cwd(), "public/uploads");
+
+// Tipos base para uso externo
 export type MediaLibraryItem = typeof mediaLibrary.$inferSelect;
 export type InsertMediaLibraryItem = typeof mediaLibrary.$inferInsert;
 
 /**
- * Gera nome único para arquivo
+ * Gera nome único para arquivo convertido para WebP
  */
-function generateUniqueFilename(originalFilename: string): string {
+function generateUniqueWebpFilename(): string {
   const timestamp = Date.now();
-  const randomStr = Math.random().toString(36).substring(2, 8);
-  // Garante que a extensão seja tratada de forma segura
-  const parts = originalFilename.split('.');
-  const extension = parts.length > 1 ? parts.pop() : 'bin'; 
-  return `${timestamp}-${randomStr}.${extension}`;
+  const randomStr = crypto.randomBytes(4).toString('hex');
+  return `${timestamp}-${randomStr}.webp`;
 }
 
 /**
- * Faz upload de imagem para S3 e salva metadados no banco
+ * Faz upload de imagem para a VPS e salva os metadados no banco de dados
  */
 export async function uploadImage(data: {
   file: Buffer | Uint8Array;
   originalFilename: string;
   mimeType: string;
-  uploadedBy: number;
-  fileSize: number; // Adicionado para inserção no DB
+  uploadedBy: string; 
+  fileSize: number;   
   altText?: string;
 }): Promise<MediaLibraryItem> {
   const db = await getDb();
-  if (!db) {
-    throw new Error("Database not available");
-  }
+  if (!db) throw new Error("Database not available");
 
-  try {
-    // Gerar nome único para o arquivo
-    const filename = generateUniqueFilename(data.originalFilename);
-    const fileKey = `media-library/${filename}`;
+  // 1. Garantir que a pasta de uploads existe fisicamente
+  await fs.mkdir(UPLOADS_DIR, { recursive: true });
 
-    // Upload para S3
-    // NOTE: A função 'storagePut' precisa ser ajustada para retornar o URL final, se for o caso.
-    const { url } = await storagePut(data.file, fileKey, data.mimeType); 
+  // 2. Gerar nome e caminhos
+  const filename = generateUniqueWebpFilename();
+  const filePath = path.join(UPLOADS_DIR, filename);
+  const buffer = data.file instanceof Buffer ? data.file : Buffer.from(data.file);
 
-    // Salva metadados no banco
-    const [inserted] = await db.insert(mediaLibrary).values({
-      url,
-      fileName: filename,
-      mimeType: data.mimeType,
-      size: data.fileSize,
-      altText: data.altText,
-      uploadedBy: data.uploadedBy,
-    });
-    // .returning(); // Se o seu Drizzle suportar
+  // 3. Processamento Sharp: Redimensiona, converte para WebP e Otimiza
+  await sharp(buffer)
+    .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toFile(filePath);
 
-    // Busca o item inserido se o .returning() não for suportado
-    const [newItem] = await db.select().from(mediaLibrary).where(eq(mediaLibrary.url, url)).limit(1);
+  // 4. URL relativa para o banco (Segredo para não quebrar na VPS)
+  const fileUrl = `/uploads/${filename}`;
+  const newId = crypto.randomUUID();
 
-    return newItem;
-  } catch (error) {
-    console.error("[MediaLibrary] Error uploading image:", error);
-    throw error;
-  }
+  // 5. Salva metadados no banco
+  await db.insert(mediaLibrary).values({
+    id: newId,
+    url: fileUrl,
+    fileName: filename,
+    mimeType: "image/webp",
+    size: data.fileSize,
+    altText: data.altText || "",
+    uploadedBy: data.uploadedBy,
+  });
+
+  // 6. Busca e retorna o item recém-criado
+  const [newItem] = await db
+    .select()
+    .from(mediaLibrary)
+    .where(eq(mediaLibrary.id, newId))
+    .limit(1);
+
+  if (!newItem) throw new Error("Erro ao recuperar item inserido");
+  
+  return newItem;
 }
 
 /**
- * Lista todas as imagens da biblioteca
+ * Lista todas as imagens por ordem de criação
  */
 export async function listMediaLibrary(): Promise<MediaLibraryItem[]> {
-  const db = await getDb(); // ✅ CORREÇÃO: Usar getDb()
-  if (!db) {
-    throw new Error("Database not available");
-  }
+  const db = await getDb(); 
+  if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ CORREÇÃO: Usar mediaLibrary (camelCase)
-    return await db.select().from(mediaLibrary).orderBy(desc(mediaLibrary.createdAt)); 
-  } catch (error) {
-    console.error("[MediaLibrary] Error listing media:", error);
-    throw error;
-  }
+  return await db
+    .select()
+    .from(mediaLibrary)
+    .orderBy(desc(mediaLibrary.createdAt)); 
 }
 
 /**
- * Busca imagem por ID
+ * Busca metadados por ID
  */
-export async function getMediaById(id: number): Promise<MediaLibraryItem | null> {
-  const db = await getDb(); // ✅ CORREÇÃO: Usar getDb()
-  if (!db) {
-    throw new Error("Database not available");
-  }
+export async function getMediaById(id: string): Promise<MediaLibraryItem | null> {
+  const db = await getDb(); 
+  if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ CORREÇÃO: Usar mediaLibrary (camelCase)
-    const results = await db.select().from(mediaLibrary).where(eq(mediaLibrary.id, id)).limit(1); 
+  const results = await db
+    .select()
+    .from(mediaLibrary)
+    .where(eq(mediaLibrary.id, id))
+    .limit(1); 
 
-    return results.length > 0 ? results[0] : null;
-  } catch (error) {
-    console.error("[MediaLibrary] Error getting media:", error);
-    throw error;
-  }
+  return results.length > 0 ? results[0] : null;
 }
 
 /**
- * Deleta imagem da biblioteca
+ * Deleta o registro e REMOVE O ARQUIVO FÍSICO da VPS
  */
-export async function deleteMedia(id: number): Promise<{ success: boolean }> {
-  const db = await getDb(); // ✅ CORREÇÃO: Usar getDb()
-  if (!db) {
-    throw new Error("Database not available");
-  }
+export async function deleteMedia(id: string): Promise<{ success: boolean }> {
+  const db = await getDb(); 
+  if (!db) throw new Error("Database not available");
 
-  try {
-    // ✅ CORREÇÃO: Usar mediaLibrary (camelCase)
+  const [item] = await db.select().from(mediaLibrary).where(eq(mediaLibrary.id, id)).limit(1);
+  
+  if (item) {
+    // ✅ Tenta remover o arquivo físico da pasta de uploads
+    const filePath = path.join(UPLOADS_DIR, item.fileName);
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      console.warn(`Arquivo físico não encontrado para remoção: ${filePath}`);
+    }
+
     await db.delete(mediaLibrary).where(eq(mediaLibrary.id, id)); 
-    return { success: true };
-  } catch (error) {
-    console.error("[MediaLibrary] Error deleting media:", error);
-    throw error;
   }
+  
+  return { success: true };
 }

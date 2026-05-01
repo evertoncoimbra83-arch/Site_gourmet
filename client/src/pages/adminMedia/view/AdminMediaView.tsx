@@ -1,94 +1,245 @@
+import React, { useMemo, useState } from "react";
+import { trpc } from "@/_core/trpc";
+import { appToast as toast } from "@/lib/app-toast";
 import { useAdminMedia } from "../logic/useAdminMedia";
-import { UploadZone } from "../components/UploadZone";
 import { MediaCard } from "../components/MediaCard";
-import { Loader2, Image as ImageIcon, Sparkles, FolderOpen, Bug } from "lucide-react";
+import { UploadZone } from "../components/UploadZone";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  CloudUpload,
+  FolderOpen,
+  ImagePlus,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
+
+interface MediaItem {
+  id: string | number;
+  url: string;
+  filePath?: string;
+  folder?: string;
+  originalFilename: string;
+}
+
+const DEFAULT_FOLDERS = ["geral", "pratos", "logo", "banners", "nutris"];
+
+function normalizeFolder(folder?: string | null) {
+  const normalized = (folder || "all").toLowerCase().trim();
+  return normalized || "all";
+}
 
 export function AdminMediaView() {
-  const { state, actions, data, refs } = useAdminMedia();
+  const [currentFolder, setCurrentFolder] = useState<string>("all");
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const normalizedFolder = normalizeFolder(currentFolder);
+  const { state, actions, data, refs } = useAdminMedia(normalizedFolder);
+  const utils = trpc.useUtils();
+
+  const { data: dynamicFolders, isLoading: isLoadingFolders } =
+    trpc.admin.media.listFolders.useQuery();
+
+  const sync = trpc.admin.media.syncCloudinary.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.message);
+      await Promise.all([
+        utils.admin.media.list.invalidate(),
+        utils.admin.media.listFolders.invalidate(),
+        utils.media.getImagesByFolder.invalidate(),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(`Erro ao sincronizar: ${error.message}`);
+    },
+  });
+
+  const availableFolders = useMemo(() => {
+    const merged = Array.from(
+      new Set([...(dynamicFolders || []), ...DEFAULT_FOLDERS]),
+    ).sort((a, b) => a.localeCompare(b));
+
+    return ["all", ...merged];
+  }, [dynamicFolders]);
+
+  const mediaItems = (data.media as MediaItem[]) || [];
+  const isProcessing = state.isLoading || sync.isPending || isLoadingFolders;
+  const currentFolderLabel =
+    normalizedFolder === "all"
+      ? "Todas as imagens"
+      : `Pasta: ${normalizedFolder}`;
 
   return (
-    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      
-      {/* HEADER PREMIUM */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-        <div className="space-y-2">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      <header className="flex flex-col items-start justify-between gap-6 pt-4 md:flex-row md:items-end">
+        <div className="space-y-1">
           <div className="flex items-center gap-2 text-emerald-600">
-            <Sparkles size={18} />
-            <span className="text-[10px] font-black uppercase tracking-[0.3em]">Gestão de Assets</span>
+            <Sparkles size={16} />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]">
+              Biblioteca Digital
+            </span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">
-            Biblioteca de <span className="text-emerald-600">Mídia</span><span className="text-emerald-600">.</span>
+          <h1 className="text-4xl font-black uppercase leading-none tracking-tight text-slate-900 md:text-5xl">
+            Media <span className="text-emerald-600">Assets</span>
           </h1>
+          <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            {currentFolderLabel}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => sync.mutate()}
+            disabled={isProcessing}
+            className="h-12 gap-2 rounded-2xl border-slate-200 px-6 font-bold uppercase text-[10px] tracking-widest hover:bg-slate-50"
+          >
+            {sync.isPending ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            Sincronizar Cloudinary
+          </Button>
+
+          <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+            <DialogTrigger asChild>
+              <Button className="h-12 gap-2 rounded-2xl bg-slate-900 px-8 font-bold uppercase text-[10px] tracking-widest text-white shadow-md hover:bg-emerald-600">
+                <CloudUpload size={18} /> Novo Upload
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="rounded-[2rem] border-none p-1 shadow-2xl sm:max-w-[600px]">
+              <div className="space-y-6 p-8">
+                <DialogHeader>
+                  <DialogTitle className="text-2xl font-black uppercase tracking-tight text-slate-900">
+                    Enviar para{" "}
+                    <span className="text-emerald-600">
+                      {normalizedFolder === "all" ? "geral" : normalizedFolder}
+                    </span>
+                  </DialogTitle>
+                </DialogHeader>
+
+                <UploadZone
+                  state={{ ...state, isDragging: false }}
+                  actions={{
+                    ...actions,
+                    setIsDragging: () => {},
+                    processFiles: async (files, folder) => {
+                      await actions.processFiles(files, folder);
+                      setIsUploadModalOpen(false);
+                    },
+                  }}
+                  refs={refs}
+                  currentFolder={normalizedFolder === "all" ? "geral" : normalizedFolder}
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </header>
 
-      {/* ÁREA DE UPLOAD */}
-      <div className="bg-white rounded-[3rem] p-2 shadow-sm border border-slate-100 overflow-hidden">
-         <UploadZone state={state} actions={actions} refs={refs} />
-      </div>
-
-      {/* GALERIA DE MÍDIA */}
-      <section className="space-y-6">
-        <div className="relative py-4">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-          <div className="relative flex justify-start">
-            <span className="bg-[#F8FAFC] pr-6 text-[10px] font-black uppercase tracking-[0.4em] text-slate-300 flex items-center gap-2">
-              <FolderOpen size={12} /> Arquivos Armazenados
-            </span>
-          </div>
+      <Tabs
+        defaultValue="all"
+        value={normalizedFolder}
+        onValueChange={setCurrentFolder}
+        className="w-full"
+      >
+        <div className="border-b border-slate-100 pb-2">
+          <ScrollArea className="w-full whitespace-nowrap">
+            <TabsList className="h-auto gap-6 bg-transparent p-0">
+              {availableFolders.map((folder) => (
+                <TabsTrigger
+                  key={folder}
+                  value={folder}
+                  className="rounded-none px-2 pb-3 font-bold uppercase text-[11px] tracking-wider text-slate-400 transition-all hover:text-slate-600 data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 data-[state=active]:bg-transparent data-[state=active]:text-emerald-600 data-[state=active]:shadow-none"
+                >
+                  <FolderOpen size={14} className="mr-2" />
+                  {folder === "all" ? "todas" : folder}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </ScrollArea>
         </div>
 
-        <div className="bg-white p-8 md:p-12 rounded-[3.5rem] shadow-sm border border-slate-50 min-h-[400px]">
-          {state.isLoading ? (
-            <div className="flex flex-col items-center justify-center py-32 gap-6">
-              <Loader2 className="animate-spin text-emerald-600" size={56} strokeWidth={1.5} />
-            </div>
-          ) : data.media.length === 0 ? (
-            <div className="text-center py-32 border-2 border-dashed rounded-[3rem] border-slate-100 bg-slate-50/30">
-              <ImageIcon className="h-10 w-10 text-slate-200 mx-auto mb-6" />
-              <p className="text-slate-400 font-black uppercase text-[11px] tracking-widest">Nenhum ativo encontrado.</p>
+        <TabsContent value={normalizedFolder} className="mt-8 focus-visible:outline-none">
+          {isProcessing ? (
+            <div className="flex flex-col items-center justify-center py-40">
+              <Loader2
+                className="animate-spin text-emerald-600/30"
+                size={60}
+                strokeWidth={2}
+              />
+              <p className="mt-4 font-bold uppercase text-[10px] tracking-widest text-slate-400">
+                Carregando conteudo...
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 md:gap-8">
-              {data.media.map((item: any) => {
-                const fullImageUrl = actions.getFullUrl(item.url || item.filePath);
-                
-                return (
-                  <div key={item.id} className="relative group">
-                    <div className="absolute -top-4 left-0 right-0 z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="bg-black/80 text-[8px] text-white p-2 rounded-lg font-mono break-all leading-tight shadow-2xl border border-white/20">
-                           <div className="flex items-center gap-1 text-yellow-400 mb-1">
-                             <Bug size={8} /> <span>DEBUG PATH:</span>
-                           </div>
-                           {fullImageUrl}
-                        </div>
-                    </div>
+            <div className="space-y-6">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                {currentFolderLabel}
+              </p>
 
-                    <div onClick={() => console.log("🔍 Inspecionando Item:", { id: item.id, url_db: item.url, full_constructed: fullImageUrl })}>
-                      <MediaCard 
-                        item={{ ...item, displayUrl: fullImageUrl }} 
-                        onCopy={() => {
-                          console.log("📋 Copiado:", fullImageUrl);
-                          actions.copyToClipboard(fullImageUrl);
-                        }} 
-                        onDelete={() => actions.handleDelete(item.id)} 
+              <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                {mediaItems.length > 0 ? (
+                  mediaItems.map((item) => {
+                    const finalUrl = item.url || item.filePath || "";
+                    const displayUrl = actions.getFullUrl(finalUrl);
+
+                    return (
+                      <MediaCard
+                        key={item.id}
+                        item={{
+                          ...item,
+                          url: finalUrl,
+                          displayUrl,
+                          folder: item.folder || "geral",
+                          originalFilename: item.originalFilename || "imagem",
+                        }}
+                        onCopy={() => actions.copyToClipboard(displayUrl)}
+                        onDelete={() => actions.handleDelete(item.id)}
                       />
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })
+                ) : (
+                  <Card className="col-span-full flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed bg-slate-50/50 py-28 text-slate-300">
+                    <ImagePlus
+                      size={40}
+                      strokeWidth={1.5}
+                      className="mb-4 opacity-30"
+                    />
+                    <p className="font-bold uppercase text-xs tracking-wider text-slate-500">
+                      Nenhuma imagem nesta pasta
+                    </p>
+                    <Button
+                      variant="link"
+                      className="mt-2 font-bold uppercase text-[9px] tracking-widest text-emerald-600"
+                      onClick={() => setIsUploadModalOpen(true)}
+                    >
+                      Adicionar agora
+                    </Button>
+                  </Card>
+                )}
+              </div>
             </div>
           )}
-        </div>
-      </section>
+        </TabsContent>
+      </Tabs>
 
-      {/* DICA OPERACIONAL */}
-      <footer className="flex justify-center pt-8">
-        <div className="flex items-center gap-2 px-6 py-3 bg-slate-900 rounded-full shadow-xl">
-           <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-           <span className="text-[9px] font-black text-white/70 uppercase tracking-widest">
-             Debug Mode Ativo: Passe o mouse sobre as imagens para ver o endereço.
-           </span>
+      <footer className="flex justify-center border-t border-slate-50 pt-16">
+        <div className="flex items-center gap-2 rounded-full bg-slate-100 px-6 py-3">
+          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+            Media Studio 2.0 • Gourmet Saudavel
+          </span>
         </div>
       </footer>
     </div>

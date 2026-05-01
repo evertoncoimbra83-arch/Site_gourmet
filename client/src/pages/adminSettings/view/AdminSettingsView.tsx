@@ -1,174 +1,195 @@
-import { useState } from "react";
-import { useAdminSettings } from "../logic/useAdminSettings";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card } from "@/components/ui/card";
+// client/src/pages/adminSettings/view/AdminSettingsView.tsx
+import React, { ComponentProps, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Loader2, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { 
-  Loader2, Save, Globe, Lock, 
-  Settings2, Palette, ShieldAlert, Database,
-  Image as ImageIcon
-} from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
-import { GoogleAuthConfig } from "../components/GoogleAuthConfig"; 
-import { CompanyInfoForm } from "../components/CompanyInfoForm"; 
-import { PanicButton } from "../components/PanicButton";
+import { useAdminSettings } from "../logic/useAdminSettings";
+import { useCompanyInfo } from "../logic/useCompanyInfo";
+import { useAccessibilityLogic } from "../logic/useAccessibilityLogic";
+
+import { settingsAreas, defaultAreaId, isSettingsAreaId } from "../config/settingsAreas";
+import { StoreTab } from "../components/tabs/StoreTab";
+import { OperationTab } from "../components/tabs/OperationTab";
+import { SecurityTab } from "../components/tabs/SecurityTab";
+import { IaTab } from "../components/tabs/IaTab";
+import { AppearanceTab } from "../components/tabs/AppearanceTab";
+import { IntegrationsTab } from "../components/tabs/IntegrationsTab";
+
+import { CompanyInfoForm } from "../components/CompanyInfoForm";
+import { CheckoutSuccessSettings } from "../components/CheckoutSuccessSettings";
+import { SecurityConfig } from "../components/GoogleAuthConfig";
 import { AccessibilitySettings } from "../components/AccessibilitySettings";
-import { InfrastructureCard } from "../components/InfrastructureCard";
-import { MediaLibraryDrawer } from "../../adminMedia/view/MediaLibraryDrawer";
-import { LoyaltyAutomationCard } from "../components/LoyaltyAutomationCard";
 
-// ✅ Removida a importação do SMTPSettingsForm daqui
+export function AdminSettingsView() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const settingsTab = useAdminSettings();
+  const companyTab = useCompanyInfo();
+  const accessibilityTab = useAccessibilityLogic();
 
-export function AdminSettingsView() { 
-  const { state, actions } = useAdminSettings();
-  const [isMediaOpen, setIsMediaOpen] = useState(false);
+  const isLoading =
+    settingsTab.state.isLoading ||
+    companyTab.state.isLoading ||
+    accessibilityTab.state.isLoading;
 
-  if (state.isLoading) return (
-    <div className="flex flex-col items-center justify-center py-32 gap-4">
-      <Loader2 className="animate-spin text-[#2D5A3D]" size={40} />
-      <p className="text-slate-400 font-black uppercase text-[10px] tracking-[0.3em]">Sincronizando Kernel...</p>
-    </div>
-  );
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab = isSettingsAreaId(tabFromUrl) ? tabFromUrl : defaultAreaId;
 
-  const handleFaviconSelect = (fileName: string) => {
-    const cleanName = fileName.split('/').pop() || fileName;
-    actions.setFormData({
-      ...state.formData,
-      favicon: cleanName
-    });
-    setIsMediaOpen(false);
+  useEffect(() => {
+    if (!isSettingsAreaId(tabFromUrl)) {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", defaultAreaId);
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, tabFromUrl]);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-32 text-left">
+        <Loader2 className="animate-spin text-[#2D5A3D]" size={40} />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
+          Sincronizando Ajustes...
+        </p>
+      </div>
+    );
+  }
+
+  const handleGlobalSave = async () => {
+    await settingsTab.actions.handleSaveAll();
+    await companyTab.actions.handleSave();
   };
 
+  const handleTabChange = (next: string) => {
+    if (!isSettingsAreaId(next)) return;
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    setSearchParams(params, { replace: false });
+  };
+
+  const isPending = settingsTab.state.isPending || companyTab.state.isPending;
+
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      
-      {/* HEADER E BOTÃO SALVAR */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">
-            Ajustes do <span className="text-[#2D5A3D]">Sistema</span>
-          </h1>
-          <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mt-2">
-            Gestão de branding e processos automatizados
-          </p>
+    <div className="space-y-8 pb-20 text-left animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {/* Header */}
+      <header className="flex flex-col gap-6 rounded-[2rem] border border-slate-200 bg-white p-6 md:p-8 xl:flex-row xl:items-end xl:justify-between">
+        <div className="space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+            <Settings2 size={14} />
+            Ajustes por área
+          </div>
+          <div>
+            <h1 className="text-3xl font-black uppercase italic tracking-tighter text-slate-900 md:text-4xl">
+              Central de <span className="text-[#2D5A3D]">Ajustes</span>
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
+              Organizado por área operacional — loja, operação, segurança, IA,
+              aparência e integrações.
+            </p>
+          </div>
         </div>
-        <Button 
-          onClick={actions.handleSave} 
-          disabled={state.isPending}
-          className="bg-[#2D5A3D] hover:bg-[#1e3b28] text-white rounded-2xl h-14 px-8 font-black shadow-xl transition-all active:scale-95"
+        <Button
+          onClick={handleGlobalSave}
+          disabled={isPending}
+          className="h-14 rounded-2xl bg-[#2D5A3D] px-8 font-black text-white shadow-xl transition-all active:scale-95 hover:bg-[#1e3b28]"
         >
-          {state.isPending ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2" size={18} />}
-          SALVAR TUDO
+          {isPending ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="animate-spin" size={18} />
+              <span>GRAVANDO...</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Save size={18} />
+              <span>SALVAR TUDO</span>
+            </div>
+          )}
         </Button>
       </header>
 
-      <Tabs defaultValue="general" className="w-full space-y-8">
-        <TabsList className="bg-slate-100 p-1 rounded-2xl h-16 w-full md:w-auto justify-start border border-slate-200/50">
-          <TabsTrigger value="general" className="rounded-xl px-6 font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white">
-            <Settings2 size={16} className="mr-2" /> Geral
-          </TabsTrigger>
-          <TabsTrigger value="appearance" className="rounded-xl px-6 font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white">
-            <Palette size={16} className="mr-2" /> Interface & Automação
-          </TabsTrigger>
-          <TabsTrigger value="security" className="rounded-xl px-6 font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white">
-            <ShieldAlert size={16} className="mr-2" /> Segurança
-          </TabsTrigger>
-          <TabsTrigger value="infra" className="rounded-xl px-6 font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white">
-            <Database size={16} className="mr-2" /> Infra
-          </TabsTrigger>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+        <TabsList className="h-auto w-full justify-start rounded-[2rem] border border-slate-200 bg-slate-100 p-2">
+          <div className="flex w-full gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-3 lg:overflow-visible xl:grid-cols-6">
+            {settingsAreas.map((area) => {
+              const Icon = area.icon;
+              return (
+                <TabsTrigger
+                  key={area.id}
+                  value={area.id}
+                  className={cn(
+                    "h-auto min-h-16 min-w-[220px] rounded-[1.25rem] px-4 py-3 text-left data-[state=active]:bg-white lg:min-w-0",
+                    "data-[state=active]:shadow-sm",
+                  )}
+                >
+                  <div className="flex w-full items-center gap-3">
+                    <Icon size={18} className={area.accent} />
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-900">
+                        {area.label}
+                      </div>
+                      <div className="mt-1 line-clamp-2 text-[10px] font-bold normal-case tracking-normal text-slate-500">
+                        {area.description}
+                      </div>
+                    </div>
+                  </div>
+                </TabsTrigger>
+              );
+            })}
+          </div>
         </TabsList>
 
-        {/* --- ABA GERAL --- */}
-        <TabsContent value="general" className="outline-none">
-          <CompanyInfoForm />
-        </TabsContent>
-
-        {/* --- ABA APARÊNCIA E AUTOMAÇÃO --- */}
-        <TabsContent value="appearance" className="space-y-8 outline-none">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Globe size={20} />
-                </div>
-                <h3 className="font-black uppercase italic tracking-tighter text-slate-900">Branding do Site</h3>
-              </div>
-
-              <div className="flex items-center gap-6 p-6 bg-slate-50 rounded-4xl border border-slate-100">
-                <div className="h-20 w-20 rounded-2xl bg-white border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner">
-                  {state.formData?.favicon ? (
-                    <img 
-                      src={`http://localhost:3001/uploads/${state.formData.favicon}`} 
-                      className="h-10 w-10 object-contain"
-                      alt="Favicon"
-                      onError={(e) => e.currentTarget.src = "https://placehold.co/32x32/f1f5f9/cbd5e1?text=ICO"}
-                    />
-                  ) : (
-                    <ImageIcon className="text-slate-200" size={24} />
-                  )}
-                </div>
-
-                <div className="flex-1 space-y-3">
-                  <p className="text-[10px] font-black uppercase text-slate-700 leading-tight">Ícone do Navegador (.ico)</p>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setIsMediaOpen(true)}
-                    className="h-10 px-6 rounded-xl border-slate-200 bg-white font-black text-[9px] uppercase tracking-widest hover:bg-[#2D5A3D] hover:text-white transition-all"
-                  >
-                    Alterar Favicon
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <LoyaltyAutomationCard />
-          </div>
-
-          <AccessibilitySettings 
-            settings={state.formData || {}} 
-            onUpdate={(v: any) => actions.setFormData({ ...state.formData, ...v })} 
+        <TabsContent value="store" className="outline-none">
+          <StoreTab
+            companyTab={{
+              state: companyTab.state as unknown as ComponentProps<typeof CompanyInfoForm>["state"],
+              actions: companyTab.actions as unknown as ComponentProps<typeof CompanyInfoForm>["actions"],
+            }}
           />
         </TabsContent>
 
-        {/* --- ABA SEGURANÇA --- */}
-        <TabsContent value="security" className="grid grid-cols-1 lg:grid-cols-2 gap-8 outline-none">
-          <div className="space-y-8">
-            <PanicButton />
-            <GoogleAuthConfig />
-          </div>
-          <Card className="p-8 bg-slate-900 text-white rounded-[2.5rem] border-none flex flex-col justify-center items-center text-center space-y-4">
-            <div className="h-20 w-20 bg-[#2D5A3D]/20 rounded-full flex items-center justify-center">
-              <Lock size={40} className="text-[#2D5A3D]" />
-            </div>
-            <h3 className="font-black uppercase italic text-xl tracking-tighter">Segurança Ativa</h3>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-tight max-w-70">
-              O núcleo utiliza criptografia de nível militar (AES-256-GCM) para proteger dados sensíveis.
-            </p>
-          </Card>
+        <TabsContent value="operation" className="outline-none">
+          <OperationTab
+            settingsTab={{
+              state: { formData: settingsTab.state.formData as unknown as ComponentProps<typeof CheckoutSuccessSettings>["settings"] },
+              actions: {
+                updateField: (field, value) =>
+                  settingsTab.actions.updateField(
+                    field as Parameters<typeof settingsTab.actions.updateField>[0],
+                    value as Parameters<typeof settingsTab.actions.updateField>[1],
+                  ),
+              },
+            }}
+          />
         </TabsContent>
 
-        {/* --- ABA INFRA --- */}
-        <TabsContent value="infra" className="outline-none space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            <InfrastructureCard />
-            
-            {/* ✅ Removido o SMTPSettingsForm daqui */}
-            <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center text-center space-y-3">
-              <Database className="text-slate-300" size={32} />
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                Dados de Conectividade agora residem na <br/>
-                <span className="text-[#2D5A3D]">Central de Comunicação</span>
-              </p>
-            </div>
-          </div>
+        <TabsContent value="security" className="outline-none">
+          <SecurityTab />
+        </TabsContent>
+
+        <TabsContent value="ia" className="outline-none">
+          <IaTab
+            settingsTab={{
+              state: settingsTab.state as unknown as ComponentProps<typeof SecurityConfig>["state"],
+              actions: settingsTab.actions as unknown as ComponentProps<typeof SecurityConfig>["actions"],
+            }}
+          />
+        </TabsContent>
+
+        <TabsContent value="appearance" className="outline-none">
+          <AppearanceTab
+            accessibilityTab={{
+              state: accessibilityTab.state as unknown as ComponentProps<typeof AccessibilitySettings>["state"],
+              actions: accessibilityTab.actions as unknown as ComponentProps<typeof AccessibilitySettings>["actions"],
+            }}
+          />
+        </TabsContent>
+
+        <TabsContent value="integrations" className="outline-none">
+          <IntegrationsTab />
         </TabsContent>
       </Tabs>
-
-      <MediaLibraryDrawer 
-        open={isMediaOpen}
-        onClose={() => setIsMediaOpen(false)}
-        onSelect={handleFaviconSelect}
-      />
     </div>
   );
 }

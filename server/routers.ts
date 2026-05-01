@@ -1,2 +1,2 @@
 // server/routers.ts
-export { appRouter } from "./routers/index.js";
+export { appRouter } from "./routers/index";

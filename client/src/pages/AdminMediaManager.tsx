@@ -1,4 +1,5 @@
-import { AdminMediaView } from "./adminMedia/view/AdminMediaView"; // Ajuste o path se necessário
+import React from "react"; // ✅ Adicionado para satisfazer a regra react-in-jsx-scope
+import { AdminMediaView } from "./adminMedia/view/AdminMediaView";
 
 export default function AdminMediaManager() {
   return (

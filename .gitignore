@@ -6,3 +6,14 @@ orders_full_report.json
 *.json
 *.csv
 node_modules/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+.aider*
+.env
+.env
+.env

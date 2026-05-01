@@ -1,18 +1,16 @@
-import { useState, useEffect } from "react";
-import { Loader2, MapPin, Save, X } from "lucide-react";
+// client/src/pages/checkout/components/CheckoutAddressForm.tsx
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Loader2, X, Navigation, AlertCircle } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { trpc } from "@/_core/trpc";
-import { toast } from "@/components/ui/use-toast";
+import { appToast as toast } from "@/lib/app-toast";
+import { cn } from "@/lib/utils";
 
-interface CheckoutAddressFormProps {
-  createAddressMutation: any; 
-  onSuccess: () => void;
-  onCancel: () => void;
-}
+import { trpc } from "@/_core/trpc"; 
+import { useCheckout } from "../context/CheckoutContext";
+import { useGeolocationZip } from "@/_core/hooks/useGeolocationZip";
 
-// 🎭 Máscara de CEP
 const maskCep = (value: string) => {
   return value
     .replace(/\D/g, "")
@@ -20,175 +18,271 @@ const maskCep = (value: string) => {
     .slice(0, 9);
 };
 
-export function CheckoutAddressForm({ createAddressMutation, onSuccess, onCancel }: CheckoutAddressFormProps) {
-  const [form, setForm] = useState({
-    label: "", 
-    zipCode: "", 
-    street: "", 
-    number: "", 
-    complement: "", 
-    neighborhood: "", 
-    city: "Jundiaí", 
-    state: "SP"
+interface AddressFormData {
+  label: string;
+  zipCode: string;
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+}
+
+interface CheckoutAddressFormProps {
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+export function CheckoutAddressForm({ onSuccess, onCancel }: CheckoutAddressFormProps) {
+  // ✅ Consome ações e estado da máquina via Contexto Único
+  const { actions, machineState } = useCheckout();
+  const utils = trpc.useUtils();
+
+  const { 
+    cep: geoCep, 
+    loading: geoLoading, 
+    getZipFromCoords 
+  } = useGeolocationZip();
+
+  const [form, setForm] = useState<AddressFormData>({
+    label: "",
+    zipCode: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "", 
+    state: "" 
   });
 
-  const cleanZip = form.zipCode.replace(/\D/g, "");
-  
-  // Busca CEP automático
-  const { data: cepData, isLoading: isLoadingCep } = trpc.addresses.getCep.useQuery(
-    { cep: cleanZip },
-    { enabled: cleanZip.length === 8, refetchOnWindowFocus: false }
-  );
+  const [isLoadingCep, setIsLoadingCep] = useState(false);
+  const [isValidatingLogistics, setIsValidatingLogistics] = useState(false);
+  const toastDispatched = useRef(false);
 
+  // Sugestão de Geolocalização (UX)
   useEffect(() => {
-    if (cepData) {
-      setForm(prev => ({
-        ...prev,
-        street: cepData.street || prev.street,
-        neighborhood: cepData.neighborhood || prev.neighborhood,
-        city: cepData.city || prev.city,
-        state: cepData.state || prev.state
-      }));
-      toast.success("Endereço encontrado!");
+    if (!toastDispatched.current) {
+      toastDispatched.current = true;
+      const timer = setTimeout(() => {
+        toast("Consulta automática de CEP?", {
+          description: "Podemos usar sua localização para preencher os dados?",
+          action: {
+            label: "Sim, buscar",
+            onClick: () => getZipFromCoords(),
+          },
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
     }
-  }, [cepData]);
+  }, [getZipFromCoords]);
 
-  const handleSave = () => {
-    if (!form.zipCode || !form.street || !form.number || !form.neighborhood) {
-      return toast.warning("Preencha os campos obrigatórios (CEP, Rua, Número e Bairro).");
+  // Preenche se o GPS encontrar o CEP
+  useEffect(() => {
+    if (geoCep) {
+      setForm(prev => ({ ...prev, zipCode: maskCep(geoCep) }));
     }
-    
-    createAddressMutation.mutate(form, {
-      onSuccess: () => {
-        toast.success("Endereço salvo com sucesso!");
-        onSuccess();
-        setForm({ label: "", zipCode: "", street: "", number: "", complement: "", neighborhood: "", city: "Jundiaí", state: "SP" });
-      },
-      onError: (err: any) => {
-        toast.error("Erro ao salvar endereço: " + err.message);
+  }, [geoCep]);
+
+  // Persistência no Servidor
+  const createAddressMutation = trpc.store.addresses.create.useMutation({
+    onSuccess: (res) => {
+      toast.success("Endereço salvo com sucesso!");
+      // ✅ Sincroniza com o estado global imediatamente
+      actions.setAddress(String(res.id)); 
+      utils.store.addresses.list.invalidate(); 
+      onSuccess();
+    },
+    onError: (err) => {
+      toast.error("Erro ao salvar endereço", { description: err.message });
+    }
+  });
+
+  // Busca via ViaCEP
+  useEffect(() => {
+    const cleanZip = form.zipCode.replace(/\D/g, "");
+    if (cleanZip.length === 8) {
+      const controller = new AbortController();
+      const fetchAddress = async () => {
+        setIsLoadingCep(true);
+        try {
+          const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`, { signal: controller.signal });
+          const data = await response.json();
+          if (!data.erro) {
+            setForm(prev => ({
+              ...prev,
+              street: data.logradouro || prev.street,
+              neighborhood: data.bairro || prev.neighborhood,
+              city: data.localidade || prev.city,
+              state: data.uf || prev.state
+            }));
+            // Foco UX: Próximo campo após preenchimento automático
+            setTimeout(() => document.getElementById("address-number")?.focus(), 200);
+          } else {
+            toast.error("CEP não localizado.");
+          }
+        } catch (e) { 
+           if (!(e instanceof DOMException && e.name === 'AbortError')) {
+              toast.error("Erro ao buscar CEP.");
+           }
+        } finally { 
+          setIsLoadingCep(false); 
+        }
+      };
+      fetchAddress();
+      return () => controller.abort();
+    }
+  }, [form.zipCode]);
+
+  const handleSave = useCallback(async () => {
+    const cleanZipCode = form.zipCode.replace(/\D/g, "");
+    if (cleanZipCode.length !== 8) return toast.warning("CEP incompleto.");
+    if (!form.street || !form.number || !form.city) return toast.error("Preencha os campos obrigatórios.");
+
+    setIsValidatingLogistics(true);
+
+    try {
+      // ✅ Validação de Cobertura via tRPC
+      const validation = await utils.store.addresses.validateZipZone.fetch({ 
+        zipCode: cleanZipCode,
+        storeSlug: "jundiai" 
+      });
+
+      if (!validation.isValid) {
+        toast.warning("Entrega indisponível para este CEP", {
+          description: "O endereço será salvo, mas pedidos para este CEP devem usar retirada ou outro endereço.",
+          icon: <AlertCircle className="text-rose-500" />,
+          duration: 6000
+        });
       }
-    });
-  };
+
+      createAddressMutation.mutate({
+        ...form,
+        label: form.label.trim() || "Entrega",
+        zipCode: cleanZipCode,
+      });
+
+    } catch { 
+      toast.error("Erro ao validar logística", { 
+        description: "Não conseguimos verificar a cobertura agora." 
+      });
+    } finally {
+      setIsValidatingLogistics(false);
+    }
+  }, [form, createAddressMutation, utils, actions]);
+
+  const isBusy = 
+    createAddressMutation.isPending || 
+    isLoadingCep || 
+    geoLoading || 
+    isValidatingLogistics || 
+    machineState === 'submitting';
 
   return (
-    <div className="p-6 border-2 border-dashed border-emerald-100 rounded-[2rem] bg-emerald-50/20 animate-in fade-in zoom-in-95 duration-300 space-y-4">
-      
-      {/* Título do Form */}
-      <div className="flex items-center gap-2 mb-2 text-emerald-700">
-        <MapPin size={16} />
-        <span className="text-xs font-black uppercase tracking-widest">Novo Endereço</span>
+    <div className="p-6 border-2 border-emerald-100 rounded-4xl bg-white shadow-2xl space-y-6 text-left relative">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-emerald-500 p-2 rounded-xl text-white">
+            <Navigation size={18} className={cn(isBusy && "animate-pulse")} />
+          </div>
+          <div>
+            <span className="text-[10px] font-black uppercase text-emerald-600 block leading-none mb-1">Novo Endereço</span>
+            <h3 className="text-slate-900 font-bold text-lg leading-none">Onde você está?</h3>
+          </div>
+        </div>
+        <button onClick={onCancel} className="text-slate-300 hover:text-red-500 transition-all">
+          <X size={20} />
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {/* CEP */}
-        <div className="md:col-span-1 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">CEP</Label>
+        <div className="col-span-4 md:col-span-1 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">CEP</Label>
           <div className="relative">
             <Input 
               value={form.zipCode} 
               onChange={e => setForm({...form, zipCode: maskCep(e.target.value)})} 
-              className="h-11 rounded-xl bg-white pr-8" 
+              className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold"
               placeholder="00000-000" 
               maxLength={9}
             />
-            {isLoadingCep && (
-              <div className="absolute right-3 top-3">
-                <Loader2 size={16} className="animate-spin text-emerald-500" />
-              </div>
+            {isBusy && (
+              <Loader2 size={16} className="absolute right-3 top-3.5 animate-spin text-emerald-500" />
             )}
           </div>
         </div>
 
-        {/* Apelido */}
-        <div className="md:col-span-3 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Apelido (Ex: Casa, Trabalho)</Label>
+        {/* IDENTIFICAÇÃO */}
+        <div className="col-span-4 md:col-span-3 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">Nome (Ex: Casa, Trabalho)</Label>
           <Input 
             value={form.label} 
             onChange={e => setForm({...form, label: e.target.value})} 
-            className="h-11 rounded-xl bg-white" 
-            placeholder="Minha Casa"
+            className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold" 
           />
         </div>
 
-        {/* Rua */}
-        <div className="md:col-span-3 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Rua / Avenida</Label>
+        {/* LOGRADOURO */}
+        <div className="col-span-4 md:col-span-3 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">Rua / Avenida</Label>
           <Input 
             value={form.street} 
             onChange={e => setForm({...form, street: e.target.value})} 
-            className="h-11 rounded-xl bg-white" 
-            placeholder="Nome da rua..."
+            className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold" 
           />
         </div>
 
-        {/* Número */}
-        <div className="md:col-span-1 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Número</Label>
+        {/* NÚMERO */}
+        <div className="col-span-4 md:col-span-1 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">Nº</Label>
           <Input 
+            id="address-number" 
             value={form.number} 
             onChange={e => setForm({...form, number: e.target.value})} 
-            className="h-11 rounded-xl bg-white" 
-            placeholder="123"
+            className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold" 
           />
         </div>
 
-        {/* Bairro */}
-        <div className="md:col-span-2 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Bairro</Label>
+        {/* BAIRRO */}
+        <div className="col-span-4 md:col-span-2 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">Bairro</Label>
           <Input 
             value={form.neighborhood} 
             onChange={e => setForm({...form, neighborhood: e.target.value})} 
-            className="h-11 rounded-xl bg-white" 
+            className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold" 
           />
         </div>
 
-        {/* Complemento */}
-        <div className="md:col-span-2 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Complemento (Opcional)</Label>
+        {/* COMPLEMENTO */}
+        <div className="col-span-4 md:col-span-2 space-y-1.5">
+          <Label className="text-[10px] font-black uppercase text-slate-400">Complemento</Label>
           <Input 
             value={form.complement} 
             onChange={e => setForm({...form, complement: e.target.value})} 
-            className="h-11 rounded-xl bg-white" 
-            placeholder="Apto 101, Bloco B"
-          />
-        </div>
-
-        {/* Cidade e Estado */}
-        <div className="md:col-span-3 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">Cidade</Label>
-          <Input 
-            value={form.city} 
-            onChange={e => setForm({...form, city: e.target.value})} 
-            className="h-11 rounded-xl bg-slate-50 border-slate-100" 
-          />
-        </div>
-        <div className="md:col-span-1 space-y-1.5">
-          <Label className="text-[9px] font-black uppercase text-slate-400 ml-1">UF</Label>
-          <Input 
-            value={form.state} 
-            onChange={e => setForm({...form, state: e.target.value})} 
-            className="h-11 rounded-xl bg-slate-50 border-slate-100" 
-            maxLength={2}
+            className="h-12 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-500 font-bold" 
           />
         </div>
       </div>
-      
-      {/* Botões de Ação (Aqui estava o erro do corte) */}
-      <div className="flex justify-end gap-3 pt-2">
+
+      <div className="flex gap-4 pt-4 border-t border-slate-100">
         <Button 
           variant="ghost" 
           onClick={onCancel} 
-          className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"
+          disabled={isBusy}
+          className="flex-1 h-14 rounded-2xl text-slate-400 font-bold uppercase text-[10px] tracking-widest"
         >
-          <X size={16} className="mr-2" /> Cancelar
+          Cancelar
         </Button>
         <Button 
           onClick={handleSave} 
-          disabled={createAddressMutation.isPending || isLoadingCep} 
-          className="bg-emerald-600 hover:bg-emerald-700 rounded-xl h-11 px-6 font-black uppercase text-[10px] shadow-lg shadow-emerald-600/20"
+          disabled={isBusy} 
+          className="flex-2 bg-slate-900 hover:bg-emerald-600 text-white rounded-2xl h-14 font-black uppercase text-[10px] shadow-xl transition-all active:scale-95"
         >
-          {createAddressMutation.isPending ? <Loader2 className="animate-spin" /> : (
-            <><Save size={16} className="mr-2" /> Salvar Endereço</>
+          {createAddressMutation.isPending || isValidatingLogistics ? (
+            <Loader2 className="animate-spin" size={20} />
+          ) : (
+            "Confirmar Endereço"
           )}
         </Button>
       </div>

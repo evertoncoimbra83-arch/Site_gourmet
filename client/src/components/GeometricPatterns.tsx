@@ -1,3 +1,5 @@
+import React from "react"; // ✅ Adicionado React para corrigir escopo JSX
+
 /**
  * Componente com padrões geométricos SVG reutilizáveis
  * Adiciona profundidade visual e interesse estético às imagens
@@ -81,8 +83,10 @@ export function CirclePattern({ patternId, opacity = 0.05, color = "currentColor
   );
 }
 
+type PatternType = "dots" | "grid" | "lines" | "waves" | "hexagon" | "circles";
+
 interface PatternBackgroundProps {
-  patternType?: "dots" | "grid" | "lines" | "waves" | "hexagon" | "circles";
+  patternType?: PatternType;
   opacity?: number;
   color?: string;
   className?: string;
@@ -97,16 +101,18 @@ export function PatternBackground({
   color = "currentColor",
   className = "",
 }: PatternBackgroundProps) {
-  const patternId = `pattern-${patternType}-${Math.random().toString(36).substr(2, 9)}`;
+  const patternId = `pattern-${patternType}-${Math.random().toString(36).substring(2, 11)}`;
 
-  const PatternComponent = {
+  const PatternComponents: Record<PatternType, React.ComponentType<GeometricPatternProps>> = {
     dots: DotPattern,
     grid: GridPattern,
     lines: LinePattern,
     waves: WavePattern,
     hexagon: HexagonPattern,
     circles: CirclePattern,
-  }[patternType];
+  };
+
+  const PatternComponent = PatternComponents[patternType];
 
   return (
     <svg
@@ -127,7 +133,7 @@ export function PatternBackground({
 export function DepthGradient({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/15 pointer-events-none ${className}`}
+      className={`absolute inset-0 bg-linear-to-b from-transparent via-transparent to-black/15 pointer-events-none ${className}`}
     />
   );
 }
@@ -138,7 +144,7 @@ export function DepthGradient({ className = "" }: { className?: string }) {
 export function ShineEffect({ className = "" }: { className?: string }) {
   return (
     <div className={`absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-500 pointer-events-none ${className}`}>
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent transform -skew-x-12 translate-x-full group-hover:translate-x-0 transition-transform duration-1000" />
+      <div className="absolute inset-0 bg-linear-to-r from-transparent via-white to-transparent transform -skew-x-12 translate-x-full group-hover:translate-x-0 transition-transform duration-1000" />
     </div>
   );
 }

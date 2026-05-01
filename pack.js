@@ -19,14 +19,14 @@ const filesToInclude = [
 ];
 
 async function createPackage() {
-  console.log("📦 Iniciando empacotamento do sistema...");
+  
 
   try {
     // Adiciona pastas
     for (const folder of foldersToInclude) {
       if (await fs.pathExists(folder.src)) {
         zip.addLocalFolder(path.join(__dirname, folder.src), folder.dest);
-        console.log(`✅ Pasta adicionada: ${folder.src}`);
+        
       }
     }
 
@@ -34,18 +34,18 @@ async function createPackage() {
     for (const file of filesToInclude) {
       if (await fs.pathExists(file)) {
         zip.addLocalFile(path.join(__dirname, file));
-        console.log(`✅ Arquivo adicionado: ${file}`);
+        
       }
     }
 
     const outputName = 'update-package.zip';
     zip.writeZip(path.join(__dirname, outputName));
     
-    console.log("\n-------------------------------------------");
-    console.log(`🚀 SUCESSO! Pacote pronto: ${outputName}`);
-    console.log("-------------------------------------------\n");
+    
+    
+    
   } catch (err) {
-    console.error("❌ Erro ao criar pacote:", err);
+    
   }
 }
 

@@ -1,11 +1,17 @@
-import { eq, desc, like, or, count, and, sql } from "drizzle-orm";
+import { eq, desc, like, or, count, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db.js"; 
 import { loyaltySettings, users, loyaltyHistory, orders } from "../drizzle/schema/index.js";
 import crypto from "crypto";
+import { logger } from "./logger.js";
 
-// =================================================================
-// CRUD DE CONFIGURAÇÕES (Mantido igual)
-// =================================================================
+// Helper de tipagem
+const toNum = (val: unknown): number => (val === null || val === undefined ? 0 : Number(val));
+
+interface DatabaseError {
+    message: string;
+    code?: string;
+}
+
 export async function getLoyaltyConfigs() {
     const db = await getDb();
     if (!db) throw new Error("Database not available"); 
@@ -13,8 +19,10 @@ export async function getLoyaltyConfigs() {
     let settings = await db.select().from(loyaltySettings).limit(1);
     
     if (settings.length === 0) {
+        const defaultId = "1";
+        logger.info("Configurações de fidelidade não encontradas. Criando padrões...");
         await db.insert(loyaltySettings).values({
-            id: "1", 
+            id: defaultId, 
             enabled: true,
             conversionRatePoints: 1,
             conversionRateMoney: "1.00",
@@ -24,8 +32,7 @@ export async function getLoyaltyConfigs() {
             minCartAmount: "0.00", 
             pointsExpirationDays: 365, 
             pointsPerSignup: 100,
-            pointsPerReview: 10,
-        } as any);
+        } as typeof loyaltySettings.$inferInsert);
         settings = await db.select().from(loyaltySettings).limit(1);
     }
     
@@ -34,100 +41,81 @@ export async function getLoyaltyConfigs() {
         ...config,
         id: String(config.id),
         enabled: Boolean(config.enabled),
-        conversionRateMoney: Number(config.conversionRateMoney),
-        redemptionRateMoney: Number(config.redemptionRateMoney),
-        maxDiscountAmount: Number(config.maxDiscountAmount),
-        minCartAmount: Number(config.minCartAmount),
+        conversionRateMoney: toNum(config.conversionRateMoney),
+        redemptionRateMoney: toNum(config.redemptionRateMoney),
+        maxDiscountAmount: toNum(config.maxDiscountAmount),
+        minCartAmount: toNum(config.minCartAmount),
     };
 }
 
-export async function updateLoyaltyConfigs(data: any) {
+export async function updateLoyaltyConfigs(data: Record<string, unknown>) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const updateData: any = { updatedAt: new Date() };
+    // ✅ Removido a desestruturação do '_' que causava o aviso. 
+    // Criamos o objeto de update filtrando o 'id' de forma limpa.
+    const updateData = { ...data };
+    delete updateData.id;
+    
+    (updateData as Record<string, unknown>).updatedAt = new Date();
 
-    if (data.enabled !== undefined) updateData.enabled = data.enabled;
-    if (data.conversionRatePoints !== undefined) updateData.conversionRatePoints = Number(data.conversionRatePoints);
-    if (data.conversionRateMoney !== undefined) updateData.conversionRateMoney = String(data.conversionRateMoney);
-    if (data.redemptionRatePoints !== undefined) updateData.redemptionRatePoints = Number(data.redemptionRatePoints);
-    if (data.redemptionRateMoney !== undefined) updateData.redemptionRateMoney = String(data.redemptionRateMoney);
-    if (data.maxDiscountAmount !== undefined) updateData.maxDiscountAmount = String(data.maxDiscountAmount);
-    if (data.minCartAmount !== undefined) updateData.minCartAmount = String(data.minCartAmount);
-    if (data.pointsExpirationDays !== undefined) updateData.pointsExpirationDays = data.pointsExpirationDays;
-    if (data.pointsPerSignup !== undefined) updateData.pointsPerSignup = data.pointsPerSignup;
-    if (data.pointsPerReview !== undefined) updateData.pointsPerReview = data.pointsPerReview;
-
-    await db.update(loyaltySettings).set(updateData).where(eq(loyaltySettings.id, "1")); 
+    await db.update(loyaltySettings)
+        .set(updateData as Record<string, unknown>)
+        .where(eq(loyaltySettings.id, "1")); 
+        
+    logger.info({ updateFields: Object.keys(updateData) }, "Configurações de fidelidade atualizadas pelo administrador");
     return { success: true };
 }
 
-// =================================================================
-// RELATÓRIOS E LISTAGEM (AQUI ESTÁ A CORREÇÃO CRÍTICA)
-// =================================================================
-
-export async function getCustomersLoyalty(params: { page: number; limit: number; search?: string | null; }) {
+export async function getCustomersLoyalty(params: { page: number; limit: number; search?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const offset = (params.page - 1) * params.limit;
-  
-  // Filtros de busca
   const conditions = [];
+  
   if (params.search && params.search.trim() !== "" && params.search !== "undefined") {
     const term = `%${params.search}%`;
-    conditions.push(or(like(users.email, term), like(users.name, term)));
+    conditions.push(
+      or(
+        like(users.email, term), 
+        sql`name_index LIKE ${term}` 
+      )
+    );
   }
+  
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   try {
-    // ✅ MUDANÇA PARA LEFT JOIN:
-    // Em vez de uma subquery frágil, unimos as tabelas. Isso garante que os IDs coincidam.
     const dataQuery = await db
       .select({
         id: users.id,
-        name: users.name,
+        name: users.name, 
         email: users.email,
-        loyaltyBalance: users.loyaltyBalance,
-        // SOMA CONDICIONAL: Soma apenas se o status for 'completed'
-        // Usa o truque '+ 0' e REPLACE para limpar as aspas do banco
-        spent_total: sql<number>`
-          COALESCE(SUM(
-            CASE 
-              WHEN ${orders.status} = 'completed' 
-              THEN REPLACE(${orders.total}, '"', '') + 0 
-              ELSE 0 
-            END
-          ), 0)
-        `.as('spent_total')
+        loyaltyBalance: sql`loyalty_balance`.mapWith(Number),
+        totalSpent: sql`COALESCE(SUM(CASE WHEN ${orders.status} = 'completed' THEN ${orders.total} ELSE 0 END), 0)`.mapWith(Number)
       })
       .from(users)
-      // O Drizzle gere a relação aqui. Se orders.userId estiver definido no schema, isto funciona.
       .leftJoin(orders, eq(orders.userId, users.id))
       .where(whereClause)
-      .groupBy(users.id) // Agrupa por utilizador para somar os pedidos corretamente
-      .orderBy(desc(users.loyaltyBalance))
+      .groupBy(users.id)
+      .orderBy(sql`loyalty_balance DESC`)
       .limit(params.limit)
       .offset(offset);
 
-    // Contagem total para paginação
-    const [totalResult] = await db.select({ value: count() }).from(users).where(whereClause);
+    const [totalResult] = await db
+      .select({ value: count() })
+      .from(users)
+      .where(whereClause);
 
     return {
-      items: dataQuery.map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        email: i.email,
-        // Normalização final para o Frontend
-        points: Number(i.loyaltyBalance || 0),
-        totalSpent: Number(i.spent_total || 0)
-      })),
-      total: Number(totalResult?.value || 0),
-      totalPages: Math.ceil(Number(totalResult?.value || 0) / params.limit),
+      items: (dataQuery || []),
+      total: toNum(totalResult?.value),
+      totalPages: Math.ceil(toNum(totalResult?.value) / params.limit),
     };
-  } catch (err: any) {
-    console.error("❌ Erro fatal no SQL de fidelidade:", err);
-    throw err;
+  } catch (error) {
+    logger.error({ err: error }, "Erro ao listar saldo de fidelidade dos clientes");
+    return { items: [], total: 0, totalPages: 0 };
   }
 }
 
@@ -140,11 +128,11 @@ export async function getCustomerHistory(userId: string) {
         .where(eq(loyaltyHistory.userId, userId))
         .orderBy(desc(loyaltyHistory.createdAt));
 
-    return history.map(item => ({
+    return (history || []).map((item) => ({
         ...item,
         id: String(item.id),
         userId: String(item.userId),
-        points: Number(item.pointsChange), 
+        points: toNum(item.pointsChange), 
     }));
 }
 
@@ -154,26 +142,71 @@ export async function addManualPoints(userId: string, points: number, reason: st
 
     const type = points > 0 ? 'earned' : 'burned';
 
+    logger.info({ userId, points, reason }, "📝 Iniciando ajuste manual de pontos");
+
     try {
-        await db.insert(loyaltyHistory).values({
-            id: crypto.randomUUID(), 
-            userId: userId,
-            pointsChange: points,
-            type: type as any,
-            reason: reason,
-            description: reason,
-            createdAt: new Date()
+        return await db.transaction(async (tx) => {
+            await tx.insert(loyaltyHistory).values({
+                id: crypto.randomUUID(), 
+                userId: userId,
+                pointsChange: points,
+                type: type,
+                reason: reason,
+                description: reason,
+                createdAt: new Date()
+            } as typeof loyaltyHistory.$inferInsert);
+
+            await tx.execute(sql`
+                UPDATE users 
+                SET loyalty_balance = COALESCE(loyalty_balance, 0) + ${points} 
+                WHERE id = ${userId}
+            `);
+
+            logger.info({ userId, points }, "✅ Pontos ajustados com sucesso");
+            return { success: true };
         });
+    } catch (error: unknown) {
+        const dbError = error as DatabaseError;
+        logger.error({ err: dbError, userId }, "❌ Falha ao processar ajuste manual de fidelidade");
+        throw new Error(`Erro ao salvar pontos: ${dbError.message}`);
+    }
+}
 
-        await db.execute(sql`
-            UPDATE users 
-            SET loyalty_balance = loyalty_balance + ${points} 
-            WHERE id = ${userId}
-        `);
+export async function deleteTransactions(userId: string, transactionIds: string[]) {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
 
-        return { success: true };
-    } catch (error) {
-        console.error("❌ Erro SQL ao inserir pontos:", error);
-        throw new Error("Falha ao gravar ajuste manual no banco.");
+    try {
+        return await db.transaction(async (tx) => {
+            logger.warn({ userId, transactionCount: transactionIds.length }, "⚠️ Iniciando estorno de transações de fidelidade");
+
+            await tx.delete(loyaltyHistory)
+                .where(
+                    and(
+                        eq(loyaltyHistory.userId, userId),
+                        inArray(loyaltyHistory.id, transactionIds)
+                    )
+                );
+
+            const remainingHistory = await tx.select({
+                points: loyaltyHistory.pointsChange
+            })
+            .from(loyaltyHistory)
+            .where(eq(loyaltyHistory.userId, userId));
+
+            const newBalance = remainingHistory.reduce((acc, curr) => acc + toNum(curr.points), 0);
+
+            await tx.execute(sql`
+                UPDATE users 
+                SET loyalty_balance = ${newBalance} 
+                WHERE id = ${userId}
+            `);
+
+            logger.info({ userId, newBalance }, "✅ Transações deletadas e saldo recalculado");
+            return { success: true, newBalance };
+        });
+    } catch (error: unknown) {
+        logger.error({ err: error, userId }, "Erro ao deletar transações e recalcular saldo");
+        throw new Error("Erro ao processar estorno no banco de dados.");
     }
 }

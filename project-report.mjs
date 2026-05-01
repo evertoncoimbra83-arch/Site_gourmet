@@ -76,7 +76,7 @@ function walkDir(startDir) {
         }
       }
     } catch (e) {
-      console.warn(`Não foi possível ler: ${current}`);
+      
     }
   }
   walk(startDir);
@@ -167,7 +167,7 @@ function generateReport() {
 
   const outFile = path.join(ROOT, "project-report.md");
   fs.writeFileSync(outFile, report, "utf8");
-  console.log("✅ Relatório completo com Motor de Busca gerado em:", outFile);
+  
 }
 
 generateReport();

@@ -1,67 +1,113 @@
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Copy, Trash2, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { AspectRatio } from "@/components/ui/aspect-ratio";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Copy, Trash2, AlertCircle, MoreVertical, Eye } from "lucide-react";
 
-export function MediaCard({ item, onCopy, onDelete }: any) {
+// --- INTERFACES ---
+
+interface MediaItem {
+  id: string | number;
+  url: string;
+  displayUrl?: string;
+  originalFilename: string;
+  folder?: string;
+}
+
+interface MediaCardProps {
+  item: MediaItem;
+  onCopy: (url: string) => void;
+  onDelete: (id: string | number) => void;
+}
+
+export function MediaCard({ item, onCopy, onDelete }: MediaCardProps) {
   const [hasError, setHasError] = useState(false);
 
-  // ✅ Usamos displayUrl que vem do AdminMediaView (já tratada pelo hook)
   const imageUrl = item.displayUrl || item.url;
 
   return (
-    <div className="group relative aspect-square rounded-[2rem] overflow-hidden bg-slate-50 border border-slate-100 transition-all hover:shadow-2xl hover:-translate-y-1">
-      
-      {hasError ? (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 text-center">
-          <AlertCircle size={24} className="mb-2 opacity-50" />
-          <span className="text-[8px] font-black uppercase tracking-tighter">Erro ao carregar imagem</span>
-        </div>
-      ) : (
-        <img 
-          src={imageUrl} 
-          alt={item.originalFilename} 
-          // ✅ Crucial para evitar bloqueio de porta cruzada (CORS)
-          crossOrigin="anonymous"
-          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
-          onError={() => {
-            console.error("🟥 Erro na renderização da imagem:", imageUrl);
-            setHasError(true);
-          }}
-        />
-      )}
-      
-      {/* OVERLAY DE AÇÕES */}
-      <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px] z-10">
-        <Button 
-          size="icon" variant="secondary" 
-          className="rounded-xl h-12 w-12 bg-white text-slate-900 hover:bg-emerald-500 hover:text-white border-none shadow-xl transition-colors"
-          title="Copiar Link"
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            onCopy(imageUrl); 
-          }}
-        >
-          <Copy size={20} />
-        </Button>
-        <Button 
-          size="icon" variant="destructive" 
-          className="rounded-xl h-12 w-12 bg-red-500 hover:bg-red-600 shadow-xl border-none"
-          title="Excluir"
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            onDelete(item.id); 
-          }}
-        >
-          <Trash2 size={20} />
-        </Button>
-      </div>
+    <Card className="group overflow-hidden border-none bg-transparent shadow-none transition-all duration-500 hover:-translate-y-2">
+      <CardContent className="p-0">
+        <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-100 shadow-sm transition-all duration-500 group-hover:shadow-2xl">
+          <div className="absolute left-4 top-4 z-10 rounded-full bg-white/90 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-700 shadow-sm backdrop-blur-md">
+            {item.folder || "geral"}
+          </div>
+          
+          {/* ASPECT RATIO: Garante que a foto da marmita nunca achate */}
+          <AspectRatio ratio={1 / 1}>
+            {hasError ? (
+              <div className="flex h-full w-full flex-col items-center justify-center space-y-2 bg-slate-50 text-slate-300">
+                <AlertCircle size={32} strokeWidth={1} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Mídia não encontrada
+                </span>
+              </div>
+            ) : (
+              <img
+                src={imageUrl}
+                alt={item.originalFilename}
+                crossOrigin="anonymous"
+                className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-110"
+                onError={() => setHasError(true)}
+              />
+            )}
+          </AspectRatio>
 
-      {/* FOOTER COM NOME - Estilizado para não cobrir a imagem totalmente */}
-      <div className="absolute bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md p-3 border-t border-slate-100 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300">
-        <p className="text-[9px] font-black text-slate-600 uppercase truncate text-center tracking-tighter">
-          {item.originalFilename}
-        </p>
-      </div>
-    </div>
+          {/* OVERLAY MINIMALISTA (Preset Sera style) */}
+          <div className="absolute inset-0 bg-slate-950/20 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+          
+          {/* AÇÕES RÁPIDAS NO TOPO */}
+          <div className="absolute right-4 top-4 flex flex-col gap-2 opacity-0 transition-all duration-500 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  size="icon" 
+                  variant="secondary" 
+                  className="h-10 w-10 rounded-full bg-white/90 backdrop-blur-md shadow-lg hover:bg-white"
+                >
+                  <MoreVertical size={18} className="text-slate-700" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-2xl border-none p-2 shadow-2xl">
+                <DropdownMenuItem 
+                  className="flex items-center gap-3 rounded-xl py-3 font-bold text-slate-600 focus:bg-emerald-50 focus:text-emerald-700 cursor-pointer"
+                  onClick={() => onCopy(imageUrl)}
+                >
+                  <Copy size={16} /> Copiar Link
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="flex items-center gap-3 rounded-xl py-3 font-bold text-red-500 focus:bg-red-50 focus:text-red-600 cursor-pointer"
+                  onClick={() => onDelete(item.id)}
+                >
+                  <Trash2 size={16} /> Excluir permanentemente
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* BOTÃO DE VISUALIZAÇÃO CENTRAL (Aparece no hover) */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-all duration-500 group-hover:opacity-100 scale-90 group-hover:scale-100 pointer-events-none">
+             <div className="flex items-center gap-2 bg-white/90 backdrop-blur-md px-6 py-3 rounded-full shadow-2xl">
+                <Eye size={16} className="text-emerald-600" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-800">Visualizar</span>
+             </div>
+          </div>
+        </div>
+
+        {/* NOME DO ARQUIVO COM PLAYFAIR DISPLAY (via Sera Preset) */}
+        <div className="mt-4 px-2 text-left">
+          <p className="truncate font-serif text-sm italic text-slate-800 transition-colors group-hover:text-emerald-700">
+            {item.originalFilename}
+          </p>
+          <div className="mt-1 h-[2px] w-0 bg-emerald-500 transition-all duration-500 group-hover:w-full" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

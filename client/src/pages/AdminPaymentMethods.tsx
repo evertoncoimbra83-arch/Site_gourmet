@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para satisfazer a regra do linter
 import { AdminPaymentMethodsView } from "./adminPaymentMethods/view/AdminPaymentMethodsView";
 
 export default function AdminPaymentMethods() {

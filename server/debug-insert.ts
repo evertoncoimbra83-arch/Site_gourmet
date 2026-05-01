@@ -1,34 +1,57 @@
 // server/debug-insert.ts
 import "dotenv/config";
-import { getDb } from "./db";
-import { accompanimentGroups } from "../drizzle/schema";
+import { getDb } from "./db.js";
+import { accompanimentGroups } from "../drizzle/schema/index.js";
+import { logger } from "./logger.js";
 
-async function debug() {
-  const db = await getDb();
-  if (!db) return console.error("Sem conexão DB");
-
-  console.log("🔍 Tentando inserir um grupo de teste...");
-
-  try {
-    // CORREÇÃO: Usando os nomes em CamelCase definidos no schema
-    const result = await db.insert(accompanimentGroups).values({
-      name: "Grupo Debug " + Date.now(),
-      slug: "debug-" + Date.now(),
-      description: "Teste de inserção",
-      isActive: true,       // Antes: is_active
-      createdAt: new Date(), // Antes: created_at
-      updated_at: new Date(), // Antes: updated_at
-    });
-    
-    console.log("✅ SUCESSO! ID inserido:", result);
-  } catch (error: any) {
-    console.error("\n❌ ERRO FATAL DETECTADO:");
-    console.error("Mensagem:", error.message);
-    if (error.sqlState) console.error("Código SQL State:", error.sqlState);
-    if (error.sql) console.error("Query SQL tentada:", error.sql);
-  }
-  
-  process.exit(0);
+// Interface para capturar erros do banco sem usar 'any'
+interface DatabaseError {
+  message: string;
+  code?: string;
+  sqlState?: string;
+  sql?: string;
 }
 
-debug();
+async function debug(): Promise<void> {
+  const db = await getDb();
+  
+  if (!db) {
+    logger.error("Falha ao conectar com o banco de dados.");
+    process.exit(1);
+  }
+
+  const timestamp = Date.now();
+  const groupName = `Grupo Debug ${timestamp}`;
+
+  try {
+    logger.info({ groupName }, "Iniciando inserção de teste...");
+
+    // ✅ Ajustado de acordo com o que o seu Schema realmente suporta
+    const newGroup: typeof accompanimentGroups.$inferInsert = {
+      name: groupName,
+      slug: `debug-${timestamp}`,
+      isActive: true,
+      // Removidos createdAt e updatedAt pois não existem na sua tabela
+      minSelections: 1,
+      maxSelections: 1
+    };
+
+    await db.insert(accompanimentGroups).values(newGroup);
+    
+    logger.info("✅ Inserção de debug realizada com sucesso!");
+
+  } catch (error: unknown) {
+    const dbError = error as DatabaseError;
+    
+    logger.error({ 
+      message: dbError.message || "Erro desconhecido",
+      code: dbError.code,
+      sqlState: dbError.sqlState,
+      query: dbError.sql 
+    }, "❌ Erro na inserção de debug");
+  } finally {
+    process.exit(0);
+  }
+}
+
+void debug();

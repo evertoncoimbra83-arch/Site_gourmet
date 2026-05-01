@@ -1,0 +1,92 @@
+/* ✅ Estilização Estilo Mobbin (Elegante & Colorida) */
+
+[data-sonner-toast] {
+  border: none !important; /* Removemos a borda total para usar sombra e glow */
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-radius: 1.25rem !important; 
+  padding: 1.25rem !important;
+  font-family: inherit;
+  /* Sombras em camadas para dar profundidade sem parecer "sujo" */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 
+              0 20px 25px -5px rgba(0, 0, 0, 0.1) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+/* Título: Forte e Direto */
+[data-sonner-toast] [data-title] {
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.02em !important;
+  font-style: italic !important;
+  font-size: 0.8rem !important;
+}
+
+/* Descrição: Leitura limpa */
+[data-sonner-toast] [data-description] {
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  opacity: 0.9;
+}
+
+/* --- VARIANTES MOBBIN-STYLE (Glow & Contrast) --- */
+
+/* 🟢 SUCESSO: Emerald Vibrant */
+[data-sonner-toast][data-type="success"] {
+  background: rgba(16, 185, 129, 0.15) !important; /* Fundo verde bem suave */
+  border-left: 5px solid #10b981 !important;
+  box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.15) !important;
+}
+[data-sonner-toast][data-type="success"] [data-title],
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: #059669 !important;
+}
+[data-sonner-toast][data-type="success"] [data-description] {
+  color: #064e3b !important;
+}
+
+/* 🔴 ERRO: Rose/Red Intense */
+[data-sonner-toast][data-type="error"] {
+  background: rgba(244, 63, 94, 0.12) !important; /* Fundo avermelhado suave */
+  border-left: 5px solid #f43f5e !important;
+  box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.15) !important;
+}
+[data-sonner-toast][data-type="error"] [data-title],
+[data-sonner-toast][data-type="error"] [data-icon] {
+  color: #e11d48 !important;
+}
+[data-sonner-toast][data-type="error"] [data-description] {
+  color: #881337 !important;
+}
+
+/* 🔵 CARREGANDO / PROCESSO (Ajuste para o Loader2) */
+[data-sonner-toast][data-type="loading"] {
+  background: rgba(15, 23, 42, 0.05) !important;
+  border-left: 5px solid #0f172a !important;
+}
+
+/* Botão de Fechar: Minimalista */
+[data-sonner-toast] [data-close-button] {
+  background: transparent !important;
+  border: none !important;
+  color: currentColor !important;
+  opacity: 0.4;
+  transition: all 0.2s ease;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* Pequena animação de entrada estilo "Spring" */
+[data-sonner-toast] {
+  animation: spring-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes spring-in {
+  from { transform: translateY(20px) scale(0.9); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}

@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para satisfazer a regra do linter
 import { AdminUsersView } from "./adminUsers/view/AdminUsersView";
 
 export default function AdminUsers() {

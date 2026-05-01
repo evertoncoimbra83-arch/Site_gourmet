@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react"; // ✅ Adicionado React scope
 import { trpc } from "@/_core/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,29 +8,41 @@ import {
   ShoppingCart, Megaphone, Loader2, Save, 
   TicketPercent, ArrowRight, ShieldCheck 
 } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
-import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { appToast as toast } from "@/lib/app-toast"; // ✅ Padronizado para sonner
+import { useNavigate } from "react-router-dom"; 
 
 export function AdminMarketingView() {
-  const [_, setLocation] = useLocation();
+  const navigate = useNavigate();
   const utils = trpc.useUtils();
   
   const { data: rules, isLoading } = trpc.admin.marketing.getRules.useQuery();
+  
   const updateMutation = trpc.admin.marketing.updateRules.useMutation({
     onSuccess: () => {
-      toast.success("Regras de venda atualizadas e registradas!");
+      toast.success("Sucesso!", {
+        description: "Regras de venda atualizadas e registradas com sucesso."
+      });
       utils.admin.marketing.getRules.invalidate();
     },
     onError: (err) => {
-      toast.error("Erro ao salvar: " + err.message);
+      toast.error("Erro ao salvar", {
+        description: err.message
+      });
     }
   });
 
-  const [formData, setFormData] = useState({ generalMinOrderAmount: 0, minOrderMessage: "" });
+  const [formData, setFormData] = useState({ 
+    generalMinOrderAmount: 0, 
+    minOrderMessage: "" 
+  });
 
   useEffect(() => {
-    if (rules) setFormData(rules);
+    if (rules) {
+      setFormData({
+        generalMinOrderAmount: Number(rules.generalMinOrderAmount || 0),
+        minOrderMessage: String(rules.minOrderMessage || "")
+      });
+    }
   }, [rules]);
 
   // ✅ Máscara de Moeda Brasileira
@@ -43,7 +56,7 @@ export function AdminMarketingView() {
   const handleCurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "");
     const numericValue = Number(value) / 100;
-    setFormData({ ...formData, generalMinOrderAmount: numericValue });
+    setFormData(prev => ({ ...prev, generalMinOrderAmount: numericValue }));
   };
 
   if (isLoading) return (
@@ -54,16 +67,15 @@ export function AdminMarketingView() {
   );
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* HEADER COM INFORMAÇÃO DE AUDITORIA */}
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 font-sans text-left">
+      {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">
               Marketing <span className="text-orange-500">&</span> Vendas
             </h1>
-            {/* 🛡️ BADGE DE AUDITORIA */}
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 shadow-sm">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100">
               <ShieldCheck size={12} className="animate-pulse" />
               <span className="text-[9px] font-black uppercase tracking-tighter">Auditoria Ativa</span>
             </div>
@@ -74,7 +86,7 @@ export function AdminMarketingView() {
         </div>
 
         <Button 
-          onClick={() => updateMutation.mutate(formData)}
+          onClick={() => updateMutation.mutate(formData as unknown as Parameters<typeof updateMutation.mutate>[0])}
           disabled={updateMutation.isPending}
           className="bg-orange-500 hover:bg-orange-600 text-white rounded-2xl h-14 px-8 font-black shadow-xl transition-all active:scale-95 group"
         >
@@ -99,7 +111,7 @@ export function AdminMarketingView() {
             </div>
           </CardHeader>
           <CardContent className="p-8 space-y-8">
-            <div className="space-y-3">
+            <div className="space-y-3 text-left">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Valor Mínimo do Pedido</Label>
               <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 bg-white rounded-xl flex items-center justify-center text-orange-600 font-black text-xs z-10 border border-orange-100 group-focus-within:bg-orange-500 group-focus-within:text-white transition-all shadow-sm">
@@ -115,13 +127,13 @@ export function AdminMarketingView() {
               <p className="text-[9px] text-slate-400 font-bold italic ml-2">* O sistema bloqueará o fechamento se o subtotal for menor.</p>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 text-left">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Mensagem de Aviso ao Cliente</Label>
               <Input 
                 placeholder="Ex: Poxa! Adicione mais itens para atingir R$ 30,00"
                 className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-slate-700"
                 value={formData.minOrderMessage}
-                onChange={(e) => setFormData({...formData, minOrderMessage: e.target.value})}
+                onChange={(e) => setFormData(prev => ({...prev, minOrderMessage: e.target.value}))}
               />
             </div>
           </CardContent>
@@ -132,8 +144,8 @@ export function AdminMarketingView() {
           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 ml-2">Módulos de Conversão</h3>
           
           <button 
-            onClick={() => setLocation("/admin/coupons")}
-            className="w-full p-8 bg-slate-900 rounded-[2.5rem] text-white flex justify-between items-center group cursor-pointer hover:bg-slate-800 transition-all shadow-2xl shadow-slate-200"
+            onClick={() => navigate("/admin/coupons")}
+            className="w-full p-8 bg-slate-900 rounded-[2.5rem] text-white flex justify-between items-center group cursor-pointer hover:bg-slate-800 transition-all shadow-2xl shadow-slate-200 border-none"
           >
              <div className="flex items-center gap-6">
                <div className="h-14 w-14 bg-white/10 rounded-2xl flex items-center justify-center group-hover:bg-orange-500 group-hover:scale-110 transition-all">
@@ -148,8 +160,8 @@ export function AdminMarketingView() {
           </button>
 
           <button 
-            onClick={() => setLocation("/admin/loyalty")}
-            className="w-full p-8 bg-emerald-600 rounded-[2.5rem] text-white flex justify-between items-center group cursor-pointer hover:bg-emerald-700 transition-all shadow-2xl shadow-emerald-100"
+            onClick={() => navigate("/admin/loyalty")}
+            className="w-full p-8 bg-emerald-600 rounded-[2.5rem] text-white flex justify-between items-center group cursor-pointer hover:bg-emerald-700 transition-all shadow-2xl shadow-emerald-100 border-none"
           >
              <div className="flex items-center gap-6">
                <div className="h-14 w-14 bg-white/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-all">

@@ -1,75 +1,74 @@
-import { mysqlTable, varchar, text, decimal, timestamp, boolean, mysqlEnum, json, int } from 'drizzle-orm/mysql-core';
-import { sql } from "drizzle-orm";
+import {
+  mysqlTable,
+  int,
+  varchar,
+  text,
+  decimal,
+  timestamp,
+  boolean,
+  longtext,
+} from "drizzle-orm/mysql-core";
 
 // ====================================================
-// --- 1. CONFIGURAÇÕES DE RETIRADA (PICKUP) ---
+// --- 1. MALHA GEOGRÁFICA (geo_mesh) ---
 // ====================================================
-export const shippingSettings = mysqlTable('shipping_settings', {
-  /**
-   * Mantemos varchar(255) pois geralmente usamos um ID fixo como 'default'
-   */
-  id: varchar("id", { length: 255 }).primaryKey(),
+export const geoMesh = mysqlTable("geo_mesh", {
+  // ✅ Padronizado: zipCode no TS, cep no DB (para consistência com addresses)
+  zipCode: varchar("cep", { length: 20 }).primaryKey(),
+  neighborhood: varchar("bairro", { length: 100 }),
+  city: varchar("cidade", { length: 100 }).default("Jundiaí"),
   
-  pickupEnabled: boolean('pickup_enabled').default(true),
-  pickupLabel: varchar('pickup_label', { length: 255 }).default('Retirada no Balcão'),
-  pickupInstruction: varchar('pickup_instruction', { length: 500 }),
-  
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+  storeSlug: varchar("store_slug", { length: 100 }).default("default"),
+
+  lat: decimal("lat", { precision: 10, scale: 8 }).notNull(),
+  lng: decimal("lng", { precision: 11, scale: 8 }).notNull(),
+  lastSeen: timestamp("last_seen").defaultNow().onUpdateNow(),
 });
 
 // ====================================================
-// --- 2. REGRAS DE ENTREGA (shipping_rules) ---
+// --- 2. ZONAS DE ENTREGA (shipping_zones) ---
 // ====================================================
-export const shippingRules = mysqlTable('shipping_rules', {
-  /**
-   * ✅ AJUSTE CRÍTICO: 
-   * Mudado de varchar para int + autoincrement para bater com o banco físico.
-   * Isso remove a obrigatoriedade de passar o ID no .values() do Router.
-   */
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const shippingZones = mysqlTable("shipping_zones", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(), 
+  storeSlug: varchar("store_slug", { length: 100 }).default("default"),
+  description: text("description"),
+  type: varchar("type", { length: 50 }).default("zipcode"),
   
-  name: varchar('name', { length: 100 }).notNull(),
+  // ✅ CamelCase no TS para bater com as interfaces de lógica
+  polygonCoords: longtext("polygon_coords"), 
 
-  /**
-   * TIPO DE REGRA
-   */
-  type: mysqlEnum('type', ['zipcode', 'polygon']).default('zipcode').notNull(),
+  // ✅ Padronização de nomes de colunas vs propriedades TS
+  zipCodeStart: varchar("zip_code_start", { length: 20 }).notNull(),
+  zipCodeEnd: varchar("zip_code_end", { length: 20 }).notNull(),
 
-  /**
-   * LOGÍSTICA POR CEP
-   */
-  cepStart: varchar('cep_start', { length: 8 }), 
-  cepEnd: varchar('cep_end', { length: 8 }),     
-  
-  /**
-   * LOGÍSTICA POR MAPA
-   */
-  polygonCoords: json('polygon_coords'), 
+  shippingCost: decimal("shipping_cost", {
+    precision: 10,
+    scale: 2,
+  }).notNull(),
 
-  /**
-   * PRECIFICAÇÃO E STATUS
-   */
-  price: decimal('price', { precision: 10, scale: 2 }).default('0.00'), 
-  active: boolean('active').default(true),
-  
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+  estimatedDays: int("estimated_days"),
+  isActive: boolean("is_active").default(true),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
+export const shippingRules = shippingZones;
+
 // ====================================================
-// --- 3. CONFIGURAÇÕES GERAIS DA LOJA ---
+// --- 3. CONFIGURAÇÕES GERAIS DE ENTREGA (shipping_settings) ---
 // ====================================================
-export const storeSettings = mysqlTable('store_settings', {
-  /**
-   * Mantemos varchar se você estiver usando um ID fixo 'default_store'
-   */
-  id: varchar("id", { length: 255 }).primaryKey(),
-  
-  generalMinOrderAmount: decimal('general_min_order_amount', { precision: 10, scale: 2 }).default('0.00'),
-  minOrderMessage: text('min_order_message'),
-  emergencyMode: boolean('emergency_mode').default(false),
-  
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+export const shippingSettings = mysqlTable("shipping_settings", {
+  id: int("id").autoincrement().primaryKey(),
+
+  pickupEnabled: boolean("pickup_enabled").default(true),
+
+  // ✅ Nomes de propriedades ajustados para casar com o erro do CheckoutView
+  pickupLabel: varchar("pickup_label", { length: 255 }).default("Retirada no Balcão"),
+
+  pickupInstruction: varchar("pickup_instruction", { length: 500 }),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });

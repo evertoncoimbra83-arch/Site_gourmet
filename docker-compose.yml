@@ -1,4 +1,5 @@
 ﻿version: '3.8'
+
 services:
   db:
     image: mariadb:11
@@ -13,6 +14,17 @@ services:
       - gourmet_network
     volumes:
       - gourmet_data:/var/lib/mysql
+
+  # ✅ ADICIONADO: Redis para gerenciar a fila BullMQ
+  redis:
+    image: redis:alpine
+    container_name: gourmet_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - gourmet_network
+    command: ["redis-server", "--appendonly", "yes"]
 
   adminer:
     image: adminer

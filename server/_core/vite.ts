@@ -5,7 +5,11 @@ import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config"; // sobe 2 níveis até a raiz
+import viteConfig from "../../vite.config"; 
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -24,23 +28,13 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
-
     try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
-        "..",
-        "client",
-        "index.html",
-      );
-
-      // sempre recarrega o index.html do disco
+      const clientTemplate = path.resolve(__dirname, "..", "..", "client", "index.html");
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
-
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
@@ -51,20 +45,29 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath =
-    process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "..", "..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
+  // ✅ CORREÇÃO DE CAMINHO: Ajustado para a estrutura da VPS
+  const rootDir = process.cwd();
+  const distPath = path.resolve(rootDir, "dist", "client");
+  const publicUploadsPath = path.resolve(rootDir, "public", "uploads");
 
-  if (!fs.existsSync(distPath)) {
-    console.error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
+  // 1. Servir a pasta de uploads (Imagens)
+  if (fs.existsSync(publicUploadsPath)) {
+    app.use("/uploads", express.static(publicUploadsPath));
   }
+
+  // 2. Servir os arquivos do Frontend
+  if (!fs.existsSync(distPath)) { /* empty */ }
 
   app.use(express.static(distPath));
 
+  // 3. Rota coringa para React Router
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    const indexPath = path.resolve(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      // ✅ Backup caso o index.html não seja achado, para não ficar tela branca
+      res.status(404).send("Frontend não encontrado. Verifique a pasta dist/client");
+    }
   });
 }

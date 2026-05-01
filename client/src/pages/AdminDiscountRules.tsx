@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para satisfazer a regra do linter
 import { AdminDiscountRulesView } from "./adminDiscountRules/view/AdminDiscountRulesView";
 
 export default function AdminDiscountRules() {

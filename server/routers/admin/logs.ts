@@ -4,16 +4,16 @@ import { getDb } from "../../db.js";
 import { auditLogs, users } from "../../../drizzle/schema/index.js";
 import { desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { decrypt } from "../../encryption.js"; // ✅ Importe sua função de decrypt
+import { decrypt } from "../../encryption.js";
 
 /**
- * Helper para descriptografar dados sensíveis (Name, Phone, etc)
+ * 🔐 Helper para descriptografar dados sensíveis (PII)
  */
-function unseal(val: any): string {
+function unseal(val: unknown): string {
   if (!val) return "";
   try {
     const str = String(val);
-    // Se não estiver no formato encriptado (IV:AUTH:CONTENT), retorna o original
+    // Verifica se o formato parece ser um dado criptografado (iv:authTag:content)
     if (str.split(':').length !== 3) return str;
     return decrypt(str) || str;
   } catch { 
@@ -23,7 +23,7 @@ function unseal(val: any): string {
 
 /**
  * 👑 Roteador de Logs de Auditoria (Admin)
- * Rota: admin.logs.list
+ * Este router é vital para a conformidade do sistema e monitoramento de ações críticas.
  */
 export const adminLogsRouter = router({
   list: adminProcedure
@@ -33,7 +33,12 @@ export const adminLogsRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
+      if (!db) {
+        throw new TRPCError({ 
+          code: "INTERNAL_SERVER_ERROR", 
+          message: "Banco de dados indisponível." 
+        });
+      }
 
       try {
         const rows = await db
@@ -44,8 +49,8 @@ export const adminLogsRouter = router({
             entityId: auditLogs.entityId,
             ipAddress: auditLogs.ipAddress,
             createdAt: auditLogs.createdAt,
-            userName: users.name,    // Vem encriptado do banco
-            userEmail: users.email,  // Geralmente público, mas trataremos por segurança
+            userName: users.name, 
+            userEmail: users.email,
             oldValues: auditLogs.oldValues,
             newValues: auditLogs.newValues,
           })
@@ -56,15 +61,22 @@ export const adminLogsRouter = router({
           .offset(input.offset);
 
         return rows.map((row) => {
-          // Função robusta para tratar JSON/Buffers vindos do Banco
-          const parseLogValues = (val: any) => {
+          /**
+           * ✅ Tipagem segura para parsing de JSON de colunas TEXT/BLOB
+           */
+          const parseLogValues = (val: unknown): Record<string, unknown> | null => {
             if (!val) return null;
-            if (typeof val === 'object' && !Buffer.isBuffer(val)) return val;
+            
+            // Se já for um objeto (comum em drivers que auto-parseiam JSON)
+            if (typeof val === 'object' && !Buffer.isBuffer(val)) {
+              return val as Record<string, unknown>;
+            }
+
             try { 
               const str = Buffer.isBuffer(val) ? val.toString('utf8') : String(val);
               return JSON.parse(str); 
             } catch { 
-              return { info: "Dados em formato incompatível" }; 
+              return { info: "Dados em formato incompatível ou texto puro" }; 
             }
           };
 
@@ -76,7 +88,7 @@ export const adminLogsRouter = router({
             ipAddress: row.ipAddress || "Interno",
             oldValues: parseLogValues(row.oldValues),
             newValues: parseLogValues(row.newValues),
-            // ✅ APLICAÇÃO DO UNSEAL: Descriptografa o nome do admin/usuário
+            // ✅ Descriptografia do nome do executor da ação
             user: row.userName 
               ? { name: unseal(row.userName), email: row.userEmail } 
               : { name: "Sistema", email: "Automático" },
@@ -85,11 +97,13 @@ export const adminLogsRouter = router({
               : new Date().toISOString()
           };
         });
-      } catch (error: any) {
-        console.error("❌ [LOGS ERROR]:", error.message);
+      } catch (err) {
+        // Log interno para depuração sem expor detalhes ao cliente
+        console.error("Erro ao processar logs de auditoria:", err);
+        
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Erro ao carregar trilha de auditoria.",
+          message: "Falha ao carregar trilha de auditoria para o painel.",
         });
       }
     }),

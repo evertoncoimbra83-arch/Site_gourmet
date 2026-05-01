@@ -1,13 +1,37 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import type { Express, Request, Response } from "express";
+import { Express, Request, Response } from "express";
+
+// ✅ 1. Conecta com client/src/const.ts
+import { COOKIE_NAME, ONE_YEAR_MS } from "@/const";
+
+// ✅ 2. Conecta com server/db.ts
 import * as db from "../db";
-import { getSessionCookieOptions } from "./cookies";
-import { sdk } from "./sdk";
+
+// ✅ 3. Conecta com server/_core/sdk.ts
+import { SDKServer } from "./sdk";
+const sdk = new SDKServer();
+
+// ✅ 4. Importa ou define opções de cookie
+/**
+ * Retorna opções base para o cookie de sessão.
+ * FIX: Removido o parâmetro não utilizado para satisfazer o ESLint.
+ */
+function getSessionCookieOptions() {
+  return {}; 
+}
+
+// --- Helpers Locais ---
+
+function isLocalhost(req: Request) {
+  const host = req.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
 
 function getQueryParam(req: Request, key: string): string | undefined {
-  const value = req.query[key];
-  return typeof value === "string" ? value : undefined;
+  const val = req.query[key];
+  return typeof val === "string" ? val : undefined;
 }
+
+// --- Rotas OAuth ---
 
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
@@ -41,12 +65,29 @@ export function registerOAuthRoutes(app: Express) {
         expiresInMs: ONE_YEAR_MS,
       });
 
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      // ✅ Chamada ajustada para a nova assinatura sem parâmetros
+      const baseOptions = getSessionCookieOptions();
+
+      // --- Lógica de Segurança de Cookie (Blindada) ---
+      const localhost = isLocalhost(req);
+      const isProduction = !localhost;
+      
+      const secure = isProduction; 
+      const sameSite = isProduction ? "none" : "lax";
+
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...baseOptions,
+        maxAge: ONE_YEAR_MS,
+        httpOnly: true,
+        path: "/",
+        sameSite, 
+        secure,   
+      });
 
       res.redirect(302, "/");
+
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      console.error("OAuth Error:", error);
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });

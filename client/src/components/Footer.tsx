@@ -1,104 +1,156 @@
+// src/components/Footer.tsx
+
+import React from "react";
 import { APP_TITLE } from "@/const";
 import { trpc } from "@/_core/trpc";
-import { Facebook, Instagram, MessageCircle, Mail, MapPin, Phone, Loader2, AlertCircle } from "lucide-react";
+import { safeJsonParse } from "@/lib/safe-parse";
+import { 
+  Instagram, 
+  MessageCircle, 
+  Mail, 
+  Phone, 
+  Loader2, 
+  Star,
+  Users // ✅ Importado para a seção de parceiros
+} from "lucide-react";
+import { Link } from "react-router-dom"; 
+
+// --- INTERFACES ---
+interface CompanySocialInfo {
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  instagram?: string;
+}
+
+interface PublicSettingsResponse {
+  company_social_info?: string | CompanySocialInfo;
+  [key: string]: unknown;
+}
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
 
-  // 1. Busca as informações com tratamento de erro explícito
-  const { data: info, isLoading, error, isError } = (trpc.public as any).getCompanyInfo.useQuery(undefined, {
-    retry: false, // Facilita o debug não tentando mil vezes
-    onError: (err: any) => console.error("❌ Erro no tRPC Footer:", err)
-  });
+  const { data: settings, isLoading } = trpc.public.getPublicSettings.useQuery();
+
+  const getCompanyData = (): CompanySocialInfo => {
+    const raw = (settings as unknown as PublicSettingsResponse)?.company_social_info;
+    if (!raw) return {};
+    return safeJsonParse<CompanySocialInfo>(raw, {});
+  };
+
+  const company = getCompanyData();
 
   const contact = {
-    phone: info?.phone || "(11) 99999-9999",
-    whatsapp: info?.whatsapp || "5511999999999",
-    email: info?.email || "contato@gourmetsaudavel.com.br",
-    address: info?.address || "São Paulo, SP",
-    instagram: info?.instagram || "gourmetsaudavel",
-    facebook: info?.facebook || "gourmetsaudavel"
+    phone: company.phone || "(11) 4526-5941",
+    whatsapp: company.whatsapp || "551145265941",
+    email: company.email || "contato@gourmetsaudavel.com",
+    address: company.address || "Jundiaí - SP",
+    instagram: company.instagram?.replace('@', '') || "gourmetsaudavel",
   };
 
   return (
-    <footer className="bg-primary text-primary-foreground mt-20 relative">
-      
-       {(isError || (!isLoading && !info)) && (
-        <div className="bg-red-900/90 text-white p-4 text-[10px] font-mono border-b border-red-500">
-          <div className="container flex items-center gap-4">
-            <AlertCircle size={16} className="text-red-300 animate-pulse" />
-            <div>
-              <p className="font-bold uppercase tracking-widest">Diagnóstico de Layout:</p>
-              <p>Status: {isError ? "Erro de Rede/404" : "Conectado mas Sem Dados"}</p>
-              <p>Mensagem: {error?.message || "Nenhuma config encontrada no banco"}</p>
-              <p>Endpoint: public.getCompanyInfo</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="container py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+    <footer className="bg-slate-900 text-white mt-20 relative rounded-t-[3rem] md:rounded-t-[5rem] overflow-hidden text-left">
+      <div className="container mx-auto px-6 py-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-12 mb-12">
           
-          {/* Brand */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-serif font-bold tracking-tight">{APP_TITLE}</h3>
-            <p className="text-primary-foreground/80 text-sm leading-relaxed italic">
-              Saúde e sabor em cada marmita.
+          {/* BRAND & STORY */}
+          <div className="space-y-6 md:col-span-1">
+            <div className="leading-none">
+              <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+                Gourmet <span className="text-emerald-500">Saudável</span>
+              </h3>
+            </div>
+            <p className="text-slate-400 text-xs font-bold uppercase leading-relaxed tracking-tight">
+              Saúde e sabor em cada prato. <br />
+              Comida de verdade, natural e feita do seu jeito.
             </p>
             {isLoading && (
               <div className="flex items-center gap-2 opacity-30">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-tighter">Sincronizando...</span>
+                <span className="text-[9px] font-black uppercase tracking-widest">Sincronizando...</span>
               </div>
             )}
           </div>
 
-          {/* Quick Links */}
-          <div>
-            <h4 className="font-black mb-4 uppercase text-[10px] tracking-[0.2em] text-secondary">Links Rápidos</h4>
-            <ul className="space-y-2 text-sm font-medium">
-              <li><a href="/" className="hover:text-secondary transition-colors">Início</a></li>
-              <li><a href="/produtos" className="hover:text-secondary transition-colors">Produtos</a></li>
-              <li><a href="/contato" className="hover:text-secondary transition-colors">Contato</a></li>
+          {/* QUICK LINKS */}
+          <div className="space-y-6">
+            <h4 className="font-black uppercase text-[10px] tracking-[0.3em] text-emerald-500">Navegação</h4>
+            <ul className="space-y-3 text-[11px] font-black uppercase tracking-widest text-slate-300">
+              <li><Link to="/" className="hover:text-emerald-500 transition-colors">Início</Link></li>
+              <li><Link to="/produtos" className="hover:text-emerald-500 transition-colors">Cardápio</Link></li>
+              <li><Link to="/pacotes" className="hover:text-emerald-500 transition-colors">Pacotes</Link></li>
             </ul>
           </div>
 
-          {/* Contact Info Dinâmico */}
-          <div>
-            <h4 className="font-black mb-4 uppercase text-[10px] tracking-[0.2em] text-secondary">Atendimento</h4>
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-center gap-2">
-                <div className="p-1.5 bg-primary-foreground/10 rounded-md"><Phone className="w-3 h-3" /></div>
-                <span className="font-bold">{contact.phone}</span>
+          {/* ✅ NOVA SEÇÃO: PARCEIROS & BENEFÍCIOS */}
+          <div className="space-y-6">
+            <h4 className="font-black uppercase text-[10px] tracking-[0.3em] text-emerald-500">Parceiros</h4>
+            <ul className="space-y-3 text-[11px] font-black uppercase tracking-widest text-slate-300">
+               <li>
+                <Link to="/fidelidade" className="hover:text-emerald-500 transition-colors flex items-center gap-2">
+                   Fidelidade <Star size={10} className="fill-emerald-500 text-emerald-500" />
+                </Link>
               </li>
-              <li className="flex items-center gap-2">
-                <div className="p-1.5 bg-primary-foreground/10 rounded-md"><Mail className="w-3 h-3" /></div>
-                <span className="font-bold truncate max-w-[150px]">{contact.email}</span>
+              <li>
+                <Link to="/nutri/cadastro" className="hover:text-emerald-500 transition-colors flex items-center gap-2">
+                  Seja um Nutri Parceiro <Users size={10} className="text-emerald-500" />
+                </Link>
               </li>
             </ul>
           </div>
 
-          {/* Social Media Dinâmico */}
-          <div>
-            <h4 className="font-black mb-4 uppercase text-[10px] tracking-[0.2em] text-secondary">Redes Sociais</h4>
-            <div className="flex gap-3">
-              <a href={`https://instagram.com/${contact.instagram.replace('@', '')}`} target="_blank" className="p-3 bg-primary-foreground/10 rounded-2xl hover:bg-secondary hover:text-secondary-foreground transition-all">
+          {/* ATENDIMENTO */}
+          <div className="space-y-6">
+            <h4 className="font-black uppercase text-[10px] tracking-[0.3em] text-emerald-500">Atendimento</h4>
+            <ul className="space-y-4 text-[11px] font-black uppercase tracking-widest text-slate-300">
+              <li className="flex items-center gap-3">
+                <Phone className="w-4 h-4 text-emerald-500" />
+                <span>{contact.phone}</span>
+              </li>
+              <li className="flex items-center gap-3">
+                <Mail className="w-4 h-4 text-emerald-500" />
+                <span className="truncate">{contact.email}</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* REDES SOCIAIS */}
+          <div className="space-y-6">
+            <h4 className="font-black uppercase text-[10px] tracking-[0.3em] text-emerald-500">Social</h4>
+            <div className="flex gap-4">
+              <a 
+                href={`https://instagram.com/${contact.instagram}`} 
+                target="_blank" 
+                rel="noreferrer"
+                className="p-3 bg-white/5 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all duration-300"
+              >
                 <Instagram className="w-5 h-5" />
               </a>
-              <a href={`https://wa.me/${contact.whatsapp.replace(/\D/g, "")}`} target="_blank" className="p-3 bg-[#25D366]/20 text-[#25D366] rounded-2xl hover:bg-[#25D366] hover:text-white transition-all">
+              <a 
+                href={`https://wa.me/${contact.whatsapp.replace(/\D/g, "")}`} 
+                target="_blank" 
+                rel="noreferrer"
+                className="p-3 bg-white/5 rounded-2xl hover:bg-emerald-500 hover:text-white transition-all duration-300"
+              >
                 <MessageCircle className="w-5 h-5" />
               </a>
             </div>
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="border-t border-primary-foreground/10 pt-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-widest text-primary-foreground/40">
-            <p>&copy; {currentYear} {APP_TITLE}.</p>
-            <div className="flex gap-6 text-[9px]">
-              <p>Debug Mode: ON</p>
+        {/* BOTTOM BAR */}
+        <div className="border-t border-white/5 pt-10">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 text-center md:text-left">
+              <p>&copy; {currentYear} {APP_TITLE}.</p>
+              <p className="mt-1 opacity-50 uppercase tracking-tighter">Natural por essência, feita do seu jeito.</p>
+            </div>
+            
+            <div className="flex gap-8 text-[9px] font-black uppercase tracking-widest text-slate-500">
+              <Link to="/termos" className="hover:text-white transition-colors">Termos de Uso</Link>
+              <Link to="/privacidade" className="hover:text-white transition-colors">Política de Privacidade</Link>
             </div>
           </div>
         </div>

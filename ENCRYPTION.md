@@ -191,8 +191,8 @@ const original = "Dados sensíveis";
 const encrypted = encrypt(original);
 const decrypted = decrypt(encrypted);
 
-console.log(original === decrypted); // true
-console.log(encrypted !== original); // true
+ // true
+ // true
 ```
 
 ### Verificar no Banco

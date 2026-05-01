@@ -1,14 +1,17 @@
-import { eq, and, desc, sql } from "drizzle-orm";
-import { getDb } from "./db.js";
-// ✅ Sincronizado com o export 'userAddresses' do schema modular
-import { userAddresses } from "./../drizzle/schema.js"; 
-import { encrypt } from "./encryption.js"; 
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// server/routers/storefront/customer-addresses.ts
 
-// ✅ Tipagem baseada no schema atualizado
+import { eq, and, desc, sql } from "drizzle-orm";
+import { getDb } from "./db.js"; 
+import { userAddresses } from "../drizzle/schema/index.js"; 
+import { encrypt, normalizeDigits } from "./encryption.js"; 
+import crypto from "crypto";
+
+// ✅ Tipagem baseada no schema oficial
 export type CustomerAddress = typeof userAddresses.$inferSelect;
 export type InsertCustomerAddress = typeof userAddresses.$inferInsert;
 
-// --- Funções Auxiliares de Criptografia ---
+// --- Funções Auxiliares de Sanitização ---
 
 function normalizeRequired(value: unknown, fieldName: string): string {
   const s = String(value ?? "").trim();
@@ -21,40 +24,43 @@ function normalizeOptional(value: unknown): string | null {
   return s ? s : null;
 }
 
+/**
+ * ✅ CORREÇÃO: Garante retorno de string. 
+ * Se o encrypt retornar null, lança erro para evitar quebra no DB.
+ */
 function encRequired(value: unknown, fieldName: string): string {
   const s = normalizeRequired(value, fieldName);
-  return encrypt(s) ?? s;
+  const encrypted = encrypt(s);
+  if (!encrypted) throw new Error(`Falha ao processar dados de segurança: ${fieldName}`);
+  return encrypted; 
 }
 
 function encOptional(value: unknown): string | null {
   const s = normalizeOptional(value);
   if (!s) return null;
-  return encrypt(s) ?? s;
+  return encrypt(s); // Aqui pode ser null pois o campo no DB aceita null
 }
 
-// --- Lógica de Negócio ---
+// --- Lógica de Negócio (Camada de Persistência) ---
 
 /**
  * LISTAGEM: Busca todos os endereços do usuário
  */
-export async function listAddressesByUserId(userId: number): Promise<CustomerAddress[]> {
+export async function listAddressesByUserId(userId: string): Promise<CustomerAddress[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
   return await db
     .select()
     .from(userAddresses)
     .where(eq(userAddresses.userId, userId))
-    .orderBy(desc(userAddresses.isDefault), desc(userAddresses.createdAt)) as CustomerAddress[];
+    .orderBy(desc(userAddresses.isDefault), desc(userAddresses.createdAt));
 }
 
 /**
  * RESET: Remove o status de 'padrão' de todos os endereços do usuário
  */
-export async function unmarkAllAsDefault(userId: number): Promise<{ success: boolean }> {
+export async function unmarkAllAsDefault(userId: string): Promise<{ success: boolean }> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
+  
   await db
     .update(userAddresses)
     .set({ isDefault: false })
@@ -64,14 +70,13 @@ export async function unmarkAllAsDefault(userId: number): Promise<{ success: boo
 }
 
 /**
- * CRIAÇÃO: Adiciona novo endereço com criptografia AES-GCM
+ * CRIAÇÃO: Adiciona novo endereço com criptografia
  */
 export async function createAddress(
   data: {
-    userId: number;
+    userId: string;
     label?: string | null;
-    address?: string;
-    street?: string; 
+    street: string;
     number: string;
     complement?: string | null;
     neighborhood: string;
@@ -81,117 +86,129 @@ export async function createAddress(
     phone?: string | null;
     isDefault?: boolean;
   }
-): Promise<{ id: number }> {
+): Promise<{ id: string }> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
 
-  const rawAddress = data.address || data.street;
-  if (!rawAddress) throw new Error("Endereço (rua) é obrigatório");
-
-  // Verifica se é o primeiro endereço para torná-lo padrão automaticamente
-  const [row] = await db
+  const [result] = await db
     .select({ count: sql<number>`count(*)` })
     .from(userAddresses)
     .where(eq(userAddresses.userId, data.userId));
 
-  const isFirst = Number(row?.count ?? 0) === 0;
+  const isFirst = Number(result?.count ?? 0) === 0;
   const shouldBeDefault = Boolean(data.isDefault) || isFirst;
 
   if (shouldBeDefault) {
     await unmarkAllAsDefault(data.userId);
   }
 
-  // 1. Criptografia dos campos sensíveis
-  const finalInsertData = {
+  const newId = crypto.randomUUID();
+
+  const insertData: InsertCustomerAddress = {
+    id: newId,
     userId: data.userId, 
-    label: encOptional(data.label) ?? encOptional("Casa") ?? "Casa",
-    address: encRequired(rawAddress, "address"),
-    number: encRequired(data.number, "number"),
+    label: encOptional(data.label || "Entrega"),
+    street: encRequired(data.street, "rua"),
+    number: encRequired(data.number, "número"),
     complement: encOptional(data.complement),
-    neighborhood: encRequired(data.neighborhood, "neighborhood"),
-    city: encRequired(data.city, "city"),
-    state: encRequired(data.state, "state"),
-    zipCode: encRequired(data.zipCode, "zipCode"),
-    phone: encOptional(data.phone),
+    neighborhood: encRequired(data.neighborhood, "bairro"),
+    city: encRequired(data.city, "cidade"),
+    state: encRequired(data.state, "estado"),
+    zipCode: encRequired(normalizeDigits(data.zipCode), "CEP"),
+    phone: encOptional(data.phone ? normalizeDigits(data.phone) : null),
     isDefault: shouldBeDefault,
+    createdAt: new Date(),
+    updatedAt: new Date()
   };
 
-  const [result]: any = await db.insert(userAddresses).values(finalInsertData);
-  const insertId = result?.insertId;
+  await db.insert(userAddresses).values(insertData);
 
-  if (!insertId) throw new Error("Falha ao obter insertId no MariaDB");
-
-  return { id: Number(insertId) };
+  return { id: newId };
 }
 
 /**
- * ATUALIZAÇÃO: Atualiza campos específicos do endereço
+ * ATUALIZAÇÃO
  */
 export async function updateAddress(
-  id: number,
-  userId: number,
-  data: Partial<any>
+  id: string,
+  userId: string,
+  data: Partial<{
+    label: string | null;
+    street: string;
+    number: string;
+    complement: string | null;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    phone: string | null;
+    isDefault: boolean;
+  }>
 ): Promise<{ success: boolean }> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
 
   if (data.isDefault) {
     await unmarkAllAsDefault(userId);
   }
 
-  const finalUpdateData: any = {};
+  const updateValues: Partial<InsertCustomerAddress> = {
+    updatedAt: new Date()
+  };
 
-  // Mapeamento e criptografia seletiva
-  if (data.label !== undefined) finalUpdateData.label = encOptional(data.label);
-  if (data.address !== undefined || data.street !== undefined) {
-    finalUpdateData.address = encRequired(data.address || data.street, "address");
-  }
-  if (data.number !== undefined) finalUpdateData.number = encRequired(data.number, "number");
-  if (data.complement !== undefined) finalUpdateData.complement = encOptional(data.complement);
-  if (data.neighborhood !== undefined) finalUpdateData.neighborhood = encRequired(data.neighborhood, "neighborhood");
-  if (data.city !== undefined) finalUpdateData.city = encRequired(data.city, "city");
-  if (data.state !== undefined) finalUpdateData.state = encRequired(data.state, "state");
-  if (data.zipCode !== undefined) finalUpdateData.zipCode = encRequired(data.zipCode, "zipCode");
-  if (data.phone !== undefined) finalUpdateData.phone = encOptional(data.phone);
-  if (data.isDefault !== undefined) finalUpdateData.isDefault = data.isDefault;
+  if (data.label !== undefined) updateValues.label = encOptional(data.label);
+  if (data.street !== undefined) updateValues.street = encRequired(data.street, "rua");
+  if (data.number !== undefined) updateValues.number = encRequired(data.number, "número");
+  if (data.complement !== undefined) updateValues.complement = encOptional(data.complement);
+  if (data.neighborhood !== undefined) updateValues.neighborhood = encRequired(data.neighborhood, "bairro");
+  if (data.city !== undefined) updateValues.city = encRequired(data.city, "cidade");
+  if (data.state !== undefined) updateValues.state = encRequired(data.state, "estado");
+  if (data.zipCode !== undefined) updateValues.zipCode = encRequired(normalizeDigits(data.zipCode), "CEP");
+  if (data.phone !== undefined) updateValues.phone = encOptional(data.phone ? normalizeDigits(data.phone) : null);
+  if (data.isDefault !== undefined) updateValues.isDefault = Boolean(data.isDefault);
 
-  if (Object.keys(finalUpdateData).length === 0) return { success: true };
-
-  await db
+  const res = await db
     .update(userAddresses)
-    .set(finalUpdateData)
+    .set(updateValues)
     .where(and(eq(userAddresses.id, id), eq(userAddresses.userId, userId)));
+
+  // @ts-ignore
+  if (res[0]?.affectedRows === 0) {
+    throw new Error("Endereço não encontrado ou acesso negado.");
+  }
 
   return { success: true };
 }
 
 /**
- * EXCLUSÃO: Remove o endereço se não estiver vinculado a pedidos
+ * EXCLUSÃO
  */
-export async function deleteAddress(id: number, userId: number) {
+export async function deleteAddress(id: string, userId: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
   try {
-    return await db.delete(userAddresses)
+    const res = await db.delete(userAddresses)
       .where(and(eq(userAddresses.id, id), eq(userAddresses.userId, userId)));
-  } catch (error: any) {
-    throw new Error("Não é possível deletar: endereço vinculado a pedidos anteriores.");
+      
+    // @ts-ignore
+    if (res[0]?.affectedRows === 0) {
+      throw new Error("Endereço não encontrado ou acesso negado.");
+    }
+    
+    return { success: true };
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("acesso negado")) throw err;
+    throw new Error("Não é possível deletar: este endereço possui pedidos vinculados.");
   }
 }
 
 /**
- * BUSCA PADRÃO: Retorna o endereço principal para o checkout
+ * BUSCA PADRÃO
  */
-export async function getDefaultAddress(userId: number): Promise<CustomerAddress | null> {
+export async function getDefaultAddress(userId: string): Promise<CustomerAddress | null> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
   const [defaultAddress] = await db
     .select()
     .from(userAddresses)
     .where(and(eq(userAddresses.userId, userId), eq(userAddresses.isDefault, true)))
     .limit(1);
 
-  return (defaultAddress as CustomerAddress) || null;
+  return defaultAddress || null;
 }

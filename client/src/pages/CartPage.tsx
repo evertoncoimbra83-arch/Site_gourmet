@@ -1,17 +1,17 @@
-import { useLocation } from "wouter";
-import { useCartPageLogic } from "./cart/logic/useCartPageLogic";
-import { CartPageView } from "./cart/view/CartPageview";
+import React from "react"; // ✅ Adicionado para resolver o erro 'React' must be in scope
+import { CartPageView } from "./cart/view/CartPageview"; // Removido .tsx do import
 import { SEO } from "@/components/SEO";
 
 export default function CartPage() {
-  const [, setLocation] = useLocation();
-  const logic = useCartPageLogic();
-
+  /**
+   * 💡 NOTA: Não passamos props aqui.
+   * O componente CartPageView já gerencia sua própria lógica 
+   * internamente chamando o useCartPageLogic().
+   */
   return (
-    <CartPageView
-      {...logic}
-      goProducts={() => setLocation("/products")}
-      goCheckout={() => setLocation("/checkout")}
-    />
+    <>
+      <SEO title="Seu Carrinho | Gourmet Saudável" />
+      <CartPageView /> 
+    </>
   );
 }

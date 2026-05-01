@@ -10,13 +10,12 @@ const TITLE_MAX_LENGTH = 1200;
 const CONTENT_MAX_LENGTH = 20000;
 
 const trimValue = (value: string): string => value.trim();
+
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
 const buildEndpointUrl = (baseUrl: string): string => {
-  const normalizedBase = baseUrl.endsWith("/")
-    ? baseUrl
-    : `${baseUrl}/`;
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   return new URL(
     "webdevtoken.v1.WebDevService/SendNotification",
     normalizedBase
@@ -60,8 +59,7 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
 /**
  * Dispatches a project-owner notification through the Manus Notification Service.
  * Returns `true` if the request was accepted, `false` when the upstream service
- * cannot be reached (callers can fall back to email/slack). Validation errors
- * bubble up as TRPC errors so callers can fix the payload.
+ * cannot be reached. Validation errors bubble up as TRPC errors.
  */
 export async function notifyOwner(
   payload: NotificationPayload
@@ -108,7 +106,8 @@ export async function notifyOwner(
 
     return true;
   } catch (error) {
-    console.warn("[Notification] Error calling notification service:", error);
+    // ✅ FIX: Logando o erro para satisfazer o ESLint e auxiliar no debug do servidor
+    console.error("[Notification] Critical connection error:", error);
     return false;
   }
 }

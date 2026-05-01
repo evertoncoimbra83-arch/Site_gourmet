@@ -1,107 +1,178 @@
-import { useState } from "react"; // ✅ Adicionado import que faltava
-import { trpc } from "@/_core/trpc"; 
-import { toast } from "@/components/ui/use-toast";
+import { useState } from "react";
+import { trpc } from "@/_core/trpc";
+import { appToast as toast } from "@/lib/app-toast"; 
+
+// ✅ Interface exportada para uso na View
+export interface Coupon {
+  id: string | number;
+  code: string;
+  description?: string | null;
+  discountType: "fixed" | "percentage";
+  discountValue: number;
+  minOrderValue?: number | null;
+  maxDiscount?: number | null;
+  usageLimit?: number | null;
+  validFrom?: string | Date | null;
+  validUntil?: string | Date | null;
+  bannerColor?: string | null;
+  logoUrl?: string | null;
+  isActive: boolean | number;
+  timesUsed?: number;
+}
+
+// Interface para o estado interno do formulário
+interface CouponFormState {
+  id: string | null;
+  code: string;
+  description: string;
+  discountType: "fixed" | "percentage";
+  discountValue: string;
+  minOrderValue: string;
+  maxDiscount: string;
+  usageLimit: string;
+  validFrom: string;
+  validUntil: string;
+  bannerColor: string;
+  logoUrl: string;
+  isActive: boolean;
+}
 
 export function useAdminCoupons() {
   const utils = trpc.useUtils();
-  
-  const [formState, setFormState] = useState({
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+
+  const initialFormState: CouponFormState = {
+    id: null,
     code: "",
     description: "",
-    discountType: "percentage" as "fixed" | "percentage",
-    discount_value: "",
+    discountType: "percentage",
+    discountValue: "",
     minOrderValue: "",
     maxDiscount: "",
     usageLimit: "",
     validFrom: "",
     validUntil: "",
-  });
+    bannerColor: "#10b981",
+    logoUrl: "", 
+    isActive: true,
+  };
 
-  // 1. Queries (Listagem)
+  const [formState, setFormState] = useState<CouponFormState>(initialFormState);
+
+  /* --- 1. QUERIES --- */
   const { data: coupons, isLoading } = trpc.admin.coupons.list.useQuery();
 
-  // 2. Mutations
+  /* --- 2. MUTATIONS --- */
   const createMutation = trpc.admin.coupons.create.useMutation({
     onSuccess: () => {
-      toast.success("Cupom ativado com sucesso!");
       utils.admin.coupons.list.invalidate();
       resetForm();
-    },
-    onError: (err) => toast.error(err.message)
-  });
-
-  const deleteMutation = trpc.admin.coupons.delete.useMutation({
-    onSuccess: () => {
-      toast.success("Cupom removido.");
-      utils.admin.coupons.list.invalidate();
-    },
-    onError: (err) => toast.error("Erro ao remover: " + err.message)
+      toast.success("Cupom criado com sucesso!");
+    }
   });
 
   const updateMutation = trpc.admin.coupons.update.useMutation({
     onSuccess: () => {
-      toast.success("Status atualizado!");
       utils.admin.coupons.list.invalidate();
-    },
-    onError: (err) => toast.error("Erro ao atualizar: " + err.message)
+      resetForm();
+      toast.success("Cupom atualizado!");
+    }
   });
 
+  const deleteMutation = trpc.admin.coupons.delete.useMutation({
+    onSuccess: () => {
+      utils.admin.coupons.list.invalidate();
+      toast.info("Cupom excluído.");
+    }
+  });
+
+  /* --- 3. ACTIONS --- */
   const resetForm = () => {
-    setFormState({
-      code: "",
-      description: "",
-      discountType: "percentage",
-      discount_value: "",
-      minOrderValue: "",
-      maxDiscount: "",
-      usageLimit: "",
-      validFrom: "",
-      validUntil: "",
-    });
+    setFormState(initialFormState);
+    setIsMediaModalOpen(false);
   };
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validação básica antes de enviar
-    if (!formState.code || !formState.discount_value) {
-      return toast.error("Código e Valor são obrigatórios.");
+  const handleSubmit = async () => {
+    if (!formState.code || !formState.discountValue) {
+      toast.warning("Código e Valor são obrigatórios.");
+      return;
     }
 
-    // ✅ Conversão Segura: Garante que strings vazias virem null e números sejam válidos
-    createMutation.mutate({
+    const payload = {
       code: formState.code.trim().toUpperCase(),
       description: formState.description || null,
       discountType: formState.discountType,
-      discount_value: Number(formState.discount_value) || 0,
-      minOrderValue: formState.minOrderValue ? Number(formState.minOrderValue) : null,
-      maxDiscount: formState.maxDiscount ? Number(formState.maxDiscount) : null,
-      usageLimit: formState.usageLimit ? Number(formState.usageLimit) : null,
-      validFrom: formState.validFrom || null,
-      validUntil: formState.validUntil || null,
-      isActive: true,
-    });
+      discountValue: parseFloat(String(formState.discountValue)) || 0,
+      minOrderValue: formState.minOrderValue ? parseFloat(String(formState.minOrderValue)) : 0,
+      maxDiscount: formState.maxDiscount ? parseFloat(String(formState.maxDiscount)) : null,
+      usageLimit: formState.usageLimit ? parseInt(String(formState.usageLimit)) : null,
+      validFrom: formState.validFrom ? new Date(formState.validFrom).toISOString() : null,
+      validUntil: formState.validUntil ? new Date(formState.validUntil).toISOString() : null,
+      bannerColor: formState.bannerColor,
+      logoUrl: formState.logoUrl.trim() !== "" ? formState.logoUrl : null,
+      isActive: formState.isActive,
+    };
+
+    if (formState.id) {
+      updateMutation.mutate({ 
+        id: formState.id, 
+        ...payload 
+      } as unknown as Parameters<typeof updateMutation.mutate>[0]);
+    } else {
+      createMutation.mutate(payload as unknown as Parameters<typeof createMutation.mutate>[0]);
+    }
+  };
+
+  const actions = {
+    setFormState,
+    handleSubmit,
+    resetForm,
+    setMediaModalOpen: setIsMediaModalOpen,
+    handleSelectMedia: (url: string) => {
+      setFormState(prev => ({ ...prev, logoUrl: url }));
+      setIsMediaModalOpen(false);
+    },
+    handleEdit: (coupon: Coupon) => {
+      const fmtDate = (d: unknown) => d ? new Date(d as string).toISOString().slice(0, 16) : "";
+
+      setFormState({
+        id: String(coupon.id),
+        code: coupon.code,
+        description: coupon.description || "",
+        discountType: coupon.discountType,
+        discountValue: String(coupon.discountValue),
+        minOrderValue: String(coupon.minOrderValue || ""),
+        maxDiscount: String(coupon.maxDiscount || ""),
+        usageLimit: String(coupon.usageLimit || ""),
+        validFrom: fmtDate(coupon.validFrom),
+        validUntil: fmtDate(coupon.validUntil),
+        bannerColor: coupon.bannerColor || "#10b981",
+        logoUrl: coupon.logoUrl || "", 
+        isActive: Boolean(coupon.isActive),
+      });
+    },
+    handleDelete: (id: string | number) => {
+      if (confirm("Deseja realmente excluir este cupom?")) {
+        deleteMutation.mutate({ id: String(id) });
+      }
+    },
+    handleToggle: (coupon: Coupon) => {
+      updateMutation.mutate({
+        id: String(coupon.id),
+        isActive: !coupon.isActive,
+      } as unknown as Parameters<typeof updateMutation.mutate>[0]);
+    },
   };
 
   return {
-    state: { formState, isLoading },
-    actions: { 
-      setFormState, 
-      handleCreate, 
-      handleDelete: (id: number) => {
-        if(confirm("Deseja realmente excluir este cupom?")) {
-          deleteMutation.mutate({ id });
-        }
-      },
-      handleToggle: (coupon: any) => 
-        updateMutation.mutate({ 
-          id: coupon.id, // ✅ Garante que o ID está sendo enviado
-          isActive: !coupon.isActive 
-        })
-    },
-    data: { coupons: coupons || [] },
+    state: { formState, isLoading, isMediaModalOpen },
+    actions, 
+    data: { coupons: (coupons as unknown as Coupon[]) || [] },
     mutations: { 
-      isPending: createMutation.isPending || updateMutation.isPending || deleteMutation.isPending 
+      createCoupon: createMutation,
+      updateCoupon: updateMutation,
+      deleteCoupon: deleteMutation,
+      isPending: createMutation.isPending || updateMutation.isPending
     }
   };
 }

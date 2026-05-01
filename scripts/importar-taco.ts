@@ -31,7 +31,7 @@ const clean = (val: any): string => {
 };
 
 async function importarTacoCSVs() {
-  console.log("\n🥗 Iniciando importação da TACO (Arquivos CSV)...");
+  
 
   const db = await getDb();
   if (!db) throw new Error("Erro ao conectar ao banco de dados.");
@@ -111,12 +111,12 @@ async function importarTacoCSVs() {
       total++;
       if (total % 50 === 0) process.stdout.write("▓");
     } catch (err) {
-      console.error(`\n❌ Erro no alimento ID ${idAlimento}:`, err);
+      
     }
   }
 
-  console.log(`\n\n✅ Sucesso! Processo finalizado.`);
-  console.log(`📊 Total de ingredientes processados: ${total}`);
+  
+  
   process.exit(0);
 }
 

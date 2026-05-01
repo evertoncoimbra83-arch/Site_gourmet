@@ -7,7 +7,8 @@ interface DiscountRule {
   name: string;
   minQuantity: number;
   maxQuantity: number;
-  discountValue: string | number; // O Drizzle mapeia 'value' para 'discountValue'
+  discountValue: string | number; 
+  discount_value?: string | number; // ✅ Suporte para snake_case vindo do banco
   isActive: boolean;
 }
 
@@ -15,15 +16,13 @@ export function useProgressiveDiscount({ itemCount }: { itemCount: number }) {
   const { data: rawRules = [], isLoading } = trpc.discounts.getDiscountRules.useQuery();
 
   const rules = useMemo(() => {
-    // Forçamos a tipagem para garantir consistência
-    const typedRules = (rawRules as any) as DiscountRule[];
+    const typedRules = (rawRules as unknown) as DiscountRule[];
 
     return typedRules
       .map((r) => ({
-        // ✅ Alterado de minQty para minQuantity para matar o erro no useCartPageLogic
         minQuantity: Number(r.minQuantity || 0),
-        // ✅ Mapeamento seguro para o valor do desconto
-        discountValue: Number(r.discountValue || (r as any).discount_value || 0), 
+        // ✅ FIX: Mapeamento seguro usando a propriedade definida na interface
+        discountValue: Number(r.discountValue || r.discount_value || 0), 
         name: r.name,
         isActive: Boolean(r.isActive)
       }))

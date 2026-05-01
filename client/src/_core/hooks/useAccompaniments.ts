@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 
-// Definição dos tipos para garantir consistência
+// --- INTERFACES ---
+
 export interface AccompanimentOption {
   id: number | string;
   name: string;
@@ -8,7 +9,11 @@ export interface AccompanimentOption {
   priceModifier?: string | number;
   groupId: number | string;
   groupName?: string;
-  nutritional_info?: any;
+  nutritional_info?: string | {
+    calories?: number | string;
+    kcal?: number | string;
+    [key: string]: unknown;
+  };
 }
 
 export interface AccompanimentGroup {
@@ -20,26 +25,29 @@ export interface AccompanimentGroup {
   options: AccompanimentOption[];
 }
 
-export function useAccompaniments(initialSelections: Record<number, any[]> = {}) {
-  const [selections, setSelections] = useState<Record<number, any[]>>(initialSelections);
+// Tipo para o estado de seleções: Chave é o ID do grupo, valor é o array de opções selecionadas
+type SelectionsState = Record<number | string, AccompanimentOption[]>;
 
-  // ✅ Função principal de clique
-  const toggleOption = useCallback((group: any, option: any) => {
+export function useAccompaniments(initialSelections: SelectionsState = {}) {
+  const [selections, setSelections] = useState<SelectionsState>(initialSelections);
+
+  // ✅ Função principal de clique totalmente tipada
+  const toggleOption = useCallback((group: AccompanimentGroup, option: AccompanimentOption) => {
     setSelections((prev) => {
-      const gId = Number(group.id);
-      const oId = Number(option.id);
+      const gId = group.id;
+      const oId = option.id;
       
       // Cria uma cópia segura do array atual
       const current = [...(prev[gId] || [])];
       
       // Verifica se já está selecionado
-      const isSelected = current.some((item) => Number(item.id) === oId);
+      const isSelected = current.some((item) => String(item.id) === String(oId));
 
       // 1. Lógica de REMOVER
       if (isSelected) {
         return { 
           ...prev, 
-          [gId]: current.filter((item) => Number(item.id) !== oId) 
+          [gId]: current.filter((item) => String(item.id) !== String(oId)) 
         };
       }
 
@@ -48,10 +56,10 @@ export function useAccompaniments(initialSelections: Record<number, any[]> = {})
       
       if (current.length >= max) {
         if (max === 1) {
-          // Modo Rádio: Substitui
+          // Modo Rádio: Substitui o item atual
           return { ...prev, [gId]: [{ ...option, groupName: group.name }] };
         }
-        // Modo Limite: Bloqueia
+        // Modo Limite: Bloqueia se atingir o máximo
         return prev;
       }
 
@@ -73,18 +81,30 @@ export function useAccompaniments(initialSelections: Record<number, any[]> = {})
   const calculateTotalKcal = useCallback(() => {
     return getFlatSelections().reduce((sum, i) => {
       let info = i.nutritional_info;
-      if (typeof info === 'string') { try { info = JSON.parse(info); } catch { info = {}; } }
-      return sum + Number(info?.calories || info?.kcal || 0);
+      
+      // Tratamento seguro para JSON string ou objeto
+      if (typeof info === 'string') { 
+        try { 
+          info = JSON.parse(info); 
+        } catch { 
+          info = {}; 
+        } 
+      }
+      
+      const kcalValue = (info as Record<string, unknown>)?.calories || (info as Record<string, unknown>)?.kcal || 0;
+      return sum + Number(kcalValue);
     }, 0);
   }, [getFlatSelections]);
 
-  const isValid = useCallback((groups: any[]) => {
-    return groups.every(g => (selections[Number(g.id)] || []).length >= Number(g.minSelection || 0));
+  const isValid = useCallback((groups: AccompanimentGroup[]) => {
+    return groups.every(g => {
+      const selectedInGroup = selections[g.id] || [];
+      return selectedInGroup.length >= Number(g.minSelection || 0);
+    });
   }, [selections]);
 
   const resetSelections = useCallback(() => setSelections({}), []);
 
-  // ✅ RETORNO OBRIGATÓRIO: Verifique se toggleOption está aqui
   return { 
     selections, 
     toggleOption, 

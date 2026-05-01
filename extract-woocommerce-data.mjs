@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import * as fs from 'fs';
 
-const WOO_URL = 'https://gourmetsaudavel.com.br';
+const WOO_URL = 'https://gourmetsaudavel.com';
 const CONSUMER_KEY = 'ck_9886ee50d6a6eea496ccf24f24c21d2a496f603c';
 const CONSUMER_SECRET = 'cs_95368563fa7635e00fd9fc689c9a7988f573697e';
 
@@ -25,20 +25,20 @@ async function fetchWooCommerce(endpoint, params = {}) {
     });
 
     if (!response.ok) {
-      console.error(`Erro ${response.status}:`, await response.text());
+      
       return null;
     }
 
     return await response.json();
   } catch (error) {
-    console.error('Erro na requisição:', error.message);
+    
     return null;
   }
 }
 
 // Extrair todos os produtos
 async function extractProducts() {
-  console.log('📦 Extraindo produtos...');
+  
   let allProducts = [];
   let page = 1;
   let hasMore = true;
@@ -58,7 +58,7 @@ async function extractProducts() {
 
 // Extrair todas as categorias
 async function extractCategories() {
-  console.log('📂 Extraindo categorias...');
+  
   let allCategories = [];
   let page = 1;
   let hasMore = true;
@@ -78,7 +78,7 @@ async function extractCategories() {
 
 // Extrair todos os usuários
 async function extractCustomers() {
-  console.log('👥 Extraindo usuários...');
+  
   let allCustomers = [];
   let page = 1;
   let hasMore = true;
@@ -98,7 +98,7 @@ async function extractCustomers() {
 
 // Extrair pedidos
 async function extractOrders() {
-  console.log('📋 Extraindo pedidos...');
+  
   let allOrders = [];
   let page = 1;
   let hasMore = true;
@@ -118,7 +118,7 @@ async function extractOrders() {
 
 // Função principal
 async function main() {
-  console.log('🚀 Iniciando extração de dados do WooCommerce...\n');
+  
 
   const products = await extractProducts();
   const categories = await extractCategories();
@@ -140,18 +140,18 @@ async function main() {
   fs.writeFileSync('/home/ubuntu/gourmet_saudavel/woo-orders.json', JSON.stringify(orders, null, 2));
   fs.writeFileSync('/home/ubuntu/gourmet_saudavel/woo-summary.json', JSON.stringify(data, null, 2));
 
-  console.log('\n✅ Extração concluída!');
-  console.log(`📊 Resumo:`);
-  console.log(`  - Produtos: ${products.length}`);
-  console.log(`  - Categorias: ${categories.length}`);
-  console.log(`  - Clientes: ${customers.length}`);
-  console.log(`  - Pedidos: ${orders.length}`);
-  console.log('\n📁 Arquivos salvos em:');
-  console.log(`  - woo-products.json`);
-  console.log(`  - woo-categories.json`);
-  console.log(`  - woo-customers.json`);
-  console.log(`  - woo-orders.json`);
-  console.log(`  - woo-summary.json`);
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 }
 
 main().catch(console.error);

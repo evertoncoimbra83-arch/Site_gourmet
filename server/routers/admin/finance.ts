@@ -1,12 +1,20 @@
 import { z } from "zod";
 import { router, adminProcedure } from "../../_core/trpc.js"; 
-import { TRPCError } from "@trpc/server";
 
 import * as Coupon from "../../coupon.js";
 import * as AdminPaymentMethods from "../../admin-payment-methods.js";
 import * as AdminReports from "../../admin-reports.js";
 import * as MediaLibrary from "../../media-library.js";
 
+// --- TIPAGEM DE INFERÊNCIA ---
+type CouponCreateInput = Parameters<typeof Coupon.createCoupon>[0];
+type CouponUpdateInput = Parameters<typeof Coupon.updateCoupon>[1];
+type PaymentCreateInput = Parameters<typeof AdminPaymentMethods.createPaymentMethod>[0];
+type PaymentUpdateInput = Parameters<typeof AdminPaymentMethods.updatePaymentMethod>[1];
+
+/**
+ * 🎫 Roteador de Cupons
+ */
 const adminCouponsRouter = router({
     list: adminProcedure.query(async () => await Coupon.listCoupons()),
     
@@ -23,36 +31,61 @@ const adminCouponsRouter = router({
             validUntil: z.coerce.date().nullish(),
             isActive: z.boolean().optional().default(true),
         }))
-        .mutation(async ({ input }) => await Coupon.createCoupon(input as any)),
+        .mutation(async ({ input }) => {
+            const { discount_value, ...rest } = input;
+            
+            // ✅ Mapeamento de discount_value -> discountValue para bater com o serviço
+            const payload: CouponCreateInput = {
+                ...rest,
+                discountValue: discount_value
+            };
+
+            const result = await Coupon.createCoupon(payload);
+            
+            return {
+                success: true,
+                data: result,
+                message: `Cupom "${input.code}" criado com sucesso!`
+            };
+        }),
     
     update: adminProcedure
         .input(z.object({ 
             id: z.union([z.string(), z.number()]), 
             code: z.string().optional(),
-            description: z.string().nullish(), 
-            discountType: z.enum(["percentage", "fixed"]).optional(), 
-            discount_value: z.number().optional(), 
-            minOrderValue: z.number().nullish(), 
-            maxDiscount: z.number().nullish(), 
-            usageLimit: z.number().int().nullish(), 
-            validFrom: z.coerce.date().nullish(), 
-            validUntil: z.coerce.date().nullish(), 
             isActive: z.boolean().optional() 
-        }))
+        }).passthrough())
         .mutation(async ({ input }) => { 
             const { id, ...data } = input; 
-            const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
-            return await Coupon.updateCoupon(numericId as any, data as any); 
+            // ✅ CORREÇÃO TS2345: Garantindo que o ID seja string para o serviço
+            const stringId = String(id);
+            
+            const result = await Coupon.updateCoupon(stringId, data as CouponUpdateInput); 
+            
+            return {
+                success: true,
+                data: result,
+                message: `Configurações do cupom ${input.code || ''} atualizadas!`
+            };
         }),
     
     delete: adminProcedure
-        .input(z.object({ id: z.union([z.string(), z.number()]) })) 
+        .input(z.object({ id: z.union([z.string(), z.number()]), code: z.string().optional() })) 
         .mutation(async ({ input }) => {
-            const numericId = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
-            return await Coupon.deleteCoupon(numericId as any);
+            // ✅ CORREÇÃO TS2345: ID convertido para string
+            const stringId = String(input.id);
+            await Coupon.deleteCoupon(stringId); 
+            
+            return {
+                success: true,
+                message: input.code ? `Cupom "${input.code}" removido.` : "Cupom excluído com sucesso."
+            };
         }),
 });
 
+/**
+ * 💳 Roteador de Métodos de Pagamento
+ */
 const adminPaymentMethodsRouter = router({
     listAll: adminProcedure.query(async () => await AdminPaymentMethods.listAllPaymentMethods()),
     
@@ -60,30 +93,38 @@ const adminPaymentMethodsRouter = router({
         .input(z.object({ 
             name: z.string(), 
             type: z.enum(["card", "cash", "meal_card", "pix"]), 
-            minAmount: z.number().optional().default(0), 
-            displayOrder: z.number().optional().default(0), 
-            isActive: z.boolean().optional().default(true), 
-            description: z.string().optional(), 
-            brandName: z.string().optional(), 
-            brandLogoUrl: z.string().optional(), 
-            discountPercentage: z.number().optional().default(0) 
-        }))
-        .mutation(async ({ input }) => await AdminPaymentMethods.createPaymentMethod(input as any)),
+        }).passthrough())
+        .mutation(async ({ input }) => {
+            const result = await AdminPaymentMethods.createPaymentMethod(input as PaymentCreateInput);
+            return {
+                success: true,
+                data: result,
+                message: `Método de pagamento "${input.name}" adicionado!`
+            };
+        }),
 
     update: adminProcedure
         .input(z.object({ 
             id: z.union([z.string(), z.number()]), 
             name: z.string().optional(), 
             isActive: z.boolean().optional(), 
-            discountPercentage: z.number().optional() 
-        }))
+        }).passthrough())
         .mutation(async ({ input }) => { 
             const { id, ...data } = input; 
-            const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
-            return await AdminPaymentMethods.updatePaymentMethod(numericId as any, data as any); 
+            // ✅ CORREÇÃO TS2345: ID convertido para string
+            const stringId = String(id);
+            await AdminPaymentMethods.updatePaymentMethod(stringId, data as PaymentUpdateInput); 
+            
+            return {
+                success: true,
+                message: `Forma de pagamento "${input.name || ''}" atualizada.`
+            };
         }),
 });
 
+/**
+ * 📊 Roteador de Relatórios
+ */
 const adminReportsRouter = router({
     getDashboardSummary: adminProcedure
         .input(z.object({ timeframe: z.enum(["day", "week", "month"]) }))
@@ -97,6 +138,9 @@ const adminReportsRouter = router({
         .query(async ({ input }) => await AdminReports.getPaymentMethodReport(input.startDate, input.endDate)),
 });
 
+/**
+ * 🖼️ Roteador de Mídia
+ */
 const adminMediaRouter = router({
     list: adminProcedure.query(async () => await MediaLibrary.listMediaLibrary()),
     
@@ -104,22 +148,27 @@ const adminMediaRouter = router({
         .input(z.object({ filename: z.string(), mimeType: z.string(), base64Data: z.string() }))
         .mutation(async ({ input, ctx }) => { 
             const fileBuffer = Buffer.from(input.base64Data, "base64"); 
-            
-            // ✅ REMOVIDO userIdLegacy: Usamos apenas o id da sessão Lucia.
-            // Se o MediaLibrary ainda exigir um número, usamos o hash ou 0 temporariamente.
-            // O ideal é que o MediaLibrary aceite string (UUID).
             const authorId = ctx.user?.id || "system"; 
 
-            return await MediaLibrary.uploadImage({ 
+            const result = await MediaLibrary.uploadImage({ 
                 file: fileBuffer, 
                 originalFilename: input.filename, 
                 mimeType: input.mimeType, 
-                uploadedBy: authorId as any, 
+                uploadedBy: authorId, 
                 fileSize: fileBuffer.length 
             }); 
+
+            return {
+                success: true,
+                data: result,
+                message: `Upload de "${input.filename}" concluído!`
+            };
         }),
 });
 
+/**
+ * 🚀 Exportação Principal (Financeiro)
+ */
 export const adminFinanceRouter = router({
     coupons: adminCouponsRouter,
     payments: adminPaymentMethodsRouter,

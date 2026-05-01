@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado React para corrigir escopo JSX
 import { Leaf, Zap, Heart, Flame, Sparkles, Trophy } from "lucide-react";
 
 type BadgeType = "promotion" | "new" | "bestseller" | "vegan" | "glutenFree" | "highProtein" | "limited";
@@ -47,7 +48,7 @@ const badgeConfig: Record<BadgeType, { icon: React.ReactNode; label: string; bgC
   },
   highProtein: {
     icon: <Heart className="w-4 h-4" />,
-    label: "Alto Teor de Proteína",
+    label: "Proteico",
     bgColor: "bg-white",
     textColor: "text-red-600",
     gradient: "from-white to-red-50",
@@ -78,7 +79,7 @@ export default function ProductBadge({
   if (isLarge) {
     return (
       <div
-        className={`bg-gradient-to-br ${config.gradient} ${config.textColor} rounded-full p-2 shadow-md hover:shadow-lg transition-shadow ${className}`}
+        className={`bg-gradient-to-br ${config.gradient} ${config.textColor} rounded-full p-2 shadow-md hover:shadow-lg transition-shadow duration-300 ${className}`}
         title={displayLabel}
       >
         {config.icon}
@@ -88,12 +89,12 @@ export default function ProductBadge({
 
   return (
     <div
-      className={`bg-gradient-to-r ${config.gradient} ${config.textColor} px-3 py-1 rounded-full text-xs font-bold shadow-lg flex items-center gap-1 ${
+      className={`bg-gradient-to-r ${config.gradient} ${config.textColor} px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 ${
         animated ? "animate-pulse" : ""
       } ${className}`}
     >
       {config.icon}
-      <span>{displayLabel}</span>
+      <span className="leading-none">{displayLabel}</span>
     </div>
   );
 }

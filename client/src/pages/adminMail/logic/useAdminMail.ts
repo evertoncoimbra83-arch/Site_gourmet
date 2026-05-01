@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc"; 
-import { toast } from "@/components/ui/use-toast"; 
 
 export function useAdminMail() {
   const utils = trpc.useUtils(); 
@@ -18,15 +17,20 @@ export function useAdminMail() {
 
   const { data: configs, isLoading } = trpc.admin.mail.getConfigs.useQuery();
 
+  /**
+   * 💾 SALVAR CONFIGURAÇÕES
+   */
   const saveMutation = trpc.admin.mail.saveConfigs.useMutation({
     onSuccess: () => {
-      toast.success("Configurações de e-mail atualizadas!");
       utils.admin.mail.getConfigs.invalidate();
-    },
-    onError: (err: any) => {
-      toast.error("Erro ao salvar: " + err.message);
     }
   });
+
+  /**
+   * 🧪 TESTAR CONEXÃO SMTP
+   * Essa mutação chama o procedimento de teste que você criou no router.
+   */
+  const testMutation = trpc.admin.mail.testConnection.useMutation();
 
   useEffect(() => {
     if (configs) {
@@ -45,20 +49,25 @@ export function useAdminMail() {
       configKey: key,
       configValue: String(value),
     }));
-
     await saveMutation.mutateAsync(settingsArray);
+  };
+
+  // ✅ Função para disparar o teste através do botão
+  const testConnection = async (to: string) => {
+    await testMutation.mutateAsync({ to });
   };
 
   return {
     state: {
       formData,
-      isLoading, // Este vem do useQuery e continua existindo
-      // ✅ CORREÇÃO: trocado isLoading por isPending para a mutation
-      isSaving: saveMutation.isPending, 
+      isLoading,
+      isSaving: saveMutation.isPending,
+      isTesting: testMutation.isPending, // ✅ Exporta o estado de carregamento do teste
     },
     actions: {
       setFormData,
       saveAll,
+      testConnection, // ✅ Exporta a ação de teste
     },
   };
 }

@@ -1,3 +1,4 @@
+// client/src/db/schema.ts (ou o caminho do seu arquivo de schema)
 import { relations } from 'drizzle-orm';
 import {
   mysqlTable,
@@ -7,49 +8,64 @@ import {
   boolean,
   int,
   timestamp,
-  json
+  json,
+  longtext 
 } from "drizzle-orm/mysql-core";
 
-// ✅ Importações das tabelas do catálogo e pedidos
-import { orderItems } from "./orders.js";
+import { orderItems } from "./orders";
+import { accompanimentOptions } from "./accompaniments";
 import { 
   dishes, 
   accompanimentGroups, 
-  accompanimentOptions, 
-  categories 
-} from "./catalog.js"; 
+  categories,
+  dishSizes 
+} from "./catalog"; 
 
-// ====================================================
-// --- 1. TABELA DE PACOTES (PACKAGES) ---
-// ==================================================== 
+// ✅ Interface para a coluna JSON de configuração
+export interface PackageSlotConfig {
+  slots: {
+    name: string;
+    dishIds: (string | number)[];
+    sizeId?: string | number | null;
+    groups: {
+      id: string | number;
+      customLabel?: string | null;
+    }[];
+  }[];
+}
+
+// --- 1. PACOTES (PACKAGES) ---
 export const packages = mysqlTable("packages", {
   id: varchar("id", { length: 255 }).primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 255 }).notNull().unique(), 
   description: text("description"),
   
-  // Preços
-  price: decimal("base_price", { precision: 10, scale: 2 }).notNull(), 
-  salePrice: decimal("sale_price", { precision: 10, scale: 2 }), // ✅ NOVA COLUNA: Preço promocional do combo
+  // ✅ COLUNAS PARA VITRINE PREMIUM & FILTROS
+  // highlights: frases separadas por vírgula para os checks do card
+  highlights: text("highlights"), 
+  // category: para vincular aos filtros (Emagrecimento, Ganho de Massa, etc)
+  category: varchar("category", { length: 100 }),
+  // isPopular: ativa o badge de destaque e borda esmeralda
+  isPopular: boolean("is_popular").default(false),
   
+  price: decimal("base_price", { precision: 10, scale: 2 }).notNull(), 
+  salePrice: decimal("sale_price", { precision: 10, scale: 2 }), 
+  sizeId: int("size_id").references(() => dishSizes.id, { onDelete: 'set null' }),
   numberOfOptions: int("number_of_options").default(3), 
   month: varchar("month", { length: 50 }), 
   imageUrl: varchar("image_url", { length: 500 }),
-  
-  // ✅ COLUNA REATIVADA: Agora existe no seu MySQL após o comando ALTER TABLE
   displayOrder: int("display_order").default(0),
-
   status: varchar("status", { length: 20 }).default("active"), 
   isActive: boolean("is_active").default(true),
-  config: json("config"), // Aqui dentro salvamos os slots e a ordem groupsOrder
+  
+  config: json("config").$type<PackageSlotConfig>(), 
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
-// ====================================================
 // --- 2. TABELAS RELACIONAIS (ESTRUTURA DE SLOTS) ---
-// ====================================================
 
 export const packageOptions = mysqlTable("package_options", {
   id: int("id").primaryKey().autoincrement(),
@@ -79,18 +95,18 @@ export const packageOptionGroups = mysqlTable("package_option_groups", {
   groupId: int("group_id")
     .notNull()
     .references(() => accompanimentGroups.id, { onDelete: 'cascade' }),
-  
-  // ✅ NOVA COLUNA: Ordem das opções (itens) dentro deste grupo do pacote
-  itemsOrder: json("items_order").$type<number[]>().default([]),
+  itemsOrder: longtext("items_order"), 
 });
 
-// ====================================================
 // --- 3. RELAÇÕES (RELATIONS) ---
-// ====================================================
 
-export const packageRelations = relations(packages, ({ many }) => ({
+export const packageRelations = relations(packages, ({ one, many }) => ({
   orderItems: many(orderItems),
   options: many(packageOptions),
+  size: one(dishSizes, {
+    fields: [packages.sizeId],
+    references: [dishSizes.id],
+  }),
 }));
 
 export const packageOptionsRelations = relations(packageOptions, ({ one, many }) => ({
@@ -124,15 +140,11 @@ export const packageOptionGroupsRelations = relations(packageOptionGroups, ({ on
   }),
 }));
 
-// --- RELAÇÕES DO CATÁLOGO AUXILIARES ---
+// --- RELAÇÕES AUXILIARES ---
 
 export const accompanimentOptionsWithCategoryRelations = relations(accompanimentOptions, ({ one }) => ({
   category: one(categories, {
     fields: [accompanimentOptions.accompanimentCategoryId],
     references: [categories.id],
   }),
-}));
-
-export const accompanimentGroupsWithItemsRelations = relations(accompanimentGroups, ({ many }) => ({
-  options: many(accompanimentOptions),
 }));

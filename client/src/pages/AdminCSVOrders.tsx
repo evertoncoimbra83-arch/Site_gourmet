@@ -1,7 +1,11 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { createPortal } from "react-dom";
 import { trpc } from "@/_core/trpc";
-import { Loader2, X, Calendar, User, CreditCard } from "lucide-react"; 
+import { Loader2, X, User } from "lucide-react"; 
+
+// --- TIPAGENS ---
+
+type OrderStatus = "pending" | "processing" | "paid" | "preparing" | "shipped" | "completed" | "cancelled" | "refunded" | "failed";
 
 const statusLabels: Record<string, string> = {
   pending: "Pendente",
@@ -10,37 +14,75 @@ const statusLabels: Record<string, string> = {
   preparing: "Em Preparo",
   shipped: "Enviado",
   completed: "Concluído",
-  cancelled: "Cancelado", // Atenção: banco pode ter cancelled ou canceled, ajustado para cancelled
+  cancelled: "Cancelado",
   refunded: "Estornado",
   failed: "Falhou"
 };
 
+interface OrderListItem {
+  id: string;
+  customerName: string;
+  customerEmail?: string | null;
+  total: string | number;
+  paymentMethod: string | null;
+  status: string | null;
+  createdAt: string | Date | null;
+}
+
+interface OrderItemDetail {
+  id: string;
+  dishName: string;
+  quantity: number;
+  unitPrice: string | number;
+  totalPrice: string | number;
+}
+
+interface OrderFullDetail {
+  id: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  shippingAddress: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZipCode: string | null;
+  status: string | null;
+  paymentMethod: string | null;
+  total: string | number;
+  items?: OrderItemDetail[]; // ✅ Array de itens injetado na raiz do pedido
+}
+
 // --- COMPONENTE DETALHES ---
+
 type OrderDetailsDrawerProps = {
-  orderId: number;
+  orderId: string;
   onClose: () => void;
 };
 
 function OrderDetailsDrawer({ orderId, onClose }: OrderDetailsDrawerProps) {
-  const { data, isLoading } = trpc.admin.orders.get.useQuery({ id: orderId });
+  const { data, isLoading } = trpc.admin.orders.getById.useQuery({ orderId });
+  
   const utils = trpc.useUtils();
   const updateStatus = trpc.admin.orders.updateStatus.useMutation({
     onSuccess: () => {
       utils.admin.orders.list.invalidate();
-      utils.admin.orders.get.invalidate({ id: orderId });
+      utils.admin.orders.getById.invalidate({ orderId });
     },
   });
 
-  const order = data?.order;
-  const items = data?.items ?? [];
+  // ✅ Cast seguro mapeando a estrutura exata que o tRPC está retornando
+  const order = data as OrderFullDetail | undefined;
+  const items = order?.items ?? [];
 
   const handleStatusChange = (status: string) => {
-    updateStatus.mutate({ id: orderId, status: status as any });
+    // ✅ FIX 1: O schema de update espera 'id' (não orderId)
+
+    updateStatus.mutate({ id: orderId, status: status as OrderStatus });
   };
   
   const getStatusBadge = (status: string | null) => {
     const safeStatus = status || "pending";
-    const map: any = {
+    const map: Record<string, string> = {
       pending: "bg-yellow-100 text-yellow-800",
       processing: "bg-blue-100 text-blue-800",
       paid: "bg-green-100 text-green-800",
@@ -60,25 +102,24 @@ function OrderDetailsDrawer({ orderId, onClose }: OrderDetailsDrawerProps) {
       
       <div className="w-full sm:max-w-md bg-white h-[85vh] sm:h-full shadow-xl flex flex-col rounded-t-xl sm:rounded-xl relative z-10">
         <div className="px-4 py-3 border-b flex items-center justify-between sticky top-0 bg-white z-10 rounded-t-xl">
-          <h2 className="font-semibold text-gray-800">
-            Detalhes Pedido #{orderId}
+          <h2 className="text-gray-800 uppercase text-xs tracking-widest font-black italic">
+            Pedido #{orderId.slice(-6).toUpperCase()}
           </h2>
           <button className="text-gray-400 hover:text-gray-600 p-2" onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {isLoading && (<div className="flex justify-center py-10"><Loader2 className="animate-spin text-[#2D5A3D]" /></div>)}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+          {isLoading && (<div className="flex justify-center py-10"><Loader2 className="animate-spin text-emerald-600" /></div>)}
 
           {!isLoading && order ? (
             <>
-              {/* STATUS */}
               <section className="space-y-2 border-b pb-4">
                 <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-sm font-semibold text-gray-700">Status Atual</h3>
+                  <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Status Atual</h3>
                   {getStatusBadge(order.status)}
                 </div>
                 <select
-                  className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                  className="w-full px-3 py-2 border rounded-xl text-sm bg-white font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500/20"
                   value={order.status || "pending"}
                   onChange={(e) => handleStatusChange(e.target.value)}
                   disabled={updateStatus.isPending}
@@ -91,50 +132,48 @@ function OrderDetailsDrawer({ orderId, onClose }: OrderDetailsDrawerProps) {
                 </select>
               </section>
 
-              {/* DADOS DO CLIENTE */}
               <section className="space-y-3 border-b pb-4">
-                <h3 className="text-sm font-semibold text-gray-700">Cliente & Entrega</h3>
+                <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Cliente & Entrega</h3>
                 <div className="text-sm space-y-1">
-                  <p className="font-medium text-gray-900 flex items-center gap-2">
-                    <User className="w-4 h-4 text-gray-400" /> {order.customerName || "—"}
+                  <p className="font-black text-slate-900 uppercase italic flex items-center gap-2">
+                    <User className="w-4 h-4 text-emerald-600" /> {order.customerName || "—"}
                   </p>
-                  <p className="text-gray-500 pl-6 text-xs">{order.customerEmail}</p>
-                  <p className="text-gray-500 pl-6 text-xs">{order.customerPhone || "Sem telefone"}</p>
+                  <p className="text-slate-500 pl-6 text-xs font-bold">{order.customerEmail}</p>
+                  <p className="text-slate-500 pl-6 text-xs font-bold">{order.customerPhone || "Sem telefone"}</p>
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 mt-2">
-                  <p className="font-medium mb-1 text-xs uppercase text-gray-400">Endereço de Entrega</p>
+                <div className="bg-slate-50 p-3 rounded-2xl text-sm text-slate-700 mt-2 border border-slate-100">
+                  <p className="font-black mb-1 text-[9px] uppercase text-slate-400 tracking-widest">Endereço de Entrega</p>
                   {order.shippingAddress ? (
                     <>
-                      <p>{order.shippingAddress}</p>
-                      <p className="text-gray-500 text-xs">{order.shippingCity} - {order.shippingState}</p>
-                      <p className="text-gray-500 text-xs">{order.shippingZipCode}</p>
+                      <p className="font-bold text-slate-800">{order.shippingAddress}</p>
+                      <p className="text-slate-500 text-xs font-bold">{order.shippingCity} - {order.shippingState}</p>
+                      <p className="text-slate-500 text-xs font-mono">{order.shippingZipCode}</p>
                     </>
                   ) : (
-                    <p className="italic text-gray-400">Retirada ou não informado</p>
+                    <p className="italic text-slate-400 text-xs font-bold">Retirada ou não informado</p>
                   )}
                 </div>
               </section>
 
-              {/* ITENS */}
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold text-gray-700">Itens do Pedido</h3>
-                <div className="border rounded-lg divide-y bg-white overflow-hidden">
+                <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Itens do Pedido</h3>
+                <div className="border border-slate-100 rounded-2xl divide-y divide-slate-50 bg-white overflow-hidden">
                   {items.map((item) => (
                     <div key={item.id} className="px-3 py-3 text-sm flex justify-between gap-3">
                       <div className="flex gap-3 items-start">
-                        <div className="bg-gray-100 w-6 h-6 flex items-center justify-center rounded text-xs font-bold text-gray-600 shrink-0">
+                        <div className="bg-emerald-50 w-7 h-7 flex items-center justify-center rounded-lg text-xs font-black text-emerald-600 shrink-0 border border-emerald-100">
                           {item.quantity}x
                         </div>
                         <div>
-                          <div className="font-medium text-gray-800 leading-tight">
+                          <div className="font-black text-slate-800 leading-tight uppercase italic text-xs">
                             {item.dishName || "Item removido"}
                           </div>
-                          <div className="text-xs text-gray-400 mt-0.5">
+                          <div className="text-[10px] font-bold text-slate-400 mt-0.5">
                              Unit: R$ {Number(item.unitPrice).toFixed(2)}
                           </div>
                         </div>
                       </div>
-                      <div className="font-semibold text-gray-800 shrink-0">
+                      <div className="font-black text-slate-900 shrink-0 italic">
                         R$ {Number(item.totalPrice).toFixed(2)}
                       </div>
                     </div>
@@ -142,20 +181,19 @@ function OrderDetailsDrawer({ orderId, onClose }: OrderDetailsDrawerProps) {
                 </div>
               </section>
 
-              {/* RESUMO */}
-              <section className="space-y-2 pt-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Método de Pagamento</span>
-                  <span className="font-medium text-gray-800">{order.paymentMethod || "—"}</span>
+              <section className="space-y-2 pt-2 pb-6">
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                  <span className="text-slate-400">Pagamento</span>
+                  <span className="text-slate-800">{order.paymentMethod || "—"}</span>
                 </div>
-                <div className="flex justify-between text-base font-bold pt-2 border-t mt-2">
-                    <span className="text-gray-800">TOTAL</span>
-                    <span className="text-[#2D5A3D] text-xl">R$ {Number(order.total).toFixed(2)}</span>
+                <div className="flex justify-between items-center pt-3 border-t border-slate-100 mt-2">
+                    <span className="text-slate-900 font-black text-xs uppercase tracking-widest">TOTAL</span>
+                    <span className="text-emerald-700 font-black text-2xl italic tracking-tighter">R$ {Number(order.total).toFixed(2)}</span>
                 </div>
               </section>
             </>
           ) : (
-             <p className="text-sm text-red-500">Erro ao carregar pedido.</p>
+             <p className="text-xs text-red-500 text-center py-10 font-black uppercase">Erro ao carregar pedido.</p>
           )}
         </div>
       </div>
@@ -164,26 +202,26 @@ function OrderDetailsDrawer({ orderId, onClose }: OrderDetailsDrawerProps) {
   );
 }
 
-// --- COMPONENTE PRINCIPAL ---
+// --- PÁGINA PRINCIPAL ---
+
 export default function AdminOrders() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const { data, isLoading } = trpc.admin.orders.list.useQuery({
     page,
-    limit: 20,
+    perPage: 20, 
     status,
     search: search || undefined,
   });
 
-  const orders = data?.data ?? [];
-  const totalPages = data?.meta?.pageCount ?? 1;
+  const orders = (data as unknown as { orders: OrderListItem[] })?.orders ?? [];
 
   const getStatusBadge = (status: string | null) => {
     const safeStatus = status || "pending";
-    const map: any = {
+    const map: Record<string, string> = {
       pending: "bg-yellow-100 text-yellow-800",
       processing: "bg-blue-100 text-blue-800",
       paid: "bg-green-100 text-green-800",
@@ -194,130 +232,106 @@ export default function AdminOrders() {
       refunded: "bg-gray-200 text-gray-700",
       failed: "bg-red-200 text-red-900"
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[safeStatus] || "bg-gray-100"}`}>{statusLabels[safeStatus] ?? safeStatus}</span>;
+    return <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${map[safeStatus] || "bg-gray-100"}`}>
+      {statusLabels[safeStatus] ?? safeStatus}
+    </span>;
   };
 
   return (
     <div className="flex flex-col gap-4 p-2 md:p-4 pb-20">
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-[#2D5A3D]">Gerenciar Pedidos</h1>
+        <h1 className="text-2xl font-black uppercase italic tracking-tighter text-emerald-800">Gestão de Pedidos</h1>
         <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
           <input
             type="text"
             placeholder="Buscar cliente..."
-            className="px-3 py-2 border rounded-lg text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]"
+            className="px-4 py-2 border border-slate-200 rounded-xl text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold uppercase placeholder:text-slate-300"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
           <select
-            className="px-3 py-2 border rounded-lg text-sm w-full sm:w-40 bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]"
+            className="px-4 py-2 border border-slate-200 rounded-xl text-sm w-full sm:w-40 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-black uppercase"
             value={status || ""}
             onChange={(e) => setStatus(e.target.value || undefined)}
           >
-            <option value="">Todos status</option>
+            <option value="">Status</option>
             {Object.keys(statusLabels).map(s => (<option key={s} value={s}>{statusLabels[s]}</option>))}
           </select>
         </div>
       </div>
 
-      {/* LOADING */}
-      {isLoading && (
-        <div className="text-center py-12">
-            <Loader2 className="animate-spin h-8 w-8 mx-auto text-[#2D5A3D]" />
-            <p className="text-gray-500 mt-2">Carregando pedidos...</p>
+      {isLoading ? (
+        <div className="text-center py-20 flex flex-col items-center gap-3">
+            <Loader2 className="animate-spin h-10 w-10 text-emerald-600" />
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest">Sincronizando encomendas...</p>
+        </div>
+      ) : orders.length === 0 ? (
+          <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200 mx-2">
+            <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Nenhum pedido encontrado.</p>
+          </div>
+      ) : (
+        <div className="hidden md:block bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50/50 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+              <tr>
+                <th className="px-6 py-4 text-left">#</th>
+                <th className="px-6 py-4 text-left">Cliente</th>
+                <th className="px-6 py-4 text-left">Total</th>
+                <th className="px-6 py-4 text-left">Pgto</th>
+                <th className="px-6 py-4 text-left">Status</th>
+                <th className="px-6 py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {orders.map((order) => (
+                <tr key={order.id} className="hover:bg-slate-50/80 transition-colors group">
+                  <td className="px-6 py-4 font-mono text-slate-400 text-xs">#{order.id.slice(-6).toUpperCase()}</td>
+                  <td className="px-6 py-4">
+                      <div className="font-black text-slate-900 uppercase italic">{order.customerName || "—"}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase truncate max-w-45">
+                        {order.customerEmail || "—"}
+                      </div>
+                  </td>
+                  <td className="px-6 py-4 font-black text-slate-900 italic tracking-tighter text-base">
+                    R$ {Number(order.total).toFixed(2)}
+                  </td>
+                  <td className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    {order.paymentMethod || "—"}
+                  </td>
+                  <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
+                  <td className="px-6 py-4 text-right">
+                    <button 
+                      onClick={() => setSelectedOrderId(order.id)} 
+                      className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white bg-slate-900 rounded-xl hover:bg-emerald-600 transition-all shadow-lg shadow-slate-200 active:scale-95"
+                    >
+                      Detalhes
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {!isLoading && orders.length === 0 && (
-          <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-            <p className="text-gray-500">Nenhum pedido encontrado.</p>
-          </div>
-      )}
-
-      {/* DESKTOP (TABELA) */}
-      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-            <tr>
-              <th className="px-4 py-3 text-left">#</th>
-              <th className="px-4 py-3 text-left">Cliente</th>
-              <th className="px-4 py-3 text-left">Total</th>
-              <th className="px-4 py-3 text-left">Pagamento</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Data</th>
-              <th className="px-4 py-3 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id} className="border-t border-gray-100 hover:bg-gray-50/80 transition-colors">
-                <td className="px-4 py-3 font-mono text-gray-600">#{order.id}</td>
-                <td className="px-4 py-3">
-                    <div className="font-medium text-gray-800">{order.customerName || "—"}</div>
-                    <div className="text-xs text-gray-400">{order.customerEmail}</div>
-                </td>
-                <td className="px-4 py-3 font-semibold text-gray-800">R$ {Number(order.total).toFixed(2)}</td>
-                <td className="px-4 py-3 text-xs text-gray-500">{order.paymentMethod || "—"}</td>
-                <td className="px-4 py-3">{getStatusBadge(order.status)}</td>
-                <td className="px-4 py-3 text-xs text-gray-500">
-                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString("pt-BR") : "—"}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button 
-                    onClick={() => setSelectedOrderId(order.id as number)} 
-                    className="px-3 py-1.5 text-xs font-medium text-[#2D5A3D] border border-[#2D5A3D] rounded-lg hover:bg-[#2D5A3D] hover:text-white transition-colors"
-                  >
-                    Detalhes
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* MOBILE (CARDS) */}
-      <div className="md:hidden space-y-3">
+      {/* MOBILE LIST */}
+      <div className="md:hidden space-y-3 px-2">
         {orders.map((order) => (
-          <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 active:bg-gray-50 transition-colors" onClick={() => setSelectedOrderId(order.id as number)}>
-            <div className="flex justify-between items-start mb-3">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-gray-500 text-sm">#{order.id}</span>
-                        <span className="text-xs text-gray-400">•</span>
-                        <span className="text-xs text-gray-500 flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {order.createdAt ? new Date(order.createdAt).toLocaleDateString("pt-BR") : "—"}
-                        </span>
-                    </div>
-                    <h3 className="font-bold text-gray-800 mt-1">{order.customerName || "Cliente Desconhecido"}</h3>
-                </div>
-                {getStatusBadge(order.status)}
-            </div>
-            <div className="flex justify-between items-end pt-3 border-t border-gray-100">
-                <div className="text-sm text-gray-500">
-                    <div className="flex items-center gap-1 mb-1">
-                        <CreditCard className="w-3 h-3" /> {order.paymentMethod || "Não informado"}
-                    </div>
-                </div>
-                <div className="text-right">
-                    <span className="text-xs text-gray-400 block mb-0.5">Total</span>
-                    <span className="text-xl font-bold text-[#2D5A3D]">R$ {Number(order.total).toFixed(2)}</span>
-                </div>
-            </div>
+          <div key={order.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm active:bg-slate-50 transition-colors" onClick={() => setSelectedOrderId(order.id)}>
+             <div className="flex justify-between items-start mb-2">
+               <div>
+                 <span className="text-[9px] font-black text-slate-300 uppercase block leading-none mb-1">ID #{order.id.slice(-6).toUpperCase()}</span>
+                 <h3 className="font-black text-slate-800 uppercase italic tracking-tighter leading-none">{order.customerName}</h3>
+               </div>
+               {getStatusBadge(order.status)}
+             </div>
+             <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-50">
+               <span className="text-xl font-black text-slate-900 italic tracking-tighter">R$ {Number(order.total).toFixed(2)}</span>
+               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{order.paymentMethod}</span>
+             </div>
           </div>
         ))}
       </div>
-
-      {/* PAGINAÇÃO */}
-      {data && totalPages > 1 && (
-        <div className="flex items-center justify-center md:justify-end gap-2 text-sm text-gray-600 pt-4">
-          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-3 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-50">Anterior</button>
-          <span className="font-medium">Pág. {page} de {totalPages}</span>
-          <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="px-3 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-50">Próxima</button>
-        </div>
-      )}
 
       {selectedOrderId && (
         <OrderDetailsDrawer

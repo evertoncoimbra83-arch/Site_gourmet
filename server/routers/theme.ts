@@ -1,5 +1,4 @@
-import { getDb } from ".././db.js"; 
-import { siteTheme } from "drizzle/schema/index.js"; // ✅ Caminho e extensão corrigidos
+import { getDb } from ".././db"; 
 
 /**
  * Busca as configurações de identidade visual (Cores, Fontes, Logo).
@@ -9,7 +8,7 @@ export async function getTheme() {
   const db = await getDb();
   if (!db) return null;
 
-  // Usando a Relational Query API do Drizzle para buscar o primeiro registro
+  // Usando a Relational Query API do Drizzle (não requer a importação direta de siteTheme)
   const theme = await db.query.siteTheme.findFirst();
   
   return theme || null;

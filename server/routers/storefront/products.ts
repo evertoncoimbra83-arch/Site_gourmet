@@ -1,208 +1,198 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "../../_core/trpc.js";
-import * as AdminDishes from "../../admin-dishes.js"; 
-import { logAction } from "../../db/lib/audit.js"; 
 import { getDb } from "../../db.js";
-import { 
-  accompanimentGroups, 
-  accompanimentOptions, 
-  sizeAccompanimentGroups,
-  dishSizes,
-  accompanimentCategories 
-} from "../../../drizzle/schema/catalog.js";
-import { eq, and, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, like } from "drizzle-orm";
+import * as schema from "../../../drizzle/schema/index.js";
+import { safeInteger, safeNumber } from "../../lib/safe-parse.js";
+
+// --- TIPAGENS ---
+type DishSchema = typeof schema.dishes.$inferSelect;
 
 /**
- * 🥗 Helper: Normalização de Informação Nutricional
+ * ✅ Normalização Manual Blindada
+ * Substituído 'any' por tipos inferidos do Schema para satisfazer o ESLint.
  */
-const normalizeNutritionalInfo = (dish: any) => {
-  if (!dish) return dish;
-  return { 
-    ...dish, 
-    energyKcal: Number(dish.energyKcal || 0),
-    proteins: Number(dish.proteins || 0),
-    carbs: Number(dish.carbs || 0),
-    fatTotal: Number(dish.fatTotal || 0),
-    nutritionalInfo: {
-      kcal: Number(dish.energyKcal || 0),
-      proteins: Number(dish.proteins || 0),
-      carbs: Number(dish.carbs || 0),
-      fats: Number(dish.fatTotal || 0)
-    }
+const normalizeDish = (dish: DishSchema | Record<string, unknown> | null) => {
+  if (!dish) return null;
+
+  const toNum = (val: unknown) => {
+    return safeNumber(val);
+  };
+
+  // ✅ CORREÇÃO: Usamos Record<string, unknown> para acessar propriedades flexíveis
+  // sem disparar o erro de 'any' do ESLint.
+  const d = dish as Record<string, unknown>;
+  
+  const rawCatId = d.categoryId ?? d.category_id ?? d.categoryIdRaw;
+  const showNutrition = Boolean(d.showNutrition ?? d.show_nutrition ?? d.show_nutritional_info);
+
+  return {
+    id: safeInteger(d.id),
+    name: (d.name as string) || "Sem nome",
+    slug: (d.slug as string) || String(d.id), 
+    description: (d.description as string) || "",
+    imageUrl: (d.imageUrl as string) || (d.image_url as string) || null,
+    price: toNum(d.basePrice || d.base_price || d.price || 0),
+    salePrice: (d.salePrice || d.sale_price) ? toNum(d.salePrice || d.sale_price) : null,
+    categoryId: rawCatId ? safeInteger(rawCatId) : null,
+    isActive: !!(d.isActive ?? d.is_active),
+    displayOrder: toNum(d.displayOrder ?? d.display_order ?? 0),
+    showNutrition,
+
+    energyKcal: toNum(d.energyKcal ?? d.energy_kcal ?? 0),
+    energyKj: toNum(d.energyKj ?? d.energy_kj ?? 0),
+    proteins: toNum(d.proteins ?? 0),
+    carbs: toNum(d.carbs ?? 0),
+    fatTotal: toNum(d.fatTotal ?? d.fat_total ?? 0),
+    fatSaturated: toNum(d.fatSaturated ?? d.fat_saturated ?? 0),
+    fatTrans: toNum(d.fatTrans ?? d.fat_trans ?? 0),
+    fiber: toNum(d.fiber ?? 0),
+    sodium: toNum(d.sodium ?? 0),
+    calcium: toNum(d.calcium ?? 0),
+    iron: toNum(d.iron ?? 0),
+    ingredients: (d.ingredients as string) || "",
+
+    nutrition: {
+      kcal: Math.round(toNum(d.energyKcal ?? d.energy_kcal ?? 0)),
+      proteins: toNum(d.proteins ?? 0),
+      carbs: toNum(d.carbs ?? 0),
+      fats: toNum(d.fatTotal ?? d.fat_total ?? 0),
+      fiber: toNum(d.fiber ?? 0),
+      sodium: toNum(d.sodium ?? 0),
+    },
   };
 };
 
 export const productsRouter = router({
-  // 1. Procedure de Listagem (Vitrines)
+  /**
+   * 1. LISTAGEM DE PRODUTOS (Vitrine)
+   */
   list: publicProcedure
-    .input(z.object({ 
-      page: z.number().default(1), 
-      perPage: z.number().default(12), 
-      search: z.string().nullish(), 
-      category: z.union([z.number(), z.string()]).nullish() 
-    }))
+    // ✅ CORREÇÃO: Input envolvido em um .optional()
+    .input(z.object({
+        page: z.number().default(1),
+        perPage: z.number().default(100),
+        search: z.string().nullish(),
+        category: z.union([z.number(), z.string()]).nullish(),
+    }).optional())
     .query(async ({ input }) => {
-      const result = await AdminDishes.getPaginatedDishes({ 
-        page: input.page, 
-        limit: input.perPage, 
-        search: input.search ?? undefined, 
-        categoryId: input.category ? Number(input.category) : undefined, 
-        isActive: true 
-      });
-      return { ...result, data: result.data.map(normalizeNutritionalInfo) };
+      const db = await getDb();
+      
+      // ✅ Proteção caso o input seja undefined
+      const page = input?.page || 1;
+      const perPage = input?.perPage || 100;
+      const search = input?.search;
+      const category = input?.category;
+
+      const offset = (page - 1) * perPage;
+      const conditions = [eq(schema.dishes.isActive, true)];
+
+      if (search) {
+        conditions.push(like(schema.dishes.name, `%${search}%`));
+      }
+      
+      if (category && category !== "all") {
+        const catId = safeInteger(category, Number.NaN);
+        if (Number.isFinite(catId)) conditions.push(eq(schema.dishes.categoryId, catId));
+      }
+
+      const rows = await db
+        .select({
+          dish: schema.dishes,
+          categoryName: schema.categories.name
+        })
+        .from(schema.dishes)
+        .leftJoin(schema.categories, eq(schema.dishes.categoryId, schema.categories.id))
+        .where(and(...conditions))
+        .limit(perPage)
+        .offset(offset)
+        .orderBy(asc(schema.dishes.displayOrder));
+
+      return rows.map((row) => {
+        const normalized = normalizeDish(row.dish);
+        return normalized ? { ...normalized, categoryName: row.categoryName } : null;
+      }).filter((item): item is NonNullable<typeof item> => item !== null);
     }),
 
-  // 2. Procedure de Categorias (Filtros)
-  categories: publicProcedure.query(async () => {
-    try {
-      return await AdminDishes.getLocalCategories() || [];
-    } catch (error) {
-      return [];
-    }
-  }),
-
-  // 3. Procedure de Detalhes (Drawer)
+  /**
+   * 2. DETALHE DO PRODUTO (Busca por ID)
+   */
   getById: publicProcedure
-    .input(z.object({ 
-      id: z.union([z.string(), z.number()]).transform((v) => Number(v))
-    }))
-    .query(async ({ ctx, input }) => {
-      try {
-        const db = await getDb();
-        const dish: any = await AdminDishes.getDishById(input.id);
-        
-        if (!dish) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: "Prato não encontrado" });
-        }
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      
+      const [row] = await db
+        .select()
+        .from(schema.dishes)
+        .where(and(eq(schema.dishes.id, input.id), eq(schema.dishes.isActive, true)))
+        .limit(1);
 
-        // ✅ REVISADO: Agora selecionamos iconKey, weight e description explicitamente
-        const sizesData = await db
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Produto não encontrado." });
+
+      const normalizedDish = normalizeDish(row);
+
+      const sizesData = await db
+        .select({ 
+          id: schema.dishSizes.id,
+          name: schema.dishSizes.name,
+          priceModifier: schema.dishSizes.priceModifier,
+          mainDishWeight: schema.dishSizes.mainDishWeight
+        })
+        .from(schema.dishSizes)
+        .innerJoin(schema.dishesToSizes, eq(schema.dishSizes.id, schema.dishesToSizes.sizeId))
+        .where(eq(schema.dishesToSizes.dishId, input.id));
+
+      const sizesWithDetails = await Promise.all(sizesData.map(async (size) => {
+        const groups = await db
           .select({
-            id: dishSizes.id,
-            name: dishSizes.name,
-            weight: dishSizes.weight,
-            description: dishSizes.description,
-            iconKey: dishSizes.iconKey,
-            priceModifier: dishSizes.priceModifier,
-            displayOrder: dishSizes.displayOrder,
+            id: schema.accompanimentGroups.id,
+            name: schema.accompanimentGroups.name,
+            minSelections: schema.sizeAccompanimentGroups.minSelections,
+            maxSelections: schema.sizeAccompanimentGroups.maxSelections,
           })
-          .from(dishSizes)
-          .where(eq(dishSizes.isActive, true))
-          .orderBy(asc(dishSizes.displayOrder));
+          .from(schema.sizeAccompanimentGroups)
+          .innerJoin(schema.accompanimentGroups, eq(schema.sizeAccompanimentGroups.accompanimentGroupId, schema.accompanimentGroups.id))
+          .where(and(
+            eq(schema.sizeAccompanimentGroups.sizeId, size.id), 
+            eq(schema.accompanimentGroups.isActive, true)
+          ));
 
-        const allowAcc = dish.allowAccompaniments || dish.category?.allowAccompaniments;
-        const sizeIds = sizesData.map(s => s.id);
-
-        let accompanimentStructure: any[] = [];
-
-        if (allowAcc && sizeIds.length > 0) {
-          const groupLinks = await db
+        const groupsWithExtras = await Promise.all(groups.map(async (group) => {
+          const options = await db
             .select({
-              sizeId: sizeAccompanimentGroups.sizeId,
-              isRequired: sizeAccompanimentGroups.isRequired,
-              group: {
-                id: accompanimentGroups.id,
-                name: accompanimentGroups.name,
-                slug: accompanimentGroups.slug,
-                maxSelections: accompanimentGroups.maxSelections,
-              }
+              id: schema.accompanimentOptions.id,
+              name: schema.accompanimentOptions.name,
+              priceModifier: schema.accompanimentOptions.priceModifier,
+              energyKcal: schema.accompanimentOptions.energyKcal,
+              proteins: schema.accompanimentOptions.proteins,
+              carbs: schema.accompanimentOptions.carbs,
+              fatTotal: schema.accompanimentOptions.fatTotal,
             })
-            .from(sizeAccompanimentGroups)
-            .innerJoin(
-              accompanimentGroups, 
-              eq(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)
-            )
-            .where(and(
-              inArray(sizeAccompanimentGroups.sizeId, sizeIds),
-              eq(accompanimentGroups.isActive, true)
-            ));
+            .from(schema.accompanimentOptions)
+            .innerJoin(schema.groupToOptions, eq(schema.accompanimentOptions.id, schema.groupToOptions.optionId))
+            .where(eq(schema.groupToOptions.groupId, group.id));
 
-          accompanimentStructure = await Promise.all(groupLinks.map(async (link) => {
-            const options = await db
-              .select({
-                id: accompanimentOptions.id,
-                name: accompanimentOptions.name,
-                groupsConfig: accompanimentOptions.groupsConfig,
-                showNutrition: accompanimentOptions.showNutrition,
-                energyKcal: accompanimentOptions.energyKcal,
-                carbs: accompanimentOptions.carbs,
-                proteins: accompanimentOptions.proteins,
-                fatTotal: accompanimentOptions.fatTotal,
-                category: {
-                  name: accompanimentCategories.name,
-                  iconKey: accompanimentCategories.iconKey,
-                  color: accompanimentCategories.color,
-                }
-              })
-              .from(accompanimentOptions)
-              .leftJoin(
-                accompanimentCategories,
-                eq(accompanimentOptions.accompanimentCategoryId, accompanimentCategories.id)
-              )
-              .where(and(
-                eq(accompanimentOptions.isActive, true),
-                sql`JSON_CONTAINS(${accompanimentOptions.groupsConfig}, JSON_OBJECT('group_id', ${link.group.id}))`
-              ))
-              .orderBy(asc(accompanimentOptions.displayOrder));
-
-            return {
-              ...link,
-              options: options.map(opt => {
-                let configs: any[] = [];
-                try {
-                  configs = typeof opt.groupsConfig === 'string' 
-                    ? JSON.parse(opt.groupsConfig) 
-                    : (opt.groupsConfig || []);
-                } catch (e) { configs = []; }
-
-                const specific = configs.find((c: any) => Number(c.group_id) === Number(link.group.id));
-                
-                return {
-                  ...opt,
-                  nutritionalInfo: {
-                    kcal: Number(opt.energyKcal || 0),
-                    carbs: Number(opt.carbs || 0),
-                    proteins: Number(opt.proteins || 0),
-                    fats: Number(opt.fatTotal || 0)
-                  },
-                  priceModifier: specific?.price_modifier || "0.00"
-                };
-              })
-            };
-          }));
-        }
-
-        const finalSizes = sizesData.map(size => ({
-          ...size,
-          id: Number(size.id),
-          priceModifier: Number(size.priceModifier || 0),
-          // ✅ Repassando as novas informações para o Front
-          iconKey: size.iconKey || "Cube",
-          weight: size.weight || "",
-          description: size.description || "",
-          accompanimentGroups: accompanimentStructure
-            .filter(acc => Number(acc.sizeId) === Number(size.id))
-            .map(acc => ({
-              ...acc.group,
-              isRequired: Boolean(acc.isRequired),
-              options: acc.options
+          return {
+            ...group,
+            options: options.map(opt => ({
+              ...opt,
+              priceModifier: safeNumber(opt.priceModifier)
             }))
+          };
         }));
 
-        logAction(ctx, "VIEW_PRODUCT", "products", { entityId: input.id, new: { nome: dish.name } }).catch(() => {});
-
-        return {
-          ...normalizeNutritionalInfo(dish),
-          sizes: finalSizes
+        return { 
+          ...size, 
+          priceModifier: safeNumber(size.priceModifier), 
+          accompanimentGroups: groupsWithExtras 
         };
+      }));
 
-      } catch (error: any) {
-        console.error("❌ Erro detalhado no getById Público:", error);
-        throw new TRPCError({ 
-          code: 'INTERNAL_SERVER_ERROR', 
-          message: "Falha ao processar os detalhes do produto" 
-        });
-      }
+      return {
+        ...normalizedDish,
+        sizes: sizesWithDetails
+      };
     }),
 });

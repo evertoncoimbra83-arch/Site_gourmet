@@ -10,8 +10,8 @@ import {
   mysqlEnum
 } from "drizzle-orm/mysql-core";
 
-import { users } from "./users.js";
-import { orders } from "./orders.js";
+import { users } from "./users";
+import { orders } from "./orders";
 
 // ====================================================
 // --- REGRAS DE DESCONTO PROGRESSIVO ---
@@ -49,7 +49,13 @@ export const coupons = mysqlTable("coupons", {
   id: varchar("id", { length: 255 }).primaryKey(),
   code: varchar("code", { length: 50 }).notNull().unique(),
   description: text("description"),
-  
+
+  // ✅ NOVAS COLUNAS PARA PERSONALIZAÇÃO VISUAL
+  // bannerColor: Define a cor de fundo do card (padrão verde emerald)
+  bannerColor: varchar("banner_color", { length: 10 }).default("#10b981"),
+  // logoUrl: Link para a imagem/ícone da campanha (pode ser nulo)
+  logoUrl: varchar("logo_url", { length: 255 }),
+
   // Mapeamento: JS 'discountType' -> DB 'discount_type'
   discountType: mysqlEnum("discount_type", ["percentage", "fixed"]).notNull(),
   discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),

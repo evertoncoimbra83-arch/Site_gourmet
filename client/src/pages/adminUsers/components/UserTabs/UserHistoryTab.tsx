@@ -1,9 +1,33 @@
+import React from "react";
 import { Badge } from "@/components/ui/badge";
 
-export function UserHistoryTab({ details }: any) {
+// --- INTERFACES ---
+
+interface UserStats {
+  totalSpent?: number | string;
+  loyaltyPointsAvailable?: number;
+}
+
+interface Order {
+  id: number | string;
+  status: string;
+  total: number;
+  createdAt: string;
+}
+
+interface UserDetails {
+  stats?: UserStats;
+  recentOrders?: Order[];
+}
+
+interface UserHistoryTabProps {
+  details: UserDetails | null;
+}
+
+export function UserHistoryTab({ details }: UserHistoryTabProps) {
   const stats = [
-    { label: "Total Gasto", val: `R$ ${Number(details?.profile?.totalSpent || 0).toFixed(2)}`, color: "text-emerald-600" },
-    { label: "Saldo Fidelidade", val: `${details?.profile?.loyaltyPoints || 0} pts`, color: "text-amber-600" },
+    { label: "Total Gasto", val: `R$ ${Number(details?.stats?.totalSpent || 0).toFixed(2)}`, color: "text-emerald-600" },
+    { label: "Saldo Fidelidade", val: `${details?.stats?.loyaltyPointsAvailable || 0} pts`, color: "text-amber-600" },
     { label: "Pedidos Realizados", val: details?.recentOrders?.length || 0, color: "text-blue-600" },
   ];
 
@@ -29,14 +53,28 @@ export function UserHistoryTab({ details }: any) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {details?.recentOrders?.map((o: any) => (
-              <tr key={o.id} className="text-xs">
-                <td className="p-4 font-black text-slate-400">#{o.id}</td>
-                <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase rounded-lg border-slate-200">{o.status}</Badge></td>
-                <td className="p-4 text-right font-black text-slate-700">R$ {Number(o.total).toFixed(2)}</td>
-                <td className="p-4 text-right text-slate-400 font-bold uppercase text-[9px]">{new Date(o.createdAt).toLocaleDateString()}</td>
+            {details?.recentOrders && details.recentOrders.length > 0 ? (
+              details.recentOrders.map((o) => (
+                <tr key={o.id} className="text-xs">
+                  <td className="p-4 font-black text-slate-400">#{o.id}</td>
+                  <td className="p-4">
+                    <Badge variant="outline" className="text-[8px] font-black uppercase rounded-lg border-slate-200">
+                      {o.status}
+                    </Badge>
+                  </td>
+                  <td className="p-4 text-right font-black text-slate-700">R$ {Number(o.total).toFixed(2)}</td>
+                  <td className="p-4 text-right text-slate-400 font-bold uppercase text-[9px]">
+                    {new Date(o.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} className="p-8 text-center text-slate-400 text-xs">
+                  Nenhum pedido realizado ainda.
+                </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

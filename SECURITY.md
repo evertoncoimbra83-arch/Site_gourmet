@@ -75,7 +75,7 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 ## 📋 Checklist de Segurança
 
 ### Antes de Produção
-- [ ] Remover console.log() de dados sensíveis
+- [ ] Remover  de dados sensíveis
 - [ ] Ativar HTTPS em produção
 - [ ] Configurar CORS corretamente
 - [ ] Usar variáveis de ambiente para secrets
@@ -166,10 +166,10 @@ const hash = password;
 ### 4. Dados Sensíveis
 ```typescript
 // ✅ BOM - Nunca log de senhas/tokens
-console.log("User logged in:", user.email);
+
 
 // ❌ RUIM - Expõe dados sensíveis
-console.log("Token:", token);
+
 ```
 
 ### 5. Erros

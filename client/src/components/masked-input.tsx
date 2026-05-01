@@ -1,10 +1,9 @@
+import React, { forwardRef } from "react"; // ✅ Adicionado React para corrigir escopo JSX
 import { Input } from "@/components/ui/input";
-import { InputMask, type Replacement } from "@react-input/mask"; // ✅ Importado o tipo Replacement
-import { forwardRef } from "react";
+import { InputMask, type Replacement } from "@react-input/mask";
 
 interface MaskedInputProps extends React.ComponentPropsWithoutRef<typeof Input> {
   mask: string; 
-  // ✅ CORREÇÃO: Usando a tipagem exata da biblioteca para evitar o erro de 'object'
   replacement: string | Replacement; 
 }
 

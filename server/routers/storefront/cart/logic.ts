@@ -1,153 +1,297 @@
-import { eq, and, asc } from "drizzle-orm";
-import { cartItems, carts, coupons, discountRules, loyaltySettings } from "../../../../drizzle/schema/index.js";
+import { asc, eq } from "drizzle-orm";
+import {
+  cartItems,
+  carts,
+  coupons,
+  discountRules,
+  loyaltySettings,
+} from "../../../../drizzle/schema/index.js";
 import * as Loyalty from "../../../loyalty.js";
+import { getDb } from "../../../db.js";
+import { calculatePricing } from "@shared/domain/cart/pricing";
+import { CartItem as DomainCartItem } from "@shared/domain/cart/types";
+import { TRPCError } from "@trpc/server";
+import { recalculateCartItem } from "../../../orders/logic/recalculateOrder.js";
+import { safeNumber } from "../../../lib/safe-parse.js";
 
-function safeFloat(val: any): number {
-  if (val === null || val === undefined || val === "") return 0;
-  if (typeof val === 'number') return val;
-  let str = String(val).trim().replace("R$", "").trim();
-  if (str.includes(",")) str = str.replace(/\./g, "").replace(",", ".");
-  const num = parseFloat(str);
-  return isNaN(num) ? 0 : num;
+type DbType = Awaited<ReturnType<typeof getDb>>;
+
+interface CouponStylingData {
+  couponBannerColor?: string | null;
+  couponLogoUrl?: string | null;
+  couponDescription?: string | null;
 }
 
-export async function syncCartState(db: any, cartId: string, userId?: string | null) {
+function safeFloat(val: unknown): number {
+  if (val === null || val === undefined || val === "") return 0;
+  if (typeof val === "number") return val;
+  let str = String(val).trim().replace("R$", "").trim();
+  if (str.includes(",")) str = str.replace(/\./g, "").replace(",", ".");
+  const num = Number(str);
+  return Number.isNaN(num) ? 0 : num;
+}
+
+function roundMoney(value: number): number {
+  return safeNumber(value.toFixed(2));
+}
+
+function isSameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export async function syncCartState(db: DbType, cartId: string, userId?: string | null) {
   try {
-    // 1. Busca o Carrinho
-    const [cart] = await db.select().from(carts).where(eq(carts.id, cartId)).limit(1);
-    if (!cart) return null;
+    const [cartData] = await db
+      .select({
+        id: carts.id,
+        userId: carts.userId,
+        couponCode: carts.couponCode,
+        couponId: carts.couponId,
+        usesLoyalty: carts.usesLoyalty,
+        shippingValue: carts.shippingValue,
+        couponBannerColor: coupons.bannerColor,
+        couponLogoUrl: coupons.logoUrl,
+        couponDescription: coupons.description,
+      })
+      .from(carts)
+      .leftJoin(coupons, eq(carts.couponId, coupons.id))
+      .where(eq(carts.id, cartId))
+      .limit(1);
 
-    // ✅ Prioriza o usuário logado no momento (ctx.userId)
-    const activeUserId = userId || cart.userId || null;
+    if (!cartData) return null;
 
-    // 2. Busca e Processa os Itens
-    const itemsRaw = await db.select().from(cartItems).where(eq(cartItems.cartId, cartId));
-    let subtotal = 0;
+    const activeUserId = userId || cartData.userId || null;
+    const itemsRaw = await db
+      .select()
+      .from(cartItems)
+      .where(eq(cartItems.cartId, cartId))
+      .orderBy(asc(cartItems.createdAt));
 
-    const items = itemsRaw.map((item: any) => {
-      const price = safeFloat(item.unitPrice ?? 0);
-      const qty = parseInt(String(item.quantity || 0), 10);
-      
-      subtotal += price * qty;
+    const validItems: Array<(typeof itemsRaw)[number] & { totalItemPrice: number }> = [];
+    const removedInvalidItems: string[] = [];
 
-      // Parse de JSON com fallback seguro
-      let optionsParsed = {};
+    for (const item of itemsRaw) {
       try {
-        optionsParsed = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || {});
-      } catch (e) { optionsParsed = {}; }
+        const authoritativeItem = await recalculateCartItem({
+          dishId: item.dishId,
+          packageId: item.packageId,
+          quantity: safeNumber(item.quantity, 1),
+          options: item.options || {},
+          appliedNutrition: item.appliedNutrition,
+        });
 
-      let nutritionParsed = {};
-      try {
-        nutritionParsed = typeof item.appliedNutrition === 'string' ? JSON.parse(item.appliedNutrition) : (item.appliedNutrition || {});
-      } catch (e) { nutritionParsed = {}; }
+        const authoritativeOptions = authoritativeItem.options;
+        const authoritativeUnitPrice = roundMoney(authoritativeItem.unitPrice);
+        const authoritativeName = authoritativeItem.name;
+
+        const needsUpdate =
+          roundMoney(safeFloat(item.unitPrice)) !== authoritativeUnitPrice ||
+          String(item.name || "") !== authoritativeName ||
+          !isSameJson(item.options || {}, authoritativeOptions);
+
+        if (needsUpdate) {
+          await db
+            .update(cartItems)
+            .set({
+              unitPrice: authoritativeUnitPrice.toFixed(2),
+              name: authoritativeName,
+              options: authoritativeOptions,
+            })
+            .where(eq(cartItems.id, item.id));
+        }
+
+        validItems.push({
+          ...item,
+          unitPrice: authoritativeUnitPrice.toFixed(2),
+          name: authoritativeName,
+          options: authoritativeOptions,
+          totalItemPrice: roundMoney(authoritativeUnitPrice * safeNumber(item.quantity, 1)),
+        });
+      } catch (error) {
+        const shouldRemove =
+          error instanceof TRPCError &&
+          (error.code === "BAD_REQUEST" || error.code === "NOT_FOUND");
+
+        if (!shouldRemove) throw error;
+
+        await db.delete(cartItems).where(eq(cartItems.id, item.id));
+        removedInvalidItems.push(String(item.id));
+      }
+    }
+
+    if (validItems.length === 0) {
+      const emptyTotals = {
+        subtotal: 0,
+        shipping: safeFloat(cartData.shippingValue),
+        autoDiscount: 0,
+        couponDiscount: 0,
+        loyaltyDiscount: 0,
+        totalDiscounts: 0,
+        total: safeFloat(cartData.shippingValue),
+        couponCode: cartData.couponCode || null,
+        couponError: null as string | null,
+      };
+
+      await db
+        .update(carts)
+        .set({
+          discountsJson: JSON.stringify({
+            totals: emptyTotals,
+            autoDiscountName: null,
+            couponError: null,
+            removedInvalidItems,
+          }),
+          discountValue: "0.00",
+          userId: activeUserId,
+          updatedAt: new Date(),
+        })
+        .where(eq(carts.id, cartId));
 
       return {
-        ...item,
-        unitPrice: price,
-        quantity: qty,
-        totalPrice: price * qty,
-        options: optionsParsed, 
-        appliedNutrition: nutritionParsed
+        cartId,
+        totals: emptyTotals,
+        items: [],
+        usesLoyalty: !!cartData.usesLoyalty,
+        autoDiscountName: null,
+        couponBannerColor: cartData.couponBannerColor,
+        couponLogoUrl: cartData.couponLogoUrl,
+        couponDescription: cartData.couponDescription,
+        couponError: null,
+        removedInvalidItems,
       };
-    });
-
-    // 3. Desconto Progressivo (Combo/Quantidade)
-    let autoDiscount = 0;
-    const rules = await db.select().from(discountRules).where(eq(discountRules.isActive, true)).orderBy(asc(discountRules.minQuantity));
-    const totalQty = items.reduce((acc: number, i: any) => acc + i.quantity, 0);
-    
-    const applicableRule = [...rules].reverse().find((r) => totalQty >= (r.minQuantity || 0));
-    
-    if (applicableRule) {
-      autoDiscount = subtotal * (safeFloat(applicableRule.discountValue) / 100);
     }
 
-    // 4. Cupom de Desconto
+    const rulesRaw = await db
+      .select()
+      .from(discountRules)
+      .where(eq(discountRules.isActive, true))
+      .orderBy(asc(discountRules.minQuantity));
+
+    const domainItems: DomainCartItem[] = validItems.map((item) => ({
+      id: String(item.id),
+      price: safeFloat(item.unitPrice),
+      quantity: safeNumber(item.quantity, 1),
+      name: item.name || "",
+    }));
+
+    const pricingResult = calculatePricing(domainItems, rulesRaw);
+    const subtotal = roundMoney(pricingResult.subtotal);
+    const autoDiscount = roundMoney(pricingResult.discounts);
+    const autoDiscountName = pricingResult.appliedRule?.name || null;
+
     let couponDiscount = 0;
-    if (cart.couponCode) {
-      const [dbCoupon] = await db.select().from(coupons).where(eq(coupons.code, cart.couponCode)).limit(1);
-      if (dbCoupon) {
-        const dVal = safeFloat(dbCoupon.discountValue);
-        const isPercent = String(dbCoupon.discountType).toLowerCase().includes("percent");
-        
-        // Regra: Cupom aplica sobre o que sobrou após o desconto progressivo
-        const baseCalc = Math.max(0, subtotal - autoDiscount);
-        couponDiscount = isPercent ? baseCalc * (dVal / 100) : dVal;
+    let couponError: string | null = null;
+
+    if (cartData.couponCode) {
+      const [dbCoupon] = await db
+        .select()
+        .from(coupons)
+        .where(eq(coupons.code, cartData.couponCode))
+        .limit(1);
+
+      if (!dbCoupon) {
+        couponError = "Cupom inválido ou expirado.";
+      } else {
+        const minRequired = safeFloat(dbCoupon.minOrderValue);
+        if (subtotal < minRequired) {
+          couponError = `Faltam R$ ${(minRequired - subtotal)
+            .toFixed(2)
+            .replace(".", ",")} para ativar este cupom.`;
+        } else {
+          const discountValue = safeFloat(dbCoupon.discountValue);
+          const isPercent = String(dbCoupon.discountType)
+            .toLowerCase()
+            .includes("percent");
+          const baseCalc = Math.max(0, subtotal - autoDiscount);
+
+          couponDiscount = isPercent ? baseCalc * (discountValue / 100) : discountValue;
+
+          const maxDiscount = safeFloat(dbCoupon.maxDiscount);
+          if (maxDiscount > 0 && couponDiscount > maxDiscount) couponDiscount = maxDiscount;
+          if (couponDiscount > baseCalc) couponDiscount = baseCalc;
+          couponDiscount = roundMoney(couponDiscount);
+        }
       }
     }
 
-    // 5. Fidelidade (Loyalty)
     let loyaltyDiscount = 0;
-    // Normalização da flag de fidelidade
-    const isLoyaltyActive = cart.usesLoyalty === true || cart.usesLoyalty === 1 || String(cart.usesLoyalty) === "true";
-
-    // ✅ Só calcula fidelidade se houver um usuário REAL logado
-    if (isLoyaltyActive && activeUserId) {
+    if (cartData.usesLoyalty && activeUserId) {
       try {
         const loyaltyData = await Loyalty.getUserPoints(activeUserId);
-        const points = Number(loyaltyData?.current_points || loyaltyData?.points || 0);
+        const points = safeNumber(loyaltyData?.current_points || loyaltyData?.points, 0);
+        const [settings] = await db.select().from(loyaltySettings).limit(1);
 
-        if (points > 0) {
-          const [settings] = await db.select().from(loyaltySettings).limit(1);
-          if (settings) {
-            const pointsReq = safeFloat(settings.redemptionRatePoints) || 100;
-            const moneyVal = safeFloat(settings.redemptionRateMoney) || 1;
-            
-            let potentialDiscount = (points / pointsReq) * moneyVal;
-            
-            const maxD = safeFloat(settings.maxDiscountAmount);
-            if (maxD > 0 && potentialDiscount > maxD) potentialDiscount = maxD;
+        if (settings?.enabled && points > 0) {
+          const pointsWorthMoney =
+            (points / safeFloat(settings.redemptionRatePoints)) *
+            safeFloat(settings.redemptionRateMoney);
+          const remainder = Math.max(0, subtotal - autoDiscount - couponDiscount);
 
-            // O desconto de fidelidade é o ÚLTIMO a ser aplicado
-            const currentBill = Math.max(0, subtotal - autoDiscount - couponDiscount);
-            loyaltyDiscount = Math.min(potentialDiscount, currentBill);
-          }
+          loyaltyDiscount = Math.min(
+            pointsWorthMoney,
+            remainder,
+            safeFloat(settings.maxDiscountAmount),
+          );
+          loyaltyDiscount = roundMoney(loyaltyDiscount);
         }
-      } catch (err) {
-        console.error("[LOYALTY-ERROR]", err);
-        loyaltyDiscount = 0;
+      } catch (error) {
+        console.error("Erro ao recalcular fidelidade do carrinho:", error);
       }
     }
 
-    // 6. Totais Finais
-    const shipping = safeFloat(cart.shippingValue);
-    const totalDiscounts = autoDiscount + couponDiscount + loyaltyDiscount;
-    const finalTotal = Math.max(0, subtotal + shipping - totalDiscounts);
+    const shipping = roundMoney(safeFloat(cartData.shippingValue));
+    const totalDiscounts = roundMoney(autoDiscount + couponDiscount + loyaltyDiscount);
+    const finalTotal = roundMoney(Math.max(0, subtotal + shipping - totalDiscounts));
 
     const totals = {
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: Number(shipping.toFixed(2)),
-      autoDiscount: Number(autoDiscount.toFixed(2)),
-      couponDiscount: Number(couponDiscount.toFixed(2)),
-      loyaltyDiscount: Number(loyaltyDiscount.toFixed(2)), 
-      totalDiscounts: Number(totalDiscounts.toFixed(2)),
-      total: Number(finalTotal.toFixed(2)),
-      final: Number(finalTotal.toFixed(2)),
-      couponCode: cart.couponCode || null,
+      subtotal,
+      shipping,
+      autoDiscount,
+      couponDiscount,
+      loyaltyDiscount,
+      totalDiscounts,
+      total: finalTotal,
+      couponCode: cartData.couponCode || null,
+      couponError,
     };
 
-    // 7. Persistência
-    await db.update(carts).set({
-      discountsJson: JSON.stringify({ 
-        totals, 
-        autoDiscountName: applicableRule?.name || null 
-      }),
-      discountValue: totals.totalDiscounts.toString(),
-      // ✅ Sincroniza o userId no carrinho se ele ainda não tiver dono
-      userId: cart.userId ? cart.userId : activeUserId,
-      updatedAt: new Date(),
-    } as any).where(eq(carts.id, cartId));
-
-    return { 
-      cartId, 
-      totals, 
-      items,
-      usesLoyalty: isLoyaltyActive,
-      autoDiscountName: applicableRule?.name || null
+    const styling: CouponStylingData = {
+      couponBannerColor: cartData.couponBannerColor || null,
+      couponLogoUrl: cartData.couponLogoUrl || null,
+      couponDescription:
+        cartData.couponDescription || (cartData.couponCode ? "Cupom aplicado" : null),
     };
 
+    await db
+      .update(carts)
+      .set({
+        discountsJson: JSON.stringify({
+          totals,
+          autoDiscountName,
+          couponError,
+          ...styling,
+          removedInvalidItems,
+        }),
+        discountValue: totals.totalDiscounts.toFixed(2),
+        userId: activeUserId,
+        updatedAt: new Date(),
+      })
+      .where(eq(carts.id, cartId));
+
+    return {
+      cartId,
+      totals,
+      items: validItems,
+      usesLoyalty: !!cartData.usesLoyalty,
+      autoDiscountName,
+      couponBannerColor: cartData.couponBannerColor,
+      couponLogoUrl: cartData.couponLogoUrl,
+      couponDescription: cartData.couponDescription,
+      couponError,
+      removedInvalidItems,
+    };
   } catch (error) {
-    console.error("❌ Erro em syncCartState:", error);
+    console.error("Erro crítico syncCartState:", error);
     return null;
   }
 }

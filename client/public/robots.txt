@@ -3,4 +3,4 @@ Allow: /
 Disallow: /admin/
 Disallow: /dev-login
 
-Sitemap: https://gourmetsaudavel.com.br/sitemap.xml
+Sitemap: https://gourmetsaudavel.com/sitemap.xml

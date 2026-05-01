@@ -1,56 +1,112 @@
-import { getItemCalculatedPrice } from "./pricing";
+// client\src\pages\cart\logic\cartPricingEngine.ts
 
-export function calculateCartDetailedTotals(items: any[], coupon: any, loyaltyDiscount: number = 0) {
-  // 1. Processa cada item com a lógica de adicionais e tamanhos
-  const processedItems = items.map((item, index) => {
-    const unitPrice = getItemCalculatedPrice(item);
-    const totalItemPrice = unitPrice * (item.quantity || 1);
+import { 
+  calculateItemUnitPrice, 
+  calculateDiscountValue, 
+  calculateGrandTotal,
+  normalizeGourmetOptions,
+  type PricingOptions,
+  type DiscountConfig,
+  type NormalizedMeal
+} from "../../../../../shared/domain/math/pricing";
+
+/* --------------------------------- TYPES ---------------------------------- */
+
+interface GourmetCartOptions extends PricingOptions {
+  packageName?: string | null;
+}
+
+export interface CouponData extends DiscountConfig {
+  code: string;
+  description?: string;
+}
+
+export interface CartItemBase {
+  id: string | number;
+  quantity: number;
+  name?: string;
+  price?: number | string; 
+  packageId?: string | number | null;
+  options?: string | PricingOptions; 
+  accompaniments?: string | PricingOptions;
+}
+
+export interface ProcessedCartItem extends CartItemBase {
+  unitPrice: number;
+  totalItemPrice: number;
+  uniqueKey: string;
+  isPackage: boolean;
+  displayName: string;
+  meals: Array<{
+    dishName: string;
+    accompaniments: string[];
+  }>;
+  sizeName: string | null;
+  standaloneAccompaniments: string[];
+}
+
+/* -------------------------------- ENGINE ---------------------------------- */
+
+export function calculateCartDetailedTotals(
+  items: CartItemBase[], 
+  coupon: CouponData | null | undefined, 
+  loyaltyDiscount: number = 0
+) {
+  const processedItems: ProcessedCartItem[] = items.map((item, index) => {
     
-    // Normalização para a View (acompanhamentos, marmitas, etc)
-    let options = item.options || item.accompaniments;
-    if (typeof options === 'string') try { options = JSON.parse(options); } catch { options = {}; }
+    // 1. Normalização via Domínio
+    const rawOptions = item.options || item.accompaniments;
+    const parsedOptions = normalizeGourmetOptions(rawOptions) as GourmetCartOptions;
+
+    // ✅ CORREÇÃO DO ERRO 2345: Forçando o retorno a ser um boolean puro (!! converte null/undefined para false)
+    const isPackage = !!(item.packageId || (parsedOptions.meals && parsedOptions.meals.length > 0));
+
+    // 2. Cálculo Unitário via Domínio
+    const unitPrice = calculateItemUnitPrice(item.price, parsedOptions, isPackage);
+    const qty = Math.max(1, Number(item.quantity || 1));
+    const totalItemPrice = unitPrice * qty;
+    
+    // 3. Processamento de Refeições (Meals)
+    const meals = (parsedOptions.meals || []).map((m: NormalizedMeal) => ({
+      dishName: String(m.dishName || "Prato"),
+      accompaniments: (m.selectedAccompaniments || []).map((a) => String(a.name || ""))
+    }));
+
+    // 4. Processamento de Acompanhamentos Avulsos
+    const standaloneAccs = (parsedOptions.accompaniments || []).map((a) => 
+      String(a.name || "Acompanhamento")
+    );
 
     return {
       ...item,
       unitPrice,
       totalItemPrice,
-      uniqueKey: item.id || `item-${index}`,
-      isPackage: !!item.packageId || (options?.meals?.length > 0),
-      displayName: options?.packageName || item.name,
-      meals: options?.meals || [],
-      sizeName: options?.size?.name || null,
-      standaloneAccompaniments: options?.accompaniments || [],
+      uniqueKey: String(item.id || `item-${index}`),
+      isPackage,
+      displayName: String(parsedOptions.packageName || item.name || "Item"),
+      meals,
+      sizeName: parsedOptions.size?.name || null,
+      standaloneAccompaniments: standaloneAccs,
     };
   });
 
-  // 2. Cálculo do Subtotal Bruto
+  // 5. Cálculos Financeiros Finais
   const subtotal = processedItems.reduce((acc, item) => acc + item.totalItemPrice, 0);
+  
+  const couponDiscount = coupon 
+    ? calculateDiscountValue(subtotal, coupon)
+    : 0;
 
-  // 3. Lógica de Cupom
-  let couponDiscountValue = 0;
-  let couponError = null;
-
-  if (coupon) {
-    if (coupon.type === 'percentage') {
-      couponDiscountValue = subtotal * (coupon.value / 100);
-    } else {
-      couponDiscountValue = coupon.value;
-    }
-    
-    // Garante que o desconto não seja maior que o subtotal
-    if (couponDiscountValue > subtotal) couponDiscountValue = subtotal;
-  }
-
-  // 4. Totais Finais
-  const total = subtotal - couponDiscountValue - loyaltyDiscount;
+  const totalDiscounts = couponDiscount + loyaltyDiscount;
+  const finalTotal = calculateGrandTotal(subtotal, 0, totalDiscounts);
 
   return {
     processedItems,
     totals: {
       subtotal,
-      couponDiscount: couponDiscountValue,
+      couponDiscount,
       loyaltyDiscount,
-      total: Math.max(0, total),
+      total: finalTotal,
     },
     couponInfo: coupon ? {
       code: coupon.code,

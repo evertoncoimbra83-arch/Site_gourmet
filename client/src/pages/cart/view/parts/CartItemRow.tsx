@@ -1,169 +1,258 @@
-import React from "react";
-import { Trash2, Minus, Plus, Sparkles, Flame, Package } from "lucide-react";
-import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
+import React, { forwardRef, useMemo, useState, useEffect } from "react";
+import { Trash2, Minus, Plus, Package, Utensils } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
-export function CartItem({ group, money, updateQuantity, removeItem }: any) {
-  // Extração de dados
-  const options = group.options || {};
-  const isPackage = group.itemType === "package" || options._type === "multi";
-  
-  const accompaniments = options.selectedAccompaniments || group.accompaniments || [];
-  const sizeLabel = options.selectedSize?.name || group._sizeLabel || group.sizeName;
-  const packageMeals = options.meals || group.packageDetails || [];
+import type { Id } from "@/_core/type/utils";
+import { normalizeGourmetOptions, type PricingOptions, type NormalizedMeal } from "../../../../../../shared/domain/math/pricing";
 
-  const hasValidImage = 
-    group.image && 
-    typeof group.image === 'string' &&
-    !group.image.includes('undefined') && 
-    !group.image.includes('null') &&
-    group.image.trim() !== "";
+/* --------------------------------- TYPES ---------------------------------- */
 
-  return (
-    <motion.div 
-      layout 
-      initial={{ opacity: 0, y: 10 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      exit={{ opacity: 0, scale: 0.95 }}
-      className={cn(
-        "p-4 md:p-6 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm mb-4 transition-all", 
-        isPackage && "border-emerald-100 bg-emerald-50/10 shadow-md shadow-emerald-500/5"
-      )}
-    >
-      <div className="flex gap-4 md:gap-5">
+interface NutritionInfo {
+  energyKcal?: number | string;
+  proteins?: number | string;
+  carbs?: number | string;
+  fatTotal?: number | string;
+  dishId?: string | number;
+  nutrition?: {
+    energyKcal?: number;
+    energy_kcal?: number;
+  };
+}
+
+interface GourmetMealUI extends NormalizedMeal {
+  dishId?: string | number;
+  label?: string; 
+  accompaniments?: GourmetAccUI[]; 
+  selectedAccompaniments?: GourmetAccUI[];
+  selectedAccs?: GourmetAccUI[];
+}
+
+interface GourmetAccUI {
+  id?: string | number;
+  name?: string;
+  weight?: number | string;
+  label?: string; 
+}
+
+interface PackageTraceItem {
+  dishId: string | number;
+  nutrition?: {
+    energyKcal?: number;
+    energy_kcal?: number;
+  };
+}
+
+interface AppliedNutritionObject {
+  energyKcal?: number;
+  energy_kcal?: number;
+  itemsTrace?: PackageTraceItem[];
+}
+
+interface CartItemProps {
+  group: {
+    id: Id;
+    name: string;
+    image?: string | null;
+    itemType?: "dish" | "package" | string;
+    price: number | string;
+    quantity: number;
+    sizeName?: string | null;
+    options?: PricingOptions | string | Record<string, unknown>;
+    appliedNutrition?: AppliedNutritionObject | NutritionInfo[] | string;
+    applied_nutrition?: AppliedNutritionObject | NutritionInfo[] | string;
+  };
+  money: (val: number) => string;
+  updateQuantity: (id: Id, qty: number) => void;
+  removeItem: (id: Id) => void;
+}
+
+/* ------------------------------- COMPONENT -------------------------------- */
+
+const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
+  ({ group, money, updateQuantity, removeItem }, ref) => {
+    const [imageError, setImageError] = useState(false);
+
+    // 1. Normalização de Opções
+    const options = useMemo(() => normalizeGourmetOptions(group.options), [group.options]);
+    
+    const rawOptions = useMemo(() => {
+      if (typeof group.options === 'string') {
+        try { return JSON.parse(group.options) as Record<string, unknown>; } catch { return {}; }
+      }
+      return (group.options || {}) as Record<string, unknown>;
+    }, [group.options]);
+
+    const isPackage = group.itemType === "package" || 
+                      rawOptions._type === "package_custom" || 
+                      Array.isArray(rawOptions.meals) || 
+                      Array.isArray(options.meals);
+
+    // 2. Normalização de Nutrição
+    const rawNutrition = useMemo(() => {
+      const data = group.appliedNutrition || group.applied_nutrition;
+      if (typeof data === "string") {
+        try { return JSON.parse(data) as AppliedNutritionObject | NutritionInfo[]; } catch { return null; }
+      }
+      return data as AppliedNutritionObject | NutritionInfo[];
+    }, [group.appliedNutrition, group.applied_nutrition]);
+
+    // 3. Processamento das Marmitas (Pacote)
+    const packageMeals = useMemo(() => {
+      const mealsArray = (options.meals || rawOptions.meals) as GourmetMealUI[];
+      if (!isPackage || !Array.isArray(mealsArray)) return [];
+      
+      const nutritionObj = rawNutrition as AppliedNutritionObject;
+      const itemsTrace = nutritionObj?.itemsTrace || [];
+
+      return mealsArray.map((meal, idx) => {
+        const traceData = itemsTrace.find((t) => String(t.dishId) === String(meal.dishId)) || itemsTrace[idx];
         
-        {/* --- ÁREA DA FOTO OU EMOJI --- */}
-        <div className={cn(
-          "h-20 w-20 md:h-24 md:w-24 rounded-[1.5rem] md:rounded-[1.8rem] shrink-0 flex items-center justify-center overflow-hidden relative shadow-inner transition-colors",
-          hasValidImage ? "bg-slate-50 border border-slate-100" : "bg-slate-50/60 border border-slate-100/50"
-        )}>
-          {hasValidImage ? (
-            <img 
-              src={group.image} 
-              className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-              alt={group.name} 
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            // ✨ AQUI ESTÃO OS EMOJIS ✨
-            <div className="flex flex-col items-center justify-center gap-0.5">
-              {isPackage ? (
-                <>
-                  <span className="text-4xl drop-shadow-sm select-none">🍱</span>
-                  <span className="text-[7px] font-black text-emerald-600 uppercase tracking-tighter">Kit</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-4xl drop-shadow-sm select-none">🥗</span>
-                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">Prato</span>
-                </>
-              )}
-            </div>
-          )}
-          
-          {/* Badge flutuante para Pacotes (mesmo com emoji, ajuda a identificar) */}
-          {isPackage && (
-            <div className="absolute bottom-0 inset-x-0 bg-emerald-500/90 backdrop-blur-[2px] py-0.5 flex justify-center">
-              <Package size={10} className="text-white" />
-            </div>
-          )}
-        </div>
-        
-        <div className="flex-1 min-w-0 flex flex-col justify-between">
-          <div>
-            {/* Cabeçalho */}
-            <div className="flex justify-between items-start mb-1">
-              <div className="min-w-0 pr-2">
-                <h3 className="font-black text-base md:text-lg text-slate-900 uppercase italic tracking-tighter leading-tight truncate">
-                  {group.name || options.dishName || options.packageName || "Item sem nome"}
-                </h3>
-                {!isPackage && sizeLabel && (
-                  <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-widest mt-1 inline-block">
-                    {sizeLabel}
-                  </span>
-                )}
-              </div>
-              <button 
-                onClick={() => removeItem && removeItem(group.id)} 
-                className="text-slate-300 hover:text-red-500 transition-colors p-1 -mt-1 -mr-2"
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
+        const individualKcal = traceData?.nutrition?.energyKcal || 
+                             traceData?.nutrition?.energy_kcal;
 
-            {/* Detalhes (Lista de itens) */}
-            <div className="space-y-3 mt-2">
-              {isPackage ? (
-                // --- KIT ---
-                packageMeals.map((meal: any, mIdx: number) => (
-                  <div key={`meal-${mIdx}`} className="bg-white/60 rounded-xl p-2.5 border border-slate-100 shadow-sm">
-                    <p className="font-black text-[10px] text-slate-800 uppercase italic flex items-center gap-1.5 mb-1.5 leading-none">
-                      <Sparkles size={10} className="text-emerald-500" /> 
-                      {meal.slotName}: <span className="text-emerald-600 truncate">{meal.dishName}</span>
-                    </p>
+        const rawAccs = (meal.accompaniments || meal.selectedAccompaniments || meal.selectedAccs || []) as GourmetAccUI[];
 
-                    {meal.selectedAccompaniments && meal.selectedAccompaniments.length > 0 && (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 ml-4 border-l-2 border-emerald-100 pl-2">
-                        {meal.selectedAccompaniments.map((acc: any, aIdx: number) => (
-                          <div key={`acc-${aIdx}`} className="flex flex-col">
-                            <span className="text-[6px] font-bold text-slate-400 uppercase leading-none">{acc.groupName}</span>
-                            <span className="text-[9px] font-bold text-slate-600 uppercase leading-none">+ {acc.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                // --- PRATO ---
-                accompaniments.length > 0 && (
-                  <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                    {accompaniments.map((acc: any, i: number) => (
-                      <div key={`acc-${i}`} className="flex flex-col border-l-2 border-slate-200 pl-2">
-                        <span className="text-[6px] font-bold text-slate-400 uppercase leading-none">{acc.groupName}</span>
-                        <span className="text-[9px] font-bold text-slate-500 uppercase leading-none">+ {acc.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
+        return {
+          name: meal.dishName || meal.label || "Marmita",
+          accs: rawAccs.map(a => ({
+            name: a.name || a.label || "Item",
+            weight: a.weight ? `${a.weight}g` : "" 
+          })).sort((a, b) => (parseInt(String(b.weight)) || 0) - (parseInt(String(a.weight)) || 0)),
+          kcal: individualKcal ? Math.round(Number(individualKcal)) : null,
+        };
+      });
+    }, [options, rawOptions, isPackage, rawNutrition]);
 
-            {/* Nutrição */}
-            {options.showNutrition && group.appliedNutrition?.kcal > 0 && (
-              <div className="mt-3 flex items-center gap-1.5 text-orange-600/80 bg-orange-50 w-fit px-2 py-0.5 rounded-md">
-                <Flame size={10} fill="currentColor" />
-                <span className="text-[9px] font-black uppercase tracking-tighter">
-                  {Math.round(group.appliedNutrition.kcal)} Kcal
-                </span>
+    const currentImageUrl = useMemo(() => {
+      if (!group.image || imageError) return null;
+      if (/^(http|blob|data):/.test(group.image)) return group.image;
+      const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
+      const cleanPath = group.image.replace(/\\/g, "/").replace(/.*\/uploads\//, "");
+      return `${baseUrl}/uploads/${cleanPath}`;
+    }, [group.image, imageError]);
+
+    const displaySize = options.size?.name || (rawOptions.sizeName as string) || group.sizeName;
+
+    const [qtyAnim, setQtyAnim] = useState(group.quantity);
+    useEffect(() => setQtyAnim(group.quantity), [group.quantity]);
+
+    return (
+      <motion.div
+        ref={ref} layout
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="group overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm p-3"
+      >
+        <div className="flex gap-3 mb-3">
+          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
+            {currentImageUrl ? (
+              <img 
+                src={currentImageUrl} 
+                alt={group.name} 
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                onError={() => setImageError(true)} 
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-slate-300">
+                {isPackage ? <Package size={28} /> : <Utensils size={28} />}
               </div>
             )}
+            <div className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white backdrop-blur-sm">
+              {isPackage ? "Pack" : "Prato"}
+            </div>
           </div>
 
-          {/* Rodapé */}
-          <div className="flex justify-between items-end mt-4 pt-3 border-t border-slate-50/50">
-            <span className="text-lg font-black text-slate-900 italic tracking-tighter">
-              {money((Number(group.price) || 0) * (group.quantity || 1))}
+          <div className="flex-1 min-w-0 py-1">
+            <h3 className="line-clamp-2 text-sm font-bold leading-tight text-slate-800">{group.name}</h3>
+            {displaySize && <p className="mt-1 text-[11px] font-medium text-slate-500 uppercase tracking-wide">{displaySize}</p>}
+          </div>
+
+          <button 
+            onClick={() => removeItem(group.id)} 
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 active:scale-90 transition-colors"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {/* Acompanhamentos para Pratos Avulsos */}
+          {!isPackage && (
+            <div className="flex flex-wrap gap-1">
+              {((options.accompaniments as GourmetAccUI[]) || 
+                ((rawOptions.selectedAccs as GourmetAccUI[]) || [])
+              ).map((acc, i) => (
+                <span key={i} className="rounded-md bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500 border border-slate-100">
+                  {acc.name || acc.label || "Item"}{acc.weight ? ` · ${acc.weight}g` : ""}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Lista de Marmitas do Pacote */}
+          {isPackage && packageMeals.length > 0 && (
+            <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/50 overflow-hidden">
+              <AnimatePresence initial={false}>
+                {packageMeals.map((meal, i) => (
+                  <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-start gap-2.5 px-3 py-2.5">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[9px] font-black text-slate-600">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-[11px] font-bold text-slate-700 uppercase leading-none">{meal.name}</p>
+                        {meal.kcal && (
+                          <span className="shrink-0 text-[9px] font-black text-orange-500 bg-orange-100/50 px-1.5 py-0.5 rounded border border-orange-200/50">
+                            {meal.kcal} KCAL
+                          </span>
+                        )}
+                      </div>
+                      {meal.accs.length > 0 && (
+                        <p className="mt-1 text-[10px] text-slate-500 leading-snug">
+                          {meal.accs.map((a) => `${a.name}${a.weight ? ` ${a.weight}` : ''}`).join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* Preço e Quantidade */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            <span className="text-lg font-black tracking-tighter text-slate-900">
+              {money((Number(group.price) || 0) * group.quantity)}
             </span>
-            <div className="flex items-center gap-3 bg-slate-900 text-white p-1 rounded-xl shadow-lg shadow-slate-200">
+            <div className="flex items-center gap-px rounded-xl border border-slate-200 bg-slate-100 overflow-hidden">
               <button 
-                onClick={() => updateQuantity && updateQuantity(group.id, (group.quantity || 1) - 1)} 
-                className="h-7 w-7 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30" 
-                disabled={(group.quantity || 1) <= 1}
+                onClick={() => updateQuantity(group.id, group.quantity - 1)} 
+                disabled={group.quantity <= 1} 
+                className="flex h-8 w-8 items-center justify-center bg-white text-slate-500 hover:text-emerald-600 disabled:opacity-30 transition-colors"
               >
-                <Minus size={12} strokeWidth={4} />
+                <Minus size={14} strokeWidth={3} />
               </button>
-              <span className="w-4 text-center text-xs font-black italic">{group.quantity || 1}</span>
+              <AnimatePresence mode="wait">
+                <motion.span 
+                  key={qtyAnim} 
+                  initial={{ y: -8, opacity: 0 }} 
+                  animate={{ y: 0, opacity: 1 }} 
+                  className="flex h-8 w-10 items-center justify-center bg-white text-sm font-black tabular-nums text-slate-800"
+                >
+                  {group.quantity}
+                </motion.span>
+              </AnimatePresence>
               <button 
-                onClick={() => updateQuantity && updateQuantity(group.id, (group.quantity || 1) + 1)} 
-                className="h-7 w-7 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors"
+                onClick={() => updateQuantity(group.id, group.quantity + 1)} 
+                className="flex h-8 w-8 items-center justify-center bg-white text-slate-500 hover:text-emerald-600 transition-colors"
               >
-                <Plus size={12} strokeWidth={4} />
+                <Plus size={14} strokeWidth={3} />
               </button>
             </div>
           </div>
         </div>
-      </div>
-    </motion.div>
-  );
-}
+      </motion.div>
+    );
+  }
+);
+
+CartItemRow.displayName = "CartItemRow";
+
+export default CartItemRow;

@@ -2,13 +2,19 @@ import { Resend } from 'resend';
 
 // 1. Configuração da Instância
 if (!process.env.RESEND_API_KEY) {
-  console.warn("⚠️ RESEND_API_KEY não encontrada no .env. E-mails não serão enviados.");
+  console.warn("⚠️ RESEND_API_KEY não configurada. E-mails não serão disparados.");
 }
 
-export const resend = new Resend(process.env.RESEND_API_KEY);
+export const resend = new Resend(process.env.RESEND_API_KEY || 'fake_key');
 
 // Configuração de Remetente Padrão
-export const DEFAULT_FROM_EMAIL = "Gourmet Saudável <contato@gourmetsaudavel.com.br>";
+export const DEFAULT_FROM_EMAIL = "Gourmet Saudável <contato@gourmetsaudavel.com>";
+
+// Interface para tipar os itens do pedido
+interface OrderItem {
+  name: string;
+  details?: string;
+}
 
 /**
  * Interface de Serviço para centralizar todos os disparos SMTP
@@ -39,7 +45,7 @@ export const mailer = {
   /**
    * ENVIO DE CONFIRMAÇÃO DE PEDIDO
    */
-  sendOrderConfirmation: async (to: string, orderData: { id: string, customerName: string, items: any[], total: number }) => {
+  sendOrderConfirmation: async (to: string, orderData: { id: string, customerName: string, items: OrderItem[], total: number }) => {
     return resend.emails.send({
       from: DEFAULT_FROM_EMAIL,
       to,
@@ -81,7 +87,7 @@ export const mailer = {
             Use-os no seu próximo pedido para garantir seu desconto!
           </p>
           <div style="margin-top: 32px;">
-            <a href="https://gourmetsaudavel.com.br/pacotes" style="background: #0f172a; color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block;">Fazer Novo Pedido</a>
+            <a href="https://gourmetsaudavel.com/pacotes" style="background: #0f172a; color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block;">Fazer Novo Pedido</a>
           </div>
         </div>
       `

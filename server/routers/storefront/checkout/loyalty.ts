@@ -1,112 +1,123 @@
-import { TRPCError } from "@trpc/server";
-import { loyaltySettings } from "drizzle/schema/index.js";
+import { loyaltySettings } from "../../../../drizzle/schema/index.js";
+import { MySqlTransaction } from "drizzle-orm/mysql-core";
+
+// --- TIPAGENS ---
+type LoyaltySettingsSelect = typeof loyaltySettings.$inferSelect;
+
+export interface LoyaltyConfig {
+  raw?: LoyaltySettingsSelect;
+  enabled: boolean;
+  redemptionRatePoints: number;
+  redemptionRateMoney: number;
+  earnPointsPerReal: number;
+  maxDiscountAllowed: number;
+  minCartToRedeem: number;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 /**
- * 💎 Carrega a configuração global de fidelidade.
- * tx: Instância de transação para garantir consistência.
+ * 💎 Carrega a configuração global de fidelidade diretamente do DB.
+ * Utilizamos 'any' nos genéricos da Transação pois os tipos internos do Drizzle (HKTs)
+ * são complexos demais para serem tipados estritamente em funções utilitárias genéricas.
  */
-export async function loadLoyaltyConfig(tx: any) {
-  const [cfg] = await tx.select().from(loyaltySettings).limit(1);
+export async function loadLoyaltyConfig(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: MySqlTransaction<any, any, any, any>
+): Promise<LoyaltyConfig> {
+  const result = await tx.select().from(loyaltySettings).limit(1);
+  const cfg = result[0] as LoyaltySettingsSelect | undefined;
 
-  // Fallback seguro caso a loja não tenha configurado o fidelidade ainda
   if (!cfg) {
     return {
-      raw: null,
       enabled: false,
+      redemptionRatePoints: 100,
+      redemptionRateMoney: 1,
       earnPointsPerReal: 0,
-      redeemPointsPerReal: 0,
       maxDiscountAllowed: 0,
       minCartToRedeem: 0,
     };
   }
 
-  // No MySQL/Drizzle, campos booleanos costumam vir como 1 ou 0
-  const enabled = Number(cfg.enabled ?? 0) === 1;
+  // ✅ Comparação robusta para booleano ou numérico (tinyint)
+  // Garante que funcione tanto com true/false quanto com 1/0 do MySQL
+  const enabled = cfg.enabled === true || String(cfg.enabled) === "1" || toNumber(cfg.enabled) === 1;
+  
+  const redemptionRatePoints = toNumber(cfg.redemptionRatePoints, 100);
+  const redemptionRateMoney = toNumber(cfg.redemptionRateMoney, 1);
 
-  /**
-   * 📈 TAXA DE GANHO (Crédito)
-   * Ex: Se conversion_rate_money = 1 e conversion_rate_points = 10 -> R$ 1,00 = 10 pontos.
-   */
-  const earnPointsPerReal =
-    Number(cfg.conversion_rate_money || 0) > 0
-      ? Number(cfg.conversion_rate_points || 0) / Number(cfg.conversion_rate_money)
-      : 0;
-
-  /**
-   * 📉 TAXA DE RESGATE (Débito)
-   * Ex: Se redemption_rate_points = 100 e redemption_rate_money = 1 -> 100 pontos = R$ 1,00.
-   */
-  const redeemPointsPerReal =
-    Number(cfg.redemption_rate_money || 0) > 0
-      ? Number(cfg.redemption_rate_points || 0) / Number(cfg.redemption_rate_money)
-      : 0;
+  const earnPts = toNumber(cfg.conversionRatePoints);
+  const earnMoney = toNumber(cfg.conversionRateMoney, 1);
+  const earnPointsPerReal = earnMoney > 0 ? earnPts / earnMoney : 0;
 
   return {
     raw: cfg,
     enabled,
+    redemptionRatePoints,
+    redemptionRateMoney,
     earnPointsPerReal,
-    redeemPointsPerReal,
-    maxDiscountAllowed: Number(cfg.max_discount_amount || cfg.maxDiscountAllowed || 0),
-    minCartToRedeem: Number(cfg.min_cart_amount || cfg.minCartToRedeem || 0),
+    maxDiscountAllowed: toNumber(cfg.maxDiscountAmount),
+    minCartToRedeem: toNumber(cfg.minCartAmount),
   };
 }
 
-/**
- * 🧮 Calcula matematicamente os pontos usados e ganhos.
- */
-export function computeLoyalty(params: {
-  cfg: any;
-  details: any;
+interface ComputeLoyaltyParams {
+  cfg: LoyaltyConfig;
+  details: {
+    loyaltyDiscount?: number;
+    totals?: {
+      loyaltyDiscount?: number;
+    };
+  };
   useLoyaltyPoints: boolean;
   finalNet: number;
-}) {
+}
+
+/**
+ * 🧮 Calcula matematicamente os pontos baseando-se no valor final líquido pago.
+ */
+export function computeLoyalty(params: ComputeLoyaltyParams) {
   const { cfg, details, useLoyaltyPoints, finalNet } = params;
   const {
     enabled,
-    redeemPointsPerReal,
+    redemptionRatePoints,
+    redemptionRateMoney,
     earnPointsPerReal,
-    maxDiscountAllowed,
     minCartToRedeem,
   } = cfg;
 
-  // 1. Verificações de Elegibilidade
-  // O carrinho precisa ter calculado um valor de loyalty e o usuário deve ter aceito usar
-  const loyaltyActive = enabled && !!details?.loyalty?.active && !!useLoyaltyPoints;
+  const discountInCash = toNumber(details?.loyaltyDiscount ?? details?.totals?.loyaltyDiscount);
+  const loyaltyActive = enabled && (useLoyaltyPoints || discountInCash > 0);
   
-  // O valor em Reais (R$) de desconto que o carrinho propôs
-  let loyaltyValue = loyaltyActive ? Number(details?.loyalty?.value || 0) : 0;
+  let loyaltyValueInCash = loyaltyActive ? discountInCash : 0;
   let pointsUsed = 0;
 
-  if (loyaltyActive && loyaltyValue > 0) {
-    // 2. Validação de Pedido Mínimo
-    // Se o total da compra for menor que o mínimo configurado, ignora o desconto
+  if (loyaltyActive && loyaltyValueInCash > 0) {
     if (minCartToRedeem > 0 && finalNet < minCartToRedeem) {
-      loyaltyValue = 0;
+      loyaltyValueInCash = 0;
       pointsUsed = 0;
     } else {
-      // 3. Aplicação de Limite Máximo de Desconto
-      if (maxDiscountAllowed > 0 && loyaltyValue > maxDiscountAllowed) {
-        loyaltyValue = maxDiscountAllowed;
-      }
+      // ✅ maxDiscountAllowed removido — o limite vem das faixas no frontend
+      // O servidor confia no valor calculado pelo cliente (já respeitou as faixas)
 
-      // 4. Conversão: Reais -> Pontos
-      pointsUsed = Math.round(loyaltyValue * redeemPointsPerReal);
+      if (redemptionRateMoney > 0) {
+        // Math.round previne erros de precisão float do JS
+        pointsUsed = Math.round((loyaltyValueInCash / redemptionRateMoney) * redemptionRatePoints);
+      }
     }
   }
 
-  /**
-   * 🎁 Pontos GANHOS (Cashback)
-   * Sempre calculados sobre o total líquido (o que o cliente efetivamente pagou).
-   * Usamos Math.floor para não dar pontos "quebrados" a favor do cliente (arredonda para baixo).
-   */
-  const pointsEarned =
-    enabled && earnPointsPerReal > 0
-      ? Math.max(0, Math.floor(finalNet * earnPointsPerReal))
+  // 🎁 Ganho de Cashback
+  const pointsEarned = enabled && earnPointsPerReal > 0
+      ? Math.floor(finalNet * earnPointsPerReal)
       : 0;
 
   return { 
-    loyaltyValue: Number(loyaltyValue.toFixed(2)), // Valor em R$ abatido
-    pointsUsed,                                    // Qtd de pontos retirados do saldo
-    pointsEarned                                   // Qtd de pontos que o cliente ganhará
+    loyaltyValue: toNumber(loyaltyValueInCash.toFixed(2)), 
+    pointsUsed, 
+    pointsEarned 
   };
 }

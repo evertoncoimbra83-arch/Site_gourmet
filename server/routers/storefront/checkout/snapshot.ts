@@ -1,109 +1,149 @@
 import { TRPCError } from "@trpc/server";
 import { eq, and } from "drizzle-orm";
-import { carts, cartItems, dishes, packages } from "drizzle/schema/index.js"; // ✅ Adicionado packages
+import {
+  carts,
+  cartItems,
+  dishes,
+  packages,
+  coupons,
+} from "../../../../drizzle/schema/index.js";
+import { MySqlTransaction } from "drizzle-orm/mysql-core";
+import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
 
-function num(value: any): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
+function num(value: unknown): number {
+  return safeNumber(value);
 }
 
-export async function loadCartAndSnapshot(tx: any, userId: string | null, cartId?: string) {
-  
-  // 1. Localização do Carrinho
-  let cartQuery = tx.select().from(carts);
+export async function loadCartAndSnapshot(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: MySqlTransaction<any, any, any, any>,
+  userId: string | null,
+  cartId?: string,
+) {
+  const cartQuery = tx
+    .select({
+      id: carts.id,
+      userId: carts.userId,
+      status: carts.status,
+      couponCode: carts.couponCode,
+      couponId: carts.couponId,
+      shippingValue: carts.shippingValue,
+      discountsJson: carts.discountsJson,
+      usesLoyalty: carts.usesLoyalty,
+      couponBannerColor: coupons.bannerColor,
+      couponLogoUrl: coupons.logoUrl,
+      couponDescription: coupons.description,
+    })
+    .from(carts)
+    .leftJoin(coupons, eq(carts.couponId, coupons.id));
 
   if (cartId) {
     cartQuery.where(eq(carts.id, cartId));
   } else if (userId) {
-    cartQuery.where(and(
-      eq(carts.userId, userId),
-      eq(carts.status, "active")
-    )); 
+    cartQuery.where(and(eq(carts.userId, userId), eq(carts.status, "active")));
   } else {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Carrinho não identificado." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Carrinho nao identificado.",
+    });
   }
 
   const [cart] = await cartQuery.limit(1);
-  if (!cart) throw new TRPCError({ code: "NOT_FOUND", message: "Carrinho expirou." });
-
-  // 2. Extração dos Totais
-  let totals = { subtotal: 0, shipping: 0, autoDiscount: 0, couponDiscount: 0, loyaltyDiscount: 0, total: 0 };
-
-  if (cart.discountsJson) {
-    try {
-      const parsed = typeof cart.discountsJson === 'string' ? JSON.parse(cart.discountsJson) : cart.discountsJson;
-      if (parsed.totals) {
-        totals = {
-          subtotal: num(parsed.totals.subtotal),
-          shipping: num(parsed.totals.shipping || cart.shippingValue),
-          autoDiscount: num(parsed.totals.autoDiscount),
-          couponDiscount: num(parsed.totals.couponDiscount),
-          loyaltyDiscount: num(parsed.totals.loyaltyDiscount || 0), // ✅ Adicionado Loyalty
-          total: num(parsed.totals.total || parsed.totals.final)
-        };
-      }
-    } catch (e) { console.error("Erro parse totals", e); }
+  if (!cart) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Carrinho nao encontrado." });
   }
 
-  // 3. 🛡️ SELEÇÃO DE ITENS (Sincronizada)
+  let totals = {
+    subtotal: 0,
+    shipping: 0,
+    autoDiscount: 0,
+    couponDiscount: 0,
+    loyaltyDiscount: 0,
+    total: 0,
+    couponError: null as string | null,
+  };
+
+  if (cart.discountsJson) {
+    const parsed = safeJsonParse<Record<string, unknown>>(cart.discountsJson, {});
+    const t = (parsed.totals || parsed) as Record<string, unknown>;
+
+    totals = {
+      subtotal: num(t.subtotal),
+      shipping: num(t.shipping || cart.shippingValue),
+      autoDiscount: num(t.autoDiscount),
+      couponDiscount: num(t.couponDiscount),
+      loyaltyDiscount: num(t.loyaltyDiscount || 0),
+      total: num(t.total || t.final),
+      couponError: (t.couponError as string) || null,
+    };
+  }
+
   const items = await tx
     .select({
       id: cartItems.id,
       dishId: cartItems.dishId,
       packageId: cartItems.packageId,
       quantity: cartItems.quantity,
-      unitPrice: cartItems.unitPrice, 
-      // ✅ CAMPOS ESSENCIAIS ADICIONADOS:
-      options: cartItems.options, 
+      unitPrice: cartItems.unitPrice,
+      options: cartItems.options,
       appliedNutrition: cartItems.appliedNutrition,
-      // Dados de pratos e pacotes (para fallback)
       dishName: dishes.name,
       packageName: packages.name,
-      dishPrice: dishes.price,
-      packagePrice: packages.price
+      dishPrice: dishes.basePrice,
+      packagePrice: packages.price,
     })
     .from(cartItems)
     .leftJoin(dishes, eq(cartItems.dishId, dishes.id))
-    .leftJoin(packages, eq(cartItems.packageId, packages.id)) // ✅ Join com pacotes
+    .leftJoin(packages, eq(cartItems.packageId, packages.id))
     .where(eq(cartItems.cartId, cart.id));
 
-  if (!items.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Carrinho vazio." });
+  if (!items.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Sacola vazia." });
+  }
 
-  // 4. Normalização e Blindagem
-  const normalizedItems = items.map((item: any) => {
-    // Parse do JSON de opções (onde está o nome e os acompanhamentos reais)
-    let opts: any = {};
-    try {
-      opts = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || {});
-    } catch (e) { opts = {}; }
-
-    // Prioridade de Nome: JSON > Tabela Pratos > Tabela Pacotes
-    const finalName = opts.dishName || opts.packageName || item.dishName || item.packageName || "Item";
-
-    // Prioridade de Preço: Item do Carrinho > JSON > Tabela Prato/Pacote
-    let finalUnitPrice = num(item.unitPrice || opts.totalUnitPrice || item.dishPrice || item.packagePrice);
+  const normalizedItems = items.map((item) => {
+    const opts = safeJsonParse<Record<string, unknown>>(item.options, {});
+    const finalName =
+      (opts.dishName as string) ||
+      (opts.packageName as string) ||
+      item.dishName ||
+      item.packageName ||
+      "Item";
+    const finalUnitPrice = num(
+      item.unitPrice || opts.totalUnitPrice || item.dishPrice || item.packagePrice,
+    );
 
     return {
       ...item,
-      name: finalName, // Nome garantido
-      options: opts,   // Objeto pronto para o createOrderWithItems
+      name: finalName,
+      options: opts,
       unitPrice: finalUnitPrice,
-      totalItemPrice: Number((finalUnitPrice * num(item.quantity)).toFixed(2))
+      totalItemPrice: safeNumber((finalUnitPrice * num(item.quantity)).toFixed(2)),
     };
   });
 
-  // 5. Totais finais para o Router
   return {
     cart,
     items: normalizedItems,
     totals: {
       ...totals,
-      // ✅ Soma correta de todos os descontos (Progressivo + Cupom + Fidelidade)
-      totalDiscounts: Number((totals.autoDiscount + totals.couponDiscount + totals.loyaltyDiscount).toFixed(2)),
+      totalDiscounts: safeNumber(
+        (
+          totals.autoDiscount +
+          totals.couponDiscount +
+          totals.loyaltyDiscount
+        ).toFixed(2),
+      ),
     },
     details: {
       couponCode: cart.couponCode,
-      autoDiscountName: (cart as any).autoDiscountName || "Desconto Progressivo"
-    }
+      couponError: totals.couponError,
+      autoDiscountName:
+        (cart as Record<string, unknown>).autoDiscountName || "Desconto Progressivo",
+      couponBannerColor: cart.couponBannerColor || null,
+      couponLogoUrl: cart.couponLogoUrl || null,
+      couponDescription:
+        cart.couponDescription || (cart.couponCode ? "Cupom Aplicado" : null),
+    },
   };
 }

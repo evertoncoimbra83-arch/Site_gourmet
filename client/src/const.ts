@@ -22,4 +22,6 @@ export const getLoginUrl = () => "/login";
 // =============================
 
 export const APP_TITLE = "Gourmet Saudável";
-export const APP_LOGO = "/logo.png"; // coloque o caminho da sua logo se quiser
+
+// ✅ CORREÇÃO DEFINITIVA: Apontando para o arquivo que realmente existe
+export const APP_LOGO = "https://gourmetsaudavel.com/uploads/img-1770683807666-887369643.webp";

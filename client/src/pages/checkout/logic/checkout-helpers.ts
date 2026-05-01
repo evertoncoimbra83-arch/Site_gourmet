@@ -1,88 +1,190 @@
-/* ----------------------------- FORMATAÇÃO / ETC ---------------------------- */
+// client/src/pages/checkout/logic/checkout-helpers.ts
 
-export function formatMoney(value: number | string) {
-  const amount = typeof value === "string" ? parseFloat(value) : value;
+import { 
+  calculateItemUnitPrice,
+  calculateDiscountValue,
+  calculateGrandTotal 
+} from "../../../../../shared/domain/math/pricing";
+
+/* --------------------------------- TYPES ---------------------------------- */
+
+interface CartItemOption {
+  name: string;
+  weight?: number;
+  price?: number | string;
+}
+
+interface CartItemMeal {
+  dishName: string;
+  selectedAccompaniments?: CartItemOption[];
+}
+
+interface PricingSizeUI {
+  name?: string;
+  priceDiff?: number | string;
+}
+
+interface ParsedOptions {
+  _type?: string;
+  selectedSizeName?: string;
+  size?: PricingSizeUI; // Estrutura para o motor de pricing
+  meals?: CartItemMeal[];
+  selectedAccs?: CartItemOption[];
+  selectedAccompaniments?: CartItemOption[];
+}
+
+interface RawCartItem {
+  id: string | number;
+  name: string;
+  quantity: number;
+  price: number;
+  itemType?: string;
+  sizeName?: string;
+  options?: string | ParsedOptions;
+}
+
+interface PaymentMethodBase {
+  id: string | number;
+  name: string;
+  type?: string;
+  icon?: string;
+  discountPercentage?: number | string | null;
+  discount_percentage?: number | string | null;
+}
+
+/* ----------------------------- CONSTANTES --------------------------------- */
+
+const BENEFIT_KEYWORDS = [
+  'vr', 'alelo', 'verocard', 'sodexo', 'ticket', 
+  'ben', 'vale', 'refeição', 'alimentação', 'pluxee', 'msbeneficios'
+];
+
+function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseOptions(value: RawCartItem["options"]): ParsedOptions {
+  if (!value) return {};
+  if (typeof value !== "string") return value;
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as ParsedOptions)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/* ----------------------------- FORMATAÇÃO / UI ---------------------------- */
+
+/**
+ * 💰 Formata valores para a moeda brasileira
+ */
+export function formatMoney(value: number | string): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(amount || 0);
+  }).format(toNumber(value));
 }
+
+/* -------------------------- PROCESSAMENTO DE ITENS -------------------------- */
 
 /**
- * 🛡️ EXTRAÇÃO DE FINANCEIROS
- * Sincronizado com o novo 'syncCartTotals' do backend.
+ * 🍱 Transforma os itens brutos do carrinho em dados amigáveis para a View.
+ * ✅ Agora utiliza o motor central de pricing para evitar produtos zerados.
  */
-export function extractFinancials(raw: any) {
-  if (!raw) return null;
-  
-  let json: any = {};
-  try {
-    // Tenta fazer o parse caso venha como string do MySQL
-    json = typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch {
-    return null;
-  }
+export function processCartItems(items: RawCartItem[], money: (v: number) => string) {
+  if (!items || !Array.isArray(items)) return [];
 
-  // O servidor agora salva tudo dentro de "details"
-  const d = json.details || {};
+  return items.map((item) => {
+    const options = parseOptions(item.options);
+    
+    // ✅ Calcula o preço unitário real usando o domínio (Base + Tamanho + Extras)
+    const unitPrice = calculateItemUnitPrice(item.price, {
+      size: options.size,
+      accompaniments: options.selectedAccs || options.selectedAccompaniments || []
+    });
 
-  return {
-    subtotal: Number(d.subtotal || 0),
-    shipping: Number(d.shipping || 0),
-    autoDiscount: Number(d.autoDiscount || 0),
-    couponDiscount: Number(d.couponDiscount || 0),
-    loyaltyDiscount: Number(d.loyaltyDiscount || 0),
-    // O backend salva como 'final', mas mantemos o fallback para 'total'
-    total: Number(d.final || d.total || 0), 
-    couponCode: d.couponCode || json.couponCode || "",
-    autoName: json.autoDiscountName || "Desconto Progressivo"
-  };
+    const isPackage = item.itemType === "package" || options._type === "package";
+
+    return {
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      priceFormatted: money(unitPrice * item.quantity),
+      displaySize: options.selectedSizeName || item.sizeName || null,
+      isPackage,
+      packageMeals: isPackage ? (options.meals || []).map((m: CartItemMeal) => ({
+        dishName: m.dishName,
+        accompaniments: (m.selectedAccompaniments || [])
+          .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+          .map((acc) => acc.name)
+      })) : [],
+      accompaniments: !isPackage ? (options.selectedAccs || options.selectedAccompaniments || [])
+        .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+        .map((acc) => acc.name) : []
+    };
+  });
 }
 
-/* -------------------------- CÁLCULOS DE DESCONTOS -------------------------- */
+/* -------------------------- ADAPTADORES DE DOMÍNIO -------------------------- */
 
+/**
+ * 🧮 CÁLCULO DE DESCONTO DE PAGAMENTO
+ */
 export function computePaymentDiscount(
-  paymentMethods: any[],
+  paymentMethods: PaymentMethodBase[],
   selectedPaymentId: string | number | null,
   subtotal: number
 ) {
   const method = paymentMethods.find(
-    (m: any) => String(m.id) === String(selectedPaymentId)
+    (m) => String(m.id) === String(selectedPaymentId)
   );
-  if (!method) return 0;
   
-  // Garante que o cálculo seja sobre o subtotal limpo (sem frete)
-  const perc = Number(method.discountPercentage || method.discount_percentage || 0);
-  return subtotal * (perc / 100);
+  const perc = toNumber(method?.discountPercentage ?? method?.discount_percentage);
+  
+  // ✅ Usa o motor de pricing centralizado
+  return calculateDiscountValue(subtotal, { type: 'percentage', value: perc });
 }
 
 /**
  * 🧮 CÁLCULO DO TOTAL FINAL
  */
 export function computeFinalTotal(opts: {
-  originalFinal: number;     // Valor 'final' vindo do details do banco
-  originalShipping: number;  // Frete que estava salvo no banco
-  shippingCost: number;      // Frete que o usuário selecionou agora
-  paymentDiscountAmount: number; // Desconto de PIX calculado na hora
+  subtotal: number;
+  shippingCost: number;
+  discountTotal: number;
 }) {
-  const {
-    originalFinal,
-    originalShipping,
-    shippingCost,
-    paymentDiscountAmount,
-  } = opts;
-
-  // Calcula a diferença do frete (se o usuário mudou o endereço ou tipo de entrega)
-  const deltaShipping = shippingCost - originalShipping;
-
-  // O total final é a base do banco + ajuste de frete - desconto extra de pagamento
-  const finalValue = originalFinal + deltaShipping - paymentDiscountAmount;
-
-  return Math.max(0, finalValue);
+  // ✅ Usa o motor de pricing centralizado
+  return calculateGrandTotal(opts.subtotal, opts.shippingCost, opts.discountTotal);
 }
 
-/* --------------------------- REGRAS DE ENTREGA ----------------------------- */
+/* --------------------------- REGRAS DE INTERFACE (UX) ----------------------- */
 
+/**
+ * 💳 Categoriza métodos entre Padrão (PIX/Cartão) e Benefícios (VR/VA)
+ */
+export function categorizePaymentMethods(methods: PaymentMethodBase[]) {
+  const standard: PaymentMethodBase[] = [];
+  const benefits: PaymentMethodBase[] = [];
+
+  methods.forEach((m) => {
+    const name = (m.name || "").toLowerCase();
+    const isBenefit = BENEFIT_KEYWORDS.some(k => name.includes(k)) || m.type === 'meal' || m.icon === 'meal';
+    
+    if (isBenefit) benefits.push(m);
+    else standard.push(m);
+  });
+
+  return { standard, benefits };
+}
+
+/**
+ * 🚚 STATUS DE ENTREGA (BLOQUEIOS)
+ */
 export function computeDeliveryStatus(params: {
   subtotal: number;
   minOrderAmount: number;
@@ -91,15 +193,12 @@ export function computeDeliveryStatus(params: {
 }) {
   const { subtotal, minOrderAmount, isZipValid, selectedShippingType } = params;
 
-  // Se for retirada, nada bloqueia
   if (selectedShippingType !== "delivery") {
     return { isDeliveryBlocked: false, isBelowMin: false, isZipOutOfArea: false };
   }
 
   const isZipOutOfArea = isZipValid === false;
   const isBelowMin = isZipValid === true && subtotal > 0 && subtotal < minOrderAmount;
-  
-  // Bloqueia se o CEP for inválido, se estiver abaixo do mínimo ou se ainda estiver validando (null)
   const isDeliveryBlocked = isZipOutOfArea || isBelowMin || isZipValid === null;
 
   return { isDeliveryBlocked, isBelowMin, isZipOutOfArea };

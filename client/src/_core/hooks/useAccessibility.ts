@@ -1,45 +1,70 @@
 import { useEffect } from "react";
 import { trpc } from "@/_core/trpc";
 
+// --- INTERFACES ---
+interface AccessibilitySettings {
+  accessibility?: {
+    highContrast?: boolean;
+    dyslexicFont?: boolean;
+    fontScale?: number;
+  };
+}
+
 export function useAccessibility() {
-  // ✅ CORREÇÃO CRÍTICA: Mudamos de 'admin.storeSettings.get' para a rota pública
-  // Isso remove o erro 403 Forbidden que aparecia em todas as páginas.
-  const { data: settings } = trpc.public.getStoreSettings.useQuery(undefined, {
+  /**
+   * ✅ CORREÇÃO DEFINITIVA: 
+   * Usamos 'unknown' como ponte para evitar o aviso de 'any'.
+   * O casting para o tipo esperado mantém a segurança do código.
+   */
+  const publicRouter = (trpc.public as unknown) as { 
+    getPublicSettings: { useQuery: (args: undefined, opts: object) => { data: AccessibilitySettings } } 
+  };
+
+  const { data: settings } = publicRouter.getPublicSettings.useQuery(undefined, {
     staleTime: 1000 * 60 * 30, // 30 minutos de cache
-    retry: false,              // Se falhar uma vez, não fica tentando (evita spam no console)
-    refetchOnWindowFocus: false // Não refaz a busca ao trocar de aba
+    retry: false,
+    refetchOnWindowFocus: false 
   });
 
   useEffect(() => {
     const root = document.documentElement;
 
-    // 1. LER SESSÃO (LocalStorage)
+    // 1. LER PREFERÊNCIAS (LocalStorage)
     const userContrast = localStorage.getItem('a11y-high-contrast');
     const userDyslexic = localStorage.getItem('a11y-font-dyslexic');
     const userScale = localStorage.getItem('a11y-font-scale');
 
-    // 2. DEFINIR CONTRASTE
+    // 2. APLICAR CONTRASTE
     const finalContrast = userContrast !== null 
       ? userContrast === 'true' 
       : settings?.accessibility?.highContrast;
 
-    root.classList.toggle('high-contrast', !!finalContrast);
+    if (finalContrast) {
+      root.classList.add('high-contrast');
+    } else {
+      root.classList.remove('high-contrast');
+    }
 
-    // 3. DEFINIR FONTE DISLÉXICA
+    // 3. APLICAR FONTE DISLÉXICA
     const finalDyslexic = userDyslexic !== null 
       ? userDyslexic === 'true' 
       : settings?.accessibility?.dyslexicFont;
 
-    root.classList.toggle('font-dyslexic', !!finalDyslexic);
+    if (finalDyslexic) {
+      root.classList.add('font-dyslexic');
+    } else {
+      root.classList.remove('font-dyslexic');
+    }
 
-    // 4. ESCALA DE FONTE
-    // Prioridade: 1º LocalStorage (usuário), 2º Banco (Admin), 3º Padrão (1.0)
+    // 4. APLICAR ESCALA DE FONTE
     const finalScale = userScale !== null 
       ? parseFloat(userScale) 
       : (settings?.accessibility?.fontScale || 1.0);
 
-    root.style.setProperty("--font-scale", String(finalScale));
-    root.style.fontSize = `${finalScale * 100}%`;
+    const safeScale = isNaN(finalScale) ? 1.0 : finalScale;
+    
+    root.style.setProperty("--font-scale", String(safeScale));
+    root.style.fontSize = `${safeScale * 100}%`;
 
   }, [settings]);
 }

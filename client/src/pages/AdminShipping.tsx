@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para satisfazer a regra do linter
 import { AdminShippingView } from "./adminShipping/view/AdminShippingView";
 
 export default function AdminShipping() {

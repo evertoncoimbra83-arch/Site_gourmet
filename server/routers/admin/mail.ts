@@ -1,20 +1,19 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../../_core/trpc.js";
-import { mailer } from "server/routers/lib/mailer.js"; // ✅ Caminho corrigido
+import { router, adminProcedure } from "../../_core/trpc.js";
+import { mailer } from "../../routers/lib/mailer.js"; // ✅ Ajustado caminho relativo se necessário
 import { appConfigs } from "../../../drizzle/schema/index.js";
 import { getDb } from "../../db.js";
 import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 
 export const mailAdminRouter = router({
   /**
    * 📥 GET CONFIGS
-   * Carrega todas as configurações de e-mail e SMTP do banco
    */
-  getConfigs: protectedProcedure.query(async () => {
+  getConfigs: adminProcedure.query(async () => {
     const db = await getDb();
     const configs = await db.select().from(appConfigs);
     
-    // Filtra apenas as chaves relacionadas a e-mail e servidor SMTP
     return configs.filter(c => 
       c.configKey.startsWith("smtp_") || 
       c.configKey.startsWith("email_")
@@ -23,9 +22,8 @@ export const mailAdminRouter = router({
 
   /**
    * 💾 SAVE CONFIGS
-   * Salva ou atualiza as configurações (Upsert)
    */
-  saveConfigs: protectedProcedure
+  saveConfigs: adminProcedure
     .input(z.array(z.object({
       configKey: z.string(),
       configValue: z.string()
@@ -34,7 +32,6 @@ export const mailAdminRouter = router({
       const db = await getDb();
 
       for (const item of input) {
-        // Verifica se a chave já existe para decidir entre Update ou Insert
         const [exists] = await db.select().from(appConfigs)
           .where(eq(appConfigs.configKey, item.configKey)).limit(1);
 
@@ -43,38 +40,53 @@ export const mailAdminRouter = router({
             .set({ configValue: item.configValue })
             .where(eq(appConfigs.configKey, item.configKey));
         } else {
-          // ✅ CORREÇÃO: Removido 'configGroup' para evitar erro TS2769
           await db.insert(appConfigs).values({
             configKey: item.configKey,
             configValue: item.configValue
           });
         }
       }
-      return { success: true };
+      
+      return { 
+        success: true, 
+        message: "Configurações de SMTP salvas com sucesso!" 
+      };
     }),
 
   /**
    * 🧪 TEST CONNECTION
-   * Envia um e-mail de teste rápido para validar as credenciais SMTP
    */
-  testConnection: protectedProcedure
+  testConnection: adminProcedure
     .input(z.object({ to: z.string().email() }))
     .mutation(async ({ input }) => {
-      const { transporter, from } = await mailer.getTransport();
+      try {
+        const { transporter, from } = await mailer.getTransport();
 
-      await transporter.sendMail({
-        from: `"Teste de Sistema" <${from}>`,
-        to: input.to,
-        subject: "Teste de Conexão SMTP 🚀",
-        html: `
-          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-            <h1 style="color: #059669;">Conexão Bem-Sucedida!</h1>
-            <p>Se você recebeu este e-mail, suas configurações de SMTP estão funcionando corretamente.</p>
-            <p style="color: #64748b; font-size: 12px;">Data do teste: ${new Date().toLocaleString('pt-BR')}</p>
-          </div>
-        `
-      });
-      
-      return { success: true };
+        await transporter.sendMail({
+          from: `"Teste de Sistema" <${from}>`,
+          to: input.to,
+          subject: "Teste de Conexão SMTP 🚀",
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+              <h1 style="color: #059669;">Conexão Bem-Sucedida!</h1>
+              <p>Se você recebeu este e-mail, suas configurações de SMTP estão funcionando corretamente.</p>
+              <p style="color: #64748b; font-size: 12px;">Data do teste: ${new Date().toLocaleString('pt-BR')}</p>
+            </div>
+          `
+        });
+        
+        return { 
+          success: true, 
+          message: `E-mail de teste enviado para ${input.to}!` 
+        };
+      } catch (error: unknown) {
+        // ✅ CORREÇÃO: Removido 'any' e adicionada validação de erro
+        const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+        
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Falha no teste SMTP: ${errorMessage}`
+        });
+      }
     }),
 });

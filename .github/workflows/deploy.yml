@@ -1,0 +1,37 @@
+name: 🚀 Deploy Boutique Admin
+
+on:
+  push:
+    branches: [ main ] # Dispara o deploy sempre que você der push na main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v3
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: 📦 Instalar dependências
+        run: npm install
+
+      - name: 🧪 Rodar Testes (Playwright)
+        run: npx playwright test
+        # Se os testes falharem, o deploy para aqui!
+
+      - name: 🏗️ Build do Projeto
+        run: npm run build
+
+      - name: 🚚 Deploy via SSH (Rsync)
+        uses: Burnett01/rsync-deployments@5.2.1
+        with:
+          switches: -avzr --delete # --delete remove arquivos antigos que não existem mais
+          path: client/dist/ # Pasta de origem
+          remote_path: /var/www/seu-site/dist # Pasta de destino no servidor
+          remote_host: ${{ secrets.SERVER_HOST }}
+          remote_user: ${{ secrets.SERVER_USER }}
+          remote_key: ${{ secrets.SERVER_SSH_KEY }}

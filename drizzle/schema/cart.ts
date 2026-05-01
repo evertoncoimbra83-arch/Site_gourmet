@@ -1,5 +1,5 @@
 import { mysqlTable, varchar, decimal, timestamp, text, boolean, int } from "drizzle-orm/mysql-core";
-import { users } from "./users.js"; 
+import { users } from "./users"; 
 
 export const carts = mysqlTable("carts", {
   /**
@@ -10,21 +10,26 @@ export const carts = mysqlTable("carts", {
   
   /**
    * 👤 USUÁRIO LOGADO (Opcional)
-   * Se o usuário fizer login, preenchemos este campo.
    */
   userId: varchar("user_id", { length: 255 }).references(() => users.id, { onDelete: "set null" }),
   
   /**
-   * 👻 VISITANTE (Opcional - A CHAVE DO PROBLEMA)
-   * Armazena o UUID gerado no LocalStorage para quem não tem login.
-   * Isso permite salvar o carrinho mesmo sem sessão do Lucia.
+   * 👻 VISITANTE (Opcional)
+   * Armazena o UUID gerado no LocalStorage.
    */
   guestId: varchar("guest_id", { length: 36 }),
+
+  /**
+   * 🚀 MONITORAMENTO: REFERRAL
+   * "Carimba" o carrinho com o código de indicação (ex: ?ref=NUTRI01).
+   * Essencial para o seu Monitor mostrar quem indicou este cliente.
+   */
+  referralCode: varchar("referral_code", { length: 50 }),
 
   // Status da sessão (active, abandoned, completed)
   status: varchar("status", { length: 20 }).default("active"),
 
-  // Campo legado para sessão do Lucia (pode manter por segurança)
+  // Campo legado para sessão do Lucia
   sessionId: varchar("session_id", { length: 255 }), 
 
   // 💰 Valores Monetários
@@ -37,8 +42,6 @@ export const carts = mysqlTable("carts", {
   
   /**
    * ✅ Uso do tipo 'boolean'
-   * O Drizzle converte automaticamente para tinyint(1) no MySQL,
-   * mas no TypeScript fica boolean (true/false) em vez de number (0/1).
    */
   usesLoyalty: boolean("uses_loyalty").default(false),
 

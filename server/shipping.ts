@@ -1,8 +1,6 @@
 import { eq, asc } from "drizzle-orm";
-import { getDb } from "./db.js"; 
-import { shippingRules } from "../drizzle/schema.js"; 
-import { z } from "zod";
-import crypto from "crypto"; // Garantir que o crypto esteja disponível para o UUID
+import { getDb } from "./db"; 
+import { shippingRules } from "../drizzle/schema"; 
 
 // Tipos base baseados no schema do Drizzle
 export type ShippingZone = typeof shippingRules.$inferSelect;
@@ -22,8 +20,8 @@ export async function listActiveZones(): Promise<ShippingZone[]> {
     return db
         .select()
         .from(shippingRules)
-        .where(eq(shippingRules.active, true))
-        .orderBy(asc(shippingRules.price));
+        .where(eq(shippingRules.isActive, true))
+        .orderBy(asc(shippingRules.shippingCost));
 }
 
 /**
@@ -34,9 +32,9 @@ export async function findZoneByZipCode(zipCode: string): Promise<ShippingZone |
     const zipCodeNumeric = parseInt(zipCode.replace(/\D/g, ""), 10);
     
     const matchingZone = activeZones.find(zone => {
-        if (zone.cepStart && zone.cepEnd) {
-            const start = parseInt(zone.cepStart.replace(/\D/g, ""), 10);
-            const end = parseInt(zone.cepEnd.replace(/\D/g, ""), 10);
+        if (zone.zipCodeStart && zone.zipCodeEnd) {
+            const start = parseInt(zone.zipCodeStart.replace(/\D/g, ""), 10);
+            const end = parseInt(zone.zipCodeEnd.replace(/\D/g, ""), 10);
             return zipCodeNumeric >= start && zipCodeNumeric <= end;
         }
         return false; 
@@ -56,7 +54,7 @@ export async function calculateShippingCost(zipCode: string): Promise<{ cost: nu
     }
 
     return { 
-        cost: parseFloat(String(zone.price || "0")), 
+        cost: parseFloat(String(zone.shippingCost || "0")), 
         name: zone.name || "Entrega padrão"
     };
 }
@@ -68,58 +66,49 @@ export async function calculateShippingCost(zipCode: string): Promise<{ cost: nu
 
 /**
  * Cria uma nova zona de entrega.
- * ✅ Correção do erro de Overload: Definindo zoneData com o tipo InsertShippingZone
  */
 export async function createZone(data: Omit<InsertShippingZone, "id">) {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados indisponível");
 
-    const newId = crypto.randomUUID(); 
+    // Tipagem segura para acessar propriedades que podem vir com nomes diferentes do Admin
+    const rawData = data as Record<string, unknown>;
 
-    // ✅ Construímos o objeto respeitando o contrato do Drizzle
     const zoneData: InsertShippingZone = {
         ...data,
-        id: newId, // Atribuindo a string UUID
-        price: String(data.price || "0.00"),
-        cepStart: data.cepStart?.replace(/\D/g, "") || "", 
-        cepEnd: data.cepEnd?.replace(/\D/g, "") || "",
+        shippingCost: String(rawData.price || rawData.shippingCost || "0.00"),
+        zipCodeStart: String(rawData.cepStart || rawData.zipCodeStart || ""), 
+        zipCodeEnd: String(rawData.cepEnd || rawData.zipCodeEnd || ""),
     };
 
     await db.insert(shippingRules).values(zoneData);
     
-    return { 
-        success: true, 
-        id: newId 
-    };
+    return { success: true };
 }
 
 /**
  * Atualiza uma zona de entrega.
- * ✅ O cast 'as any' no 'eq' só é necessário se o seu schema.ts ainda não tiver sido
- * alterado para varchar/string. Se já alterou, o TS reconhecerá automaticamente.
  */
-export async function updateZone(id: string, data: Partial<InsertShippingZone>) {
+export async function updateZone(id: string | number, data: Partial<InsertShippingZone>) {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados indisponível");
     
-    // Filtramos o ID dos dados de atualização para evitar conflitos
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id: _, ...rest } = data;
+    const rawData = data as Record<string, unknown>;
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = { ...rest };
 
-    if (updateData.price !== undefined) {
-        updateData.price = String(updateData.price);
-    }
-    if (updateData.cepStart !== undefined) {
-        updateData.cepStart = updateData.cepStart?.replace(/\D/g, "");
-    }
-    if (updateData.cepEnd !== undefined) {
-        updateData.cepEnd = updateData.cepEnd?.replace(/\D/g, "");
-    }
+    if (rawData.price !== undefined) updateData.shippingCost = String(rawData.price);
+    if (rawData.cepStart !== undefined) updateData.zipCodeStart = String(rawData.cepStart).replace(/\D/g, "");
+    if (rawData.cepEnd !== undefined) updateData.zipCodeEnd = String(rawData.cepEnd).replace(/\D/g, "");
     
-    // @ts-ignore - Caso o schema local ainda aponte para 'number'
+    updateData.updatedAt = new Date();
+
     await db.update(shippingRules)
         .set(updateData)
-        .where(eq(shippingRules.id, id));
+        .where(eq(shippingRules.id, Number(id)));
     
     return { success: true };
 }
@@ -127,12 +116,11 @@ export async function updateZone(id: string, data: Partial<InsertShippingZone>) 
 /**
  * Remove uma zona de entrega.
  */
-export async function deleteZone(id: string) {
+export async function deleteZone(id: string | number) {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados indisponível");
 
-    // @ts-ignore - Caso o schema local ainda aponte para 'number'
-    await db.delete(shippingRules).where(eq(shippingRules.id, id));
+    await db.delete(shippingRules).where(eq(shippingRules.id, Number(id)));
     
     return { success: true };
 }

@@ -1,59 +1,84 @@
-import { useState, forwardRef } from "react";
+import React, { useState } from "react"; // ✅ Adicionado React para resolver erros de escopo JSX
 import { Button } from "@/components/ui/button";
-import { ImagePlus, X, RefreshCw } from "lucide-react";
-import MediaLibraryModal from "./MediaLibraryModal.tsx"; 
+import { ImagePlus, Trash2, ImageIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+// ✅ Importação absoluta mantida conforme sua correção anterior
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 
 interface ImagePickerProps {
-  value?: string;
-  onChange: (url: string) => void;
   label?: string;
+  value?: string | null;
+  onChange: (url: string) => void;
+  className?: string;
 }
 
-// ✅ Envolvemos o componente em forwardRef
-const ImagePicker = forwardRef<HTMLDivElement, ImagePickerProps>(
-  ({ value, onChange, label = "Imagem" }, ref) => {
-    const [open, setOpen] = useState(false);
+export default function ImagePicker({ label, value, onChange, className }: ImagePickerProps) {
+  const [open, setOpen] = useState(false);
 
-    return (
-      // ✅ Atribuímos a ref à div externa para o Radix conseguir gerenciar o foco
-      <div className="space-y-2" ref={ref}>
-        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
-          {label}
-        </label>
+  const getPreviewUrl = (path: string | null | undefined) => {
+    if (!path) return "";
+    if (path.startsWith("http") || path.startsWith("blob:")) return path;
 
+    const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
+    let clean = path.replace(/\\/g, "/");
+
+    if (clean.includes("/uploads/")) clean = clean.split("/uploads/")[1];
+    else if (clean.includes("/public/")) clean = clean.split("/public/")[1];
+
+    clean = clean.replace(/^\//, "");
+    if (!clean.startsWith("uploads/")) clean = `uploads/${clean}`;
+
+    return `${baseUrl}/${clean}`;
+  };
+
+  const handleSelect = (url: string) => {
+    let cleanPath = url;
+    if (url.includes("/uploads/")) {
+        const parts = url.split("/uploads/");
+        cleanPath = `uploads/${parts[parts.length - 1]}`;
+    }
+    onChange(cleanPath);
+    setOpen(false);
+  };
+
+  const previewUrl = getPreviewUrl(value);
+
+  return (
+    <div className={cn("flex flex-col gap-3", className)}>
+      {label && <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{label}</span>}
+      
+      <div className="relative group">
         {value ? (
-          <div className="relative aspect-video w-full rounded-2xl overflow-hidden border-2 border-slate-100 bg-slate-50">
-            <img src={value} alt="Preview" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-              <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>
-                <RefreshCw size={14} className="mr-2" /> Trocar
+          <div className="relative aspect-video w-full overflow-hidden rounded-xl border-2 border-slate-100 bg-slate-50 shadow-sm transition-all hover:border-emerald-500/50">
+            <img 
+              src={previewUrl} 
+              alt="Preview" 
+              className="h-full w-full object-contain p-2"
+              onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => { 
+                e.currentTarget.style.display = 'none'; 
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 backdrop-blur-[2px]">
+              <Button type="button" variant="ghost" size="icon" onClick={() => setOpen(true)} className="h-10 w-10 rounded-full bg-white text-slate-900 hover:bg-emerald-500 hover:text-white transition-colors shadow-lg">
+                <ImagePlus size={18} />
               </Button>
-              <Button type="button" variant="destructive" size="sm" onClick={() => onChange("")}>
-                <X size={14} />
+              <Button type="button" variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onChange(""); }} className="h-10 w-10 rounded-full bg-white text-red-500 hover:bg-red-500 hover:text-white transition-colors shadow-lg">
+                <Trash2 size={18} />
               </Button>
             </div>
           </div>
         ) : (
-          <div 
-            onClick={() => setOpen(true)}
-            className="border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/50 transition-all"
-          >
-            <ImagePlus size={24} className="text-slate-400 mb-2" />
-            <span className="text-[10px] font-black text-slate-500 uppercase">Selecionar Foto</span>
-          </div>
+          <button type="button" onClick={() => setOpen(true)} className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 text-slate-400 transition-all hover:border-emerald-500 hover:bg-emerald-50/50 hover:text-emerald-600 group">
+            <div className="rounded-full bg-white p-3 shadow-sm group-hover:scale-110 transition-transform">
+              <ImageIcon size={24} />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest">Selecionar Imagem</span>
+          </button>
         )}
-
-        <MediaLibraryModal 
-          open={open} 
-          onClose={() => setOpen(false)} 
-          onSelect={(url) => { onChange(url); setOpen(false); }} 
-          selectedUrl={value}
-        />
       </div>
-    );
-  }
-);
 
-ImagePicker.displayName = "ImagePicker";
-
-export default ImagePicker;
+      <MediaLibraryDrawer open={open} onClose={() => setOpen(false)} onSelect={handleSelect} />
+    </div>
+  );
+}

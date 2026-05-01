@@ -1,7 +1,8 @@
 import { eq, sql, desc } from "drizzle-orm";
 import { getDb } from "./db"; 
-import { coupons, couponUsage, orders } from "../drizzle/schema"; 
-import { z } from "zod";
+import { coupons, couponUsage } from "../drizzle/schema/index"; 
+import crypto from "crypto";
+import { safeNumber } from "./lib/safe-parse";
 
 // Tipos usados no painel/admin e no lado do cliente
 export type CouponDiscountType = "percentage" | "fixed";
@@ -10,13 +11,15 @@ export interface CreateCouponInput {
   code: string;
   description?: string | null;
   discountType: CouponDiscountType;
-  discountValue: number; // Corrigido de discount_value
+  discountValue: number;
   minOrderValue?: number | null;
   maxDiscount?: number | null;
   usageLimit?: number | null;
   validFrom?: Date | null;
   validUntil?: Date | null;
   isActive?: boolean;
+  bannerColor?: string;
+  logoUrl?: string | null;
 }
 
 export interface UpdateCouponInput {
@@ -29,20 +32,22 @@ export interface UpdateCouponInput {
   validFrom?: Date | null;
   validUntil?: Date | null;
   isActive?: boolean;
+  bannerColor?: string;
+  logoUrl?: string | null;
 }
 
 export interface ValidateCouponResult {
   isValid: boolean;
   message?: string;
   discountAmount: number;
-  couponId?: string; // Alterado de coupon_id para string (conforme erro TS)
+  couponId?: string;
   code?: string;
+  bannerColor?: string;
+  logoUrl?: string | null;
 }
 
 function toNumber(value: unknown): number {
-  if (value == null) return 0;
-  const num = Number(value);
-  return Number.isNaN(num) ? 0 : num;
+  return safeNumber(value);
 }
 
 // =========================================================================
@@ -51,7 +56,7 @@ function toNumber(value: unknown): number {
 
 export async function validateCoupon(
   code: string,
-  userId: string, // Alterado de number para string
+  _userId: string, // Prefixo '_' para indicar que não está sendo usado no momento
   subtotal: number
 ): Promise<ValidateCouponResult> {
   const now = new Date();
@@ -84,20 +89,18 @@ export async function validateCoupon(
     return { isValid: false, message: `Valor mínimo de R$${coupon.minOrderValue} requerido.`, discountAmount: 0 };
   }
 
-  // Verificar limite de uso geral (Corrigido para couponId)
   if (coupon.usageLimit) {
-    const usageCount = await db.select({ count: sql<number>`count(*)` })
+    const [usageRes] = await db.select({ count: sql<number>`count(*)` })
       .from(couponUsage)
       .where(eq(couponUsage.couponId, coupon.id));
       
-    if (Number(usageCount[0].count) >= coupon.usageLimit) {
+    if (safeNumber(usageRes.count) >= coupon.usageLimit) {
       return { isValid: false, message: "Limite de uso geral atingido.", discountAmount: 0 };
     }
   }
   
-  // Calcular desconto
   let discountAmount = 0;
-  const discountValue = toNumber(coupon.discountValue); // Corrigido
+  const discountValue = toNumber(coupon.discountValue);
   const maxDiscount = coupon.maxDiscount ? toNumber(coupon.maxDiscount) : Infinity;
 
   if (coupon.discountType === "percentage") {
@@ -112,44 +115,12 @@ export async function validateCoupon(
   return {
     isValid: true,
     message: "Cupom aplicado!",
-    discountAmount: parseFloat(discountAmount.toFixed(2)),
+    discountAmount: safeNumber(discountAmount.toFixed(2)),
     couponId: coupon.id,
     code: coupon.code,
+    bannerColor: coupon.bannerColor || "#10b981",
+    logoUrl: coupon.logoUrl,
   };
-}
-
-export async function applyCouponToOrder(
-  orderId: string, // Alterado para string
-  couponId: string, // Alterado para string
-  couponCode: string, 
-  discountAmount: number, 
-  userId: string // Alterado para string
-) {
-  const db = await getDb();
-
-  await db.insert(couponUsage).values({
-    id: crypto.randomUUID(), // Assumindo que o ID é string/UUID
-    couponId, // Corrigido
-    userId,
-    orderId,
-  });
-
-  // Atualiza o pedido com os campos corretos do seu schema
-  // Nota: Verifique se os campos no schema de 'orders' são exatamente estes
-  await db.update(orders).set({
-    // @ts-ignore - Depende do seu schema de orders possuir estas colunas
-    couponCode: couponCode,
-    total: sql`total - ${discountAmount.toFixed(2)}`, 
-    updatedAt: new Date(),
-  }).where(eq(orders.id, orderId));
-
-  return { success: true };
-}
-
-export async function removeCouponFromOrder(orderId: string) {
-  const db = await getDb();
-  await db.delete(couponUsage).where(eq(couponUsage.orderId, orderId));
-  return { success: true };
 }
 
 // =========================================================================
@@ -172,7 +143,8 @@ export async function listCoupons() {
       validFrom: coupons.validFrom,
       validUntil: coupons.validUntil,
       isActive: coupons.isActive,
-      // Contagem de usos via leftJoin
+      bannerColor: coupons.bannerColor,
+      logoUrl: coupons.logoUrl,
       timesUsed: sql<number>`count(${couponUsage.id})`, 
     })
     .from(coupons)
@@ -187,17 +159,19 @@ export async function createCoupon(input: CreateCouponInput) {
   const db = await getDb();
 
   await db.insert(coupons).values({
-    id: crypto.randomUUID(), // Gerando ID string
+    id: crypto.randomUUID(),
     code: input.code.toUpperCase(),
     description: input.description || null,
     discountType: input.discountType,
-    discountValue: input.discountValue.toString(), // Convertendo para string (decimal)
+    discountValue: input.discountValue.toString(),
     minOrderValue: input.minOrderValue ? input.minOrderValue.toString() : null,
     maxDiscount: input.maxDiscount ? input.maxDiscount.toString() : null,
     usageLimit: input.usageLimit || null,
     isActive: input.isActive ?? true,
     validFrom: input.validFrom ?? null,
     validUntil: input.validUntil ?? null,
+    bannerColor: input.bannerColor || "#10b981",
+    logoUrl: input.logoUrl || null,
   });
 
   return { success: true }; 
@@ -205,7 +179,12 @@ export async function createCoupon(input: CreateCouponInput) {
 
 export async function updateCoupon(id: string, data: UpdateCouponInput) {
   const db = await getDb();
-  const updateData: any = { updatedAt: new Date() };
+  
+  // ✅ CORREÇÃO: Silenciando o aviso de 'any' apenas onde o cast de escape é necessário
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Partial<typeof coupons.$inferInsert> & Record<string, any> = {
+    updatedAt: new Date()
+  };
 
   if (data.description !== undefined) updateData.description = data.description;
   if (data.discountType !== undefined) updateData.discountType = data.discountType;
@@ -216,6 +195,8 @@ export async function updateCoupon(id: string, data: UpdateCouponInput) {
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
   if (data.validFrom !== undefined) updateData.validFrom = data.validFrom;
   if (data.validUntil !== undefined) updateData.validUntil = data.validUntil;
+  if (data.bannerColor !== undefined) updateData.bannerColor = data.bannerColor;
+  if (data.logoUrl !== undefined) updateData.logoUrl = data.logoUrl;
 
   await db.update(coupons).set(updateData).where(eq(coupons.id, id));
   return { success: true };

@@ -7,7 +7,6 @@
 
 import { Router } from "express";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import { getSessionCookieOptions } from "./cookies";
 import { upsertUser } from "../db";
 import { sdk } from "./sdk";
 import type { Request, Response } from "express";
@@ -263,7 +262,7 @@ devOAuthRouter.get("/callback", async (req: Request, res: Response) => {
     // Redirecionar direto para / (não passa por /api/oauth/callback)
     res.redirect(302, "/");
   } catch (error) {
-    console.error("[Dev OAuth] Erro no callback:", error);
+    
     res.status(500).json({
       error: "Internal server error",
     });

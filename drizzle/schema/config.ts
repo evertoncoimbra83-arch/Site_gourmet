@@ -1,4 +1,3 @@
-// drizzle/schema/config.ts
 import { relations } from 'drizzle-orm';
 import {
   mysqlTable,
@@ -8,16 +7,45 @@ import {
   boolean,
   int,
   timestamp,
+  longtext,
+  serial,
 } from "drizzle-orm/mysql-core";
 
-import { users } from "./users.js";
+import { users } from "./users";
+
+// ====================================================
+// --- CONFIGURAÇÕES DINÂMICAS (Chaves Variáveis) ---
+// ====================================================
+// É aqui que salvamos a 'success_order_message' e o 'partners_json'
+export const appConfigs = mysqlTable("app_configs", {
+  configKey: varchar("config_key", { length: 100 }).primaryKey(),
+  configValue: longtext("config_value"), // Usamos longtext para suportar JSON grande de parceiros
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
+});
+
+// ====================================================
+// --- CONFIGURAÇÕES DA LOJA (Fixas) ---
+// ====================================================
+export const storeSettings = mysqlTable("store_settings", {
+  id: varchar("id", { length: 255 }).primaryKey().default("1"),
+  logoUrl: varchar("logo_url", { length: 255 }),
+  favicon: varchar("favicon", { length: 255 }),
+  emergencyMode: boolean("emergency_mode").default(false),
+  generalMinOrderAmount: varchar("general_min_order_amount", { length: 50 }).default("0.00"),
+  minOrderMessage: text("min_order_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
+  siteTheme: text("site_theme"),
+});
+
+// ❌ REMOVIDO: shippingSettings
+// (Ela agora vive em ./shipping.ts para evitar conflito de exportação)
 
 // ====================================================
 // --- PAGAMENTOS E MÍDIA ---
 // ====================================================
 
 export const paymentMethods = mysqlTable("payment_methods", {
-  // ✅ Alterado para varchar(255) para consistência global
   id: varchar("id", { length: 255 }).primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
@@ -28,31 +56,23 @@ export const paymentMethods = mysqlTable("payment_methods", {
   brandLogoUrl: varchar("brand_logo_url", { length: 255 }),
   discountPercentage: decimal("discount_percentage", { precision: 5, scale: 2 }).default("0.00"),
   createdAt: timestamp("created_at").defaultNow(),
-  updated_at: timestamp("updated_at").defaultNow().onUpdateNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
 export const foodCardBrands = mysqlTable("food_card_brands", {
-  // ✅ Alterado para varchar(255)
   id: varchar("id", { length: 255 }).primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   isActive: boolean("is_active").default(true),
 });
 
 export const mediaLibrary = mysqlTable("media_library", {
-  // ✅ Alterado para varchar(255)
   id: varchar("id", { length: 255 }).primaryKey(),
   url: varchar("url", { length: 512 }).notNull(),
   fileName: varchar("file_name", { length: 255 }).notNull(),
   mimeType: varchar("mime_type", { length: 50 }),
   size: int("size"),
   altText: varchar("alt_text", { length: 255 }),
-  
-  /**
-   * 🚩 AJUSTE CRÍTICO: uploadedBy
-   * Alterado de bigint para varchar(255) para bater com users.id.
-   */
   uploadedBy: varchar("uploaded_by", { length: 255 }).references(() => users.id), 
-  
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -61,7 +81,6 @@ export const mediaLibrary = mysqlTable("media_library", {
 // ====================================================
 
 export const siteTheme = mysqlTable("site_theme", {
-  // ✅ Alterado para varchar(255)
   id: varchar("id", { length: 255 }).primaryKey(),
   borderRadius: varchar('border_radius', { length: 10 }).notNull().default('0.5rem'),
   primaryColor: varchar('primary_color', { length: 20 }).notNull().default('160 8% 35%'),
@@ -80,7 +99,22 @@ export const siteTheme = mysqlTable("site_theme", {
   headerBgColor: varchar("header_bg_color", { length: 50 }).default("0 0% 100%"),
   footerBgColor: varchar("footer_bg_color", { length: 50 }).default("160 8% 35%"),
   footerTextColor: varchar("footer_text_color", { length: 50 }).default("0 0% 100%"),
-  updated_at: timestamp('updated_at').defaultNow().onUpdateNow(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+});
+
+// ====================================================
+// --- ETIQUETAS ZEBRA (Biblioteca de Templates) ---
+// ====================================================
+
+export const labelTemplates = mysqlTable("label_templates", {
+  id: serial("id").primaryKey(), // Usamos serial para auto-incremento numérico
+  name: varchar("name", { length: 100 }).notNull(), // Nome ex: "Marmita Padrão"
+  width: int("width").default(100),  // Largura em mm
+  height: int("height").default(60), // Altura em mm
+  elements: longtext("elements").notNull(), // O JSON completo dos textos/tags
+  isDefault: boolean("is_default").default(false), // Se será o carregado por padrão
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
 // ====================================================

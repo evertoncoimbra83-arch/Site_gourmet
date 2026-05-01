@@ -1,98 +1,81 @@
+// server/routers/storefront/cart/index.ts
+
 import { z } from "zod";
 import { router, publicProcedure } from "../../../_core/trpc.js";
 import { eq, and, or, desc } from "drizzle-orm"; 
 import { carts } from "../../../../drizzle/schema/index.js"; 
-import { getDb } from "../../../db.js";
 import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 
-// Sub-roteadores e Lógica Centralizada
 import { cartItemsRouter } from "./items.js";
 import { cartRewardsRouter } from "./rewards.js";
 import { syncCartState } from "./logic.js";
+import { promoteCart } from "../../../auth.js";
 
 export const cartRouter = router({
-  
-  // 🔗 Sub-roteadores
-  items: cartItemsRouter, // Adicionar/Remover itens
+  items: cartItemsRouter, 
   applyCoupon: cartRewardsRouter.applyCoupon,
   removeCoupon: cartRewardsRouter.removeCoupon,
 
-  /**
-   * ✅ ATIVAR/DESATIVAR FIDELIDADE
-   * Alterna o uso de pontos e recalcula o total instantaneamente.
-   */
   toggleLoyalty: publicProcedure
     .input(z.object({ 
       cartId: z.string().optional(), 
       active: z.boolean() 
     }))
     .mutation(async ({ ctx, input }) => {
-      // O DB já vem no contexto agora (graças à mudança no createContext)
       const db = ctx.db; 
-
       const userId = ctx.user?.id ? String(ctx.user.id) : null;
-      const guestId = ctx.guestId;
+      const guestId = ctx.guestId ? String(ctx.guestId) : null;
       
-      let targetCartId = input.cartId;
+      const searchCondition = userId 
+        ? eq(carts.userId, userId)
+        : guestId ? eq(carts.guestId, guestId) : null;
 
-      // Se não veio ID explícito, busca o carrinho ativo do contexto atual
-      if (!targetCartId) {
-        // Lógica de busca: Se tem User, busca pelo User. Se não, busca pelo Guest.
-        const searchCondition = userId 
-          ? eq(carts.userId, userId)
-          : guestId 
-            ? eq(carts.guestId, guestId)
-            : null;
-
-        if (!searchCondition) {
-             throw new TRPCError({ code: "BAD_REQUEST", message: "Sem identificação de sessão" });
-        }
-
-        const [cart] = await db.select().from(carts).where(
-          and(
-            or(eq(carts.status, "active"), eq(carts.status, "open")),
-            searchCondition
-          )
-        ).orderBy(desc(carts.updatedAt)).limit(1);
-
-        if (!cart) throw new TRPCError({ code: "NOT_FOUND", message: "Carrinho não encontrado" });
-        targetCartId = cart.id;
+      if (!searchCondition) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão inválida" });
       }
 
-      // Atualiza o flag no banco
+      const [cart] = await db.select().from(carts).where(
+        and(
+          or(eq(carts.status, "active"), eq(carts.status, "open")),
+          searchCondition,
+          input.cartId ? eq(carts.id, input.cartId) : undefined 
+        )
+      ).orderBy(desc(carts.updatedAt)).limit(1);
+
+      if (!cart) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Carrinho não encontrado" });
+      }
+
       await db.update(carts)
         .set({ 
-          usesLoyalty: input.active, // Agora é boolean direto no schema
+          usesLoyalty: input.active, 
           updatedAt: new Date() 
-        } as any) // Cast 'as any' caso o TS ainda reclame do tipo boolean/tinyint
-        .where(eq(carts.id, targetCartId));
+        })
+        .where(eq(carts.id, cart.id));
 
-      // 🔄 Recalcula totais com a nova flag
-      return await syncCartState(db, targetCartId, userId || undefined);
+      return await syncCartState(db, cart.id, userId || undefined);
     }),
 
-  /**
-   * 🛒 OBTER RESUMO DO CARRINHO (GetSummary)
-   * A rota principal que o frontend chama para renderizar a sacola.
-   */
   getSummary: publicProcedure
     .query(async ({ ctx }) => {
       const db = ctx.db;
-      
       const userId = ctx.user?.id ? String(ctx.user.id) : null;
-      // Pegamos o guestId direto do contexto (que veio do header x-guest-id)
-      const guestId = ctx.guestId; 
+      const guestId = ctx.guestId ? String(ctx.guestId) : null; 
 
-      if (!userId && !guestId) {
-        // Se chegou aqui sem nenhum ID, retornamos null (frontend deve gerar ID e tentar de novo)
-        return null; 
+      if (!userId && !guestId) return null; 
+
+      // ✅ Merge em background — não bloqueia nem falha o getSummary
+      // se duas chamadas paralelas tentarem fazer merge ao mesmo tempo.
+      if (userId && guestId) {
+        try {
+          await promoteCart(guestId, userId);
+        } catch (mergeErr) {
+          console.warn("[Cart] merge race condition ignorada:", mergeErr);
+        }
       }
 
-      // 1. Busca carrinho ativo (Prioridade: Usuário > Visitante)
-      const searchCondition = userId 
-        ? eq(carts.userId, userId) 
-        : eq(carts.guestId, guestId!);
+      const searchCondition = userId ? eq(carts.userId, userId) : eq(carts.guestId, guestId!);
 
       let [cart] = await db.select().from(carts).where(
         and(
@@ -101,86 +84,71 @@ export const cartRouter = router({
         )
       ).orderBy(desc(carts.updatedAt)).limit(1);
 
-      // 2. Se não existir, cria um novo automaticamente
+      // Se não existe carrinho ativo, cria um novo
       if (!cart) {
         const newCartId = crypto.randomUUID();
-        
+        const now = new Date();
         await db.insert(carts).values({
           id: newCartId,
-          // Se tiver logado, vincula ao User. Se não, vincula ao GuestId
-          userId: userId || null, 
-          guestId: userId ? null : guestId, 
-          sessionId: guestId, // Mantemos sessionId preenchido para compatibilidade legado
+          userId: userId,
+          guestId: userId ? null : guestId,
+          sessionId: guestId, // Mantendo rastro da sessão original
           status: "active",
-        } as any);
+          createdAt: now,
+          updatedAt: now
+        });
         
-        // Recarrega o carrinho criado
-        [cart] = await db.select().from(carts).where(eq(carts.id, newCartId)).limit(1);
+        const [newCart] = await db.select().from(carts).where(eq(carts.id, newCartId)).limit(1);
+        cart = newCart;
       }
 
-      if (!cart) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao inicializar carrinho." });
+      if (!cart) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // 3. Verifica se precisamos fazer "Merge" (Visitante acabou de logar)
-      // Se o carrinho pertence a um Guest, mas agora temos um User logado no contexto, "tomamos posse" dele.
-      if (userId && !cart.userId && cart.guestId === guestId) {
-         await db.update(carts)
-           .set({ userId: userId, guestId: null } as any)
-           .where(eq(carts.id, cart.id));
-         
-         // Atualiza objeto local
-         cart.userId = userId;
-      }
-
-      // 🔄 Retorna o estado sincronizado e calculado
       const result = await syncCartState(db, cart.id, userId || undefined);
 
       return {
         ...result,
-        cart: cart, 
+        cartId: cart.id,
+        usesLoyalty: !!cart.usesLoyalty // Garante booleano puro
       };
     }),
 
-  /**
-   * 🆔 CRIAR OU RETOMAR CARRINHO (Usado no Login/Merge explícito)
-   */
   getOrCreateCart: publicProcedure
     .mutation(async ({ ctx }) => {
       const db = ctx.db;
       const userId = ctx.user?.id ? String(ctx.user.id) : null;
-      const guestId = ctx.guestId;
+      const guestId = ctx.guestId ? String(ctx.guestId) : null;
 
       if (!userId && !guestId) {
-         throw new TRPCError({ code: "BAD_REQUEST", message: "Visitante não identificado." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Sessão não identificada." });
       }
 
-      const searchCondition = userId 
-          ? eq(carts.userId, userId)
-          : eq(carts.guestId, guestId!);
+      // ✅ Merge em background — não bloqueia nem falha o getSummary
+      // se duas chamadas paralelas tentarem fazer merge ao mesmo tempo.
+      if (userId && guestId) {
+        try {
+          await promoteCart(guestId, userId);
+        } catch (mergeErr) {
+          console.warn("[Cart] merge race condition ignorada:", mergeErr);
+        }
+      }
 
-      let [cart] = await db.select().from(carts).where(
-        and(
-          eq(carts.status, "active"),
-          searchCondition
-        )
+      const searchCondition = userId ? eq(carts.userId, userId) : eq(carts.guestId, guestId!);
+
+      const [cart] = await db.select().from(carts).where(
+        and(or(eq(carts.status, "active"), eq(carts.status, "open")), searchCondition)
       ).orderBy(desc(carts.updatedAt)).limit(1);
 
       if (!cart) {
         const newCartId = crypto.randomUUID();
         await db.insert(carts).values({
           id: newCartId,
-          userId: userId || null,
+          userId: userId,
           guestId: userId ? null : guestId,
           sessionId: guestId,
           status: "active",
-        } as any);
-        return { cartId: newCartId };
-      }
-
-      // Merge automático se necessário
-      if (userId && !cart.userId) {
-        await db.update(carts)
-          .set({ userId: userId, guestId: null, updatedAt: new Date() } as any)
-          .where(eq(carts.id, cart.id));
+        });
+        return { cartId: newCartId }; 
       }
 
       return { cartId: cart.id };

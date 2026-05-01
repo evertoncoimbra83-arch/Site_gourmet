@@ -6,9 +6,41 @@ import { syncCartState } from "./logic.js";
 import { getDb } from "../../../db.js";
 import { TRPCError } from "@trpc/server";
 
+// ✅ CORREÇÃO FINAL:
+// Usamos Omit para remover as definições originais rígidas de 'discountValue' e 'couponId'.
+// Redefinimos ambas para aceitar 'string | number | null', resolvendo o conflito de tipos.
+type CartUpdate = Omit<Partial<typeof carts.$inferInsert>, 'discountValue' | 'couponId'> & {
+  discount_type?: string | null;
+  discountValue?: number | string | null;
+  couponId?: string | number | null;
+};
+
+async function assertCartOwnership(
+  db: Awaited<ReturnType<typeof getDb>>,
+  cartId: string,
+  userId: string | null,
+  guestId: string | null,
+) {
+  if (!db) throw new Error("Database unavailable");
+
+  const [cart] = await db.select().from(carts).where(eq(carts.id, cartId)).limit(1);
+  if (!cart) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Carrinho não encontrado." });
+  }
+
+  const ownsAsUser = !!userId && cart.userId === userId;
+  const ownsAsGuest = !userId && !!guestId && cart.guestId === guestId;
+
+  if (!ownsAsUser && !ownsAsGuest) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Carrinho não pertence à sessão atual." });
+  }
+}
+
 export const cartRewardsRouter = router({
   
-  // 1. APLICAR CUPOM
+  /**
+   * ✅ APLICAR CUPOM
+   */
   applyCoupon: publicProcedure
     .input(z.object({
       cartId: z.string().uuid(),
@@ -17,12 +49,15 @@ export const cartRewardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const targetUserId = ctx.user?.id ? String(ctx.user.id) : null;
+      const targetGuestId = ctx.guestId ? String(ctx.guestId) : null;
+      await assertCartOwnership(db, input.cartId, targetUserId, targetGuestId);
 
       const [coupon] = await db.select()
         .from(coupons)
         .where(
           and(
-            eq(coupons.code, input.code.toUpperCase()),
+            eq(coupons.code, input.code.toUpperCase().trim()),
             eq(coupons.isActive, true)
           )
         )
@@ -35,44 +70,60 @@ export const cartRewardsRouter = router({
         });
       }
 
-      await db.update(carts)
-        .set({ 
-          couponCode: coupon.code,
-          couponId: coupon.id,
-          discountValue: String(coupon.discountValue || "0"),
-          discountType: coupon.discountType,
-          discount_type: coupon.discountType 
-        } as any)
-        .where(eq(carts.id, input.cartId));
+      // ✅ Objeto tipado com a nossa definição flexível CartUpdate
+      const updateData: CartUpdate = {
+        couponCode: coupon.code,
+        couponId: coupon.id, // Agora aceita string ou number sem erro
+        discountValue: Number(coupon.discountValue || 0),
+        discount_type: coupon.discountType 
+      };
 
-      // ✅ Atualizado para usar apenas ctx.user.id
-      const targetUserId = ctx.user?.id;
-      return await syncCartState(db, input.cartId, targetUserId ? String(targetUserId) : undefined);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await db.update(carts).set(updateData as any).where(eq(carts.id, input.cartId));
+
+      const newState = await syncCartState(db, input.cartId, targetUserId || undefined);
+
+      return {
+        ...newState,
+        success: true,
+        message: `Cupom "${coupon.code}" aplicado com sucesso!`
+      };
     }),
 
-  // 2. REMOVER CUPOM
+  /**
+   * ✅ REMOVER CUPOM
+   */
   removeCoupon: publicProcedure
     .input(z.object({ cartId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const targetUserId = ctx.user?.id ? String(ctx.user.id) : null;
+      const targetGuestId = ctx.guestId ? String(ctx.guestId) : null;
+      await assertCartOwnership(db, input.cartId, targetUserId, targetGuestId);
 
-      await db.update(carts)
-        .set({ 
-          couponCode: null, 
-          couponId: null,
-          discountValue: "0",
-          discountType: "fixed",
-          discount_type: "fixed"
-        } as any)
-        .where(eq(carts.id, input.cartId));
+      const updateData: CartUpdate = {
+        couponCode: null, 
+        couponId: null,
+        discountValue: 0,
+        discount_type: "fixed"
+      };
 
-      // ✅ Atualizado para usar apenas ctx.user.id
-      const targetUserId = ctx.user?.id;
-      return await syncCartState(db, input.cartId, targetUserId ? String(targetUserId) : undefined);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await db.update(carts).set(updateData as any).where(eq(carts.id, input.cartId));
+
+      const newState = await syncCartState(db, input.cartId, targetUserId || undefined);
+
+      return {
+        ...newState,
+        success: true,
+        message: "Cupom removido do carrinho."
+      };
     }),
 
-  // 3. ALTERNAR USO DE PONTOS (Fidelidade)
+  /**
+   * ✅ ALTERNAR FIDELIDADE
+   */
   toggleLoyalty: publicProcedure
     .input(z.object({
       cartId: z.string().uuid(),
@@ -81,18 +132,26 @@ export const cartRewardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const targetUserId = ctx.user?.id ? String(ctx.user.id) : null;
+      const targetGuestId = ctx.guestId ? String(ctx.guestId) : null;
+      await assertCartOwnership(db, input.cartId, targetUserId, targetGuestId);
       
-      await db.update(carts)
-        .set({ 
-          usesLoyalty: input.active, 
-          updatedAt: new Date()
-        } as any)
-        .where(eq(carts.id, input.cartId));
+      const updateData: CartUpdate = {
+        usesLoyalty: input.active, 
+        updatedAt: new Date()
+      };
 
-      // ✅ Atualizado para usar apenas ctx.user.id
-      const targetUserId = ctx.user?.id;
-      
-      // 🔥 O syncCartState agora usará o ID correto para buscar o saldo de pontos
-      return await syncCartState(db, input.cartId, targetUserId ? String(targetUserId) : undefined);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await db.update(carts).set(updateData as any).where(eq(carts.id, input.cartId));
+
+      const newState = await syncCartState(db, input.cartId, targetUserId || undefined);
+
+      return {
+        ...newState,
+        success: true,
+        message: input.active 
+          ? "Seu saldo de pontos foi aplicado como desconto!" 
+          : "Desconto de pontos removido."
+      };
     }),
 });

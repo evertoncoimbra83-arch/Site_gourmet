@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado React para corrigir escopo JSX
 import { Helmet } from "react-helmet-async";
 
 interface SEOProps {

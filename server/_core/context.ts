@@ -1,72 +1,104 @@
-import * as trpcExpress from "@trpc/server/adapters/express";
-import { lucia } from "../auth.js"; 
-import { getDb } from "../db.js";
+// server/_core/context.ts
 
-/**
- * Cria o contexto para as requisições tRPC.
- * Captura Usuário (Lucia), Sessão, IP e User-Agent para Auditoria.
- */
-export const createContext = async ({
-  req,
-  res,
-}: trpcExpress.CreateExpressContextOptions) => {
-  // 1. INICIALIZAÇÃO DO BANCO
-  // Já deixamos o DB pronto no contexto para evitar chamadas repetidas
+import { type CreateExpressContextOptions } from "@trpc/server/adapters/express";
+import { type inferAsyncReturnType } from "@trpc/server";
+import { getDb } from "../db.js"; 
+import { lucia, promoteCart } from "../auth.js"; 
+import { guests, users } from "../../drizzle/schema/index.js"; 
+import { eq, and, isNull } from "drizzle-orm"; 
+
+export async function createContext({ req, res }: CreateExpressContextOptions) {
   const db = await getDb();
-
-  // 2. METADADOS DA CONEXÃO
-  const ip = req.ip || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || "127.0.0.1";
-  const userAgent = req.headers['user-agent'] || "unknown";
   
-  // 3. IDENTIFICAÇÃO DO VISITANTE (CARRINHO ANÔNIMO)
-  // O frontend deve enviar 'x-guest-id' (gerado no localStorage)
-  // Mantivemos suporte a 'x-session-id' caso você ainda esteja usando o nome antigo
-  const guestId = (req.headers['x-guest-id'] as string) || (req.headers['x-session-id'] as string) || null;
-
-  // 4. AUTENTICAÇÃO (LUCIA AUTH)
   const sessionId = lucia.readSessionCookie(req.headers.cookie ?? "");
+  const { session, user } = sessionId 
+    ? await lucia.validateSession(sessionId) 
+    : { session: null, user: null };
 
-  let user = null;
-  let session = null;
+  const guestId = req.headers["x-guest-id"] as string | undefined;
+  
+  // Tenta capturar o referral de todas as fontes possíveis
+  const referralCode = (req.headers["x-referral-code"] || req.headers["referral"]) as string | undefined;
 
-  if (sessionId) {
-    const validSession = await lucia.validateSession(sessionId);
-    
-    // Gerenciamento de Cookies (Renovação Automática)
-    if (validSession.session && validSession.session.fresh) {
-      const sessionCookie = lucia.createSessionCookie(validSession.session.id);
-      res.appendHeader("Set-Cookie", sessionCookie.serialize());
+  if (guestId) {
+    try {
+      await db.insert(guests)
+        .values({
+          id: guestId,
+          referralCode: referralCode || null,
+          lastActive: new Date(),
+        })
+        .onDuplicateKeyUpdate({
+          set: { 
+            referralCode: referralCode || undefined,
+            lastActive: new Date()
+          }
+        });
+
+      if (user) {
+        promoteCart(guestId, user.id).catch((err: unknown) => {
+          console.error("❌ [Context] Erro ao promover carrinho:", err);
+        });
+
+        // VÍNCULO DE REFERRAL NO USUÁRIO
+        if (referralCode) {
+          const cleanReferral = referralCode.toLowerCase().trim();
+          
+          await db.update(users)
+            .set({ referralCode: cleanReferral })
+            .where(
+              and(
+                eq(users.id, user.id),
+                // Só vincula se o usuário ainda for um "órfão"
+                isNull(users.referralCode) 
+              )
+            )
+            // ✅ FIX (no-explicit-any): Tipagem segura sem uso de 'any'
+            .then((result: unknown) => {
+              const parsedResult = result as [{ affectedRows?: number }];
+              const affected = parsedResult[0]?.affectedRows || 0;
+              
+              if (affected > 0) {
+                console.log(`\x1b[32m%s\x1b[0m`, `✅ [Referral Success] Usuário ${user.id} agora é indicado de: ${cleanReferral}`);
+              }
+            })
+            .catch((err: unknown) => console.error("❌ Erro ao vincular referral ao user:", err));
+        }
+      }
+    } catch (err: unknown) {
+      console.error("❌ [DB ERROR] Falha ao sincronizar guest/referral:", err);
     }
-    if (!validSession.session) {
-      const sessionCookie = lucia.createBlankSessionCookie();
-      res.appendHeader("Set-Cookie", sessionCookie.serialize());
-    }
-
-    user = validSession.user;
-    session = validSession.session;
   }
 
-  // 5. RETORNO DO CONTEXTO UNIFICADO
-  return {
-    // Ferramentas
-    db,
-    req,
-    res,
-    
-    // Auditoria
-    ip,
-    userAgent,
-    
-    // Autenticação (Login Real)
-    session, // Objeto de sessão do Lucia (ou null)
-    user,    // Objeto de usuário do Lucia (ou null)
-    userId: user?.id ?? null, // Atalho para o ID do usuário
-    isAdmin: (user as any)?.role === 'admin',
+  // BLINDAGEM DOS COOKIES LUCIA
+  try {
+    if (session && session.fresh) {
+      const newCookie = lucia.createSessionCookie(session.id);
+      
+      // Removemos a validade para forçar "Cookie de Sessão"
+      newCookie.attributes.maxAge = undefined;
+      // ✅ FIX: Comentário '@ts-expect-error' removido pois o TypeScript já valida nativamente
+      newCookie.attributes.expires = undefined;
 
-    // Visitante (Login Anônimo)
-    // ✅ Isso é o que o Cart Router vai usar quando user for null
-    guestId, 
-  };
-};
+      if (typeof res.appendHeader === "function") {
+        res.appendHeader("Set-Cookie", newCookie.serialize());
+      } else {
+        res.append("Set-Cookie", newCookie.serialize());
+      }
+    } else if (!session && sessionId) {
+      const blankCookie = lucia.createBlankSessionCookie();
+      
+      if (typeof res.appendHeader === "function") {
+        res.appendHeader("Set-Cookie", blankCookie.serialize());
+      } else {
+        res.append("Set-Cookie", blankCookie.serialize());
+      }
+    }
+  } catch (cookieErr) {
+    console.error("⚠️ [Cookie] Erro ao manipular headers de sessão:", cookieErr);
+  }
 
-export type TrpcContext = Awaited<ReturnType<typeof createContext>>;
+  return { req, res, user, session, guestId: guestId || null, db };
+}
+
+export type TrpcContext = inferAsyncReturnType<typeof createContext>;

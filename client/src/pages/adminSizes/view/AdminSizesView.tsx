@@ -1,200 +1,391 @@
-import React from "react";
-import { useAdminSizes, AdminTab } from "../logic/useAdminSizes";
+import React, { useMemo, useState } from "react";
+import type { ComponentProps } from "react";
+
+import { useAdminSizesTab } from "../logic/useAdminSizesTab";
+import { useAdminGroupsTab } from "../logic/useAdminGroupsTab";
+import { useAdminOptionsTab } from "../logic/useAdminOptionsTab";
+
 import { SizeCard } from "../components/SizeCard";
-import { GroupOptionsList } from "../components/GroupOptionsList";
-import { MasterAccompanimentsList } from "../components/MasterAccompanimentsList"; 
+import { GroupCard } from "../components/GroupCard";
+import { AccDrawer } from "../components/AccDrawer";
+
+import { LayoutList, Layers, Grid, Plus, Loader2, Edit2, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Settings2, Layers, Plus, Trash2, Ruler, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { trpc } from "@/_core/trpc"; 
-import { toast } from "@/components/ui/use-toast";
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { appToast as toast } from "@/lib/app-toast";
+
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
+
+// ---------------------------------
+// Helpers
+// ---------------------------------
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function toNumberId(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ---------------------------------
+// Types derived from components/hooks
+// ---------------------------------
+type SizeCardProps = ComponentProps<typeof SizeCard>;
+type SizeData = SizeCardProps["size"];
+
+type GroupCardProps = ComponentProps<typeof GroupCard>;
+type GroupData = GroupCardProps["group"];
+
+type AccDrawerProps = ComponentProps<typeof AccDrawer>;
+type AccData = AccDrawerProps["acc"];
+
+type SizesTab = ReturnType<typeof useAdminSizesTab>;
+type GroupsTab = ReturnType<typeof useAdminGroupsTab>;
+type OptionsTab = ReturnType<typeof useAdminOptionsTab>;
+
+// Inputs “exatos” das actions (sem any)
+type CreateSizeInput = Parameters<SizesTab["actions"]["create"]>[0];
+type UpdateSizeFn = SizesTab["actions"]["update"];
+type DuplicateSizeInput = Parameters<SizesTab["actions"]["duplicate"]>[0];
+
+// ---------------------------------
+// Local “raw” interfaces
+// ---------------------------------
+interface Category {
+  id: number;
+  name: string;
+}
+
+interface Accompaniment {
+  id: number;
+  name: string;
+  accompanimentCategoryId?: number | null;
+  [key: string]: unknown;
+}
+
+interface GroupOption {
+  id: number;
+  name: string;
+  [key: string]: unknown;
+}
 
 export function AdminSizesView() {
-  const { state, actions, data, mutations } = useAdminSizes();
-  const utils = trpc.useUtils();
+  const [activeTab, setActiveTab] = useState<"sizes" | "groups" | "options">("sizes");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedAcc, setSelectedAcc] = useState<AccData>(null);
 
-  const getSizeStyle = (name: string) => {
-    const n = name.toUpperCase();
-    if (n.includes('P') || n.includes('PEQUENO')) return { color: "text-blue-500", bg: "bg-blue-50", label: "Compacto" };
-    if (n.includes('G') || n.includes('GRANDE')) return { color: "text-amber-500", bg: "bg-amber-50", label: "Família" };
-    return { color: "text-emerald-500", bg: "bg-emerald-50", label: "Padrão" };
+  const sizesTab = useAdminSizesTab() as SizesTab;
+  const groupsTab = useAdminGroupsTab() as GroupsTab;
+  const optionsTab = useAdminOptionsTab() as OptionsTab;
+
+  const isLoading = sizesTab.isLoading || groupsTab.isLoading || optionsTab.isLoading;
+
+  const handleOpenAccDrawer = (acc?: AccData) => {
+    setSelectedAcc(acc ?? null);
+    setIsDrawerOpen(true);
   };
 
-  const upsertGroup = trpc.admin.accompaniments.groups.upsert.useMutation({
-    onSuccess: () => {
-      utils.admin.accompaniments.groups.list.invalidate(); 
-      toast.success("Grupo salvo!");
-    }
-  });
+  // ✅ Sizes normalizados para bater com SizeCard (sem inventar props que não existem no tipo)
+  const normalizedSizes: SizeData[] = useMemo(() => {
+    const list = (sizesTab.sizes ?? []) as unknown[];
 
-  const deleteGroup = trpc.admin.accompaniments.groups.delete.useMutation({
-    onSuccess: () => {
-      utils.admin.accompaniments.groups.list.invalidate();
-      toast.success("Grupo removido.");
-    }
-  });
+    return list
+      .filter(isRecord)
+      .map((s) => {
+        const noAccMsg =
+          typeof s.noAccompanimentsMessage === "string" ? s.noAccompanimentsMessage : "";
 
-  const onDragEnd = (result: DropResult) => {
-    const { destination, source, type } = result;
+        // NOTE: não colocamos "order" aqui, porque o TS reclama se SizeData não tiver essa prop.
+        const normalized: SizeData = {
+          ...(s as unknown as SizeData),
+          noAccompanimentsMessage: noAccMsg,
+        };
 
-    if (!destination) return;
-    if (destination.index === source.index && destination.droppableId === source.droppableId) return;
+        return normalized;
+      });
+  }, [sizesTab.sizes]);
 
-    // 📦 REORDENAÇÃO DE TAMANHOS (Lista Principal)
-    if (type === "SIZE") {
-        const items = Array.from(data.sizes || []);
-        const [reorderedItem] = items.splice(source.index, 1);
-        items.splice(destination.index, 0, reorderedItem);
+  // ✅ Groups normalizados para bater com GroupCard (resolve TS2739)
+  const normalizedGroups: GroupData[] = useMemo(() => {
+    const list = (groupsTab.groups ?? []) as unknown[];
 
-        items.forEach((item: any, index: number) => {
-          if (item.displayOrder !== index) {
-            mutations.updateSize.mutate({ id: item.id, displayOrder: index });
-          }
-        });
-        toast.success("Ordem dos tamanhos atualizada!");
-    }
+    return list
+      .filter(isRecord)
+      .map((g) => {
+        // Garantir os campos que o GroupCard espera (defaults “seguros”)
+        const normalized: GroupData = {
+          ...(g as unknown as GroupData),
+          isActive: typeof g.isActive === "boolean" ? g.isActive : true,
+          minSelections: Number.isFinite(Number(g.minSelections)) ? Number(g.minSelections) : 0,
+          maxSelections: Number.isFinite(Number(g.maxSelections)) ? Number(g.maxSelections) : 1,
+          defaultGrammage: Number.isFinite(Number(g.defaultGrammage)) ? Number(g.defaultGrammage) : 0,
+        };
+        return normalized;
+      });
+  }, [groupsTab.groups]);
 
-    // 📂 REORDENAÇÃO DE GRUPOS (Interno do Card)
-    if (type === "GROUP") {
-        const sizeId = Number(destination.droppableId.split('-')[2]);
-        const size = data.sizes.find((s: any) => s.id === sizeId);
-        
-        if (!size) return;
+  const linkedGroupsBySizeId = sizesTab.linkedGroups as Record<number, number[] | undefined>;
 
-        const linkedIds = state.linkedGroups[sizeId] || [];
-        const linkedGroups = data.groups.filter((g: any) => linkedIds.includes(Number(g.id)));
+  const onDragEndSizes = (result: DropResult) => {
+    if (!result.destination) return;
 
-        const orderMap = Array.isArray(size.groupsOrder) ? size.groupsOrder : [];
-        const currentItems = [...linkedGroups].sort((a, b) => {
-          const idxA = orderMap.indexOf(Number(a.id));
-          const idxB = orderMap.indexOf(Number(b.id));
-          return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
-        });
+    const items = Array.from(normalizedSizes);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
 
-        const [reordered] = currentItems.splice(source.index, 1);
-        currentItems.splice(destination.index, 0, reordered);
+    const newOrderIds = items
+      .map((item) => toNumberId((item as unknown as { id?: unknown }).id))
+      .filter((id): id is number => id != null);
 
-        const newOrderIds = currentItems.map((g: any) => Number(g.id));
-
-        actions.updateSize(sizeId, { groupsOrder: newOrderIds });
-        toast.success("Nova ordem dos grupos salva!");
-    }
-  };
-
-  const handleCreateGroup = () => {
-    const name = prompt("Nome do novo grupo:");
-    if (!name) return;
-    upsertGroup.mutate({ name: name.toUpperCase(), maxSelections: 1, minSelections: 0, isActive: true });
+    sizesTab.actions.reorder(newOrderIds);
+    toast.success("Ordem dos tamanhos atualizada");
   };
 
   const handleCreateSize = () => {
-    const name = prompt("Nome do tamanho (ex: Marmita P):");
-    if (!name) return;
-    mutations.createSize.mutate({ name, priceModifier: 0, displayOrder: (data.sizes?.length || 0) });
+    // ⚠️ Aqui a action `create` decide o shape real.
+    // A gente manda o payload “padrão” e faz cast via unknown pra não dar TS2353 por campo extra.
+    const payload = {
+      name: "Novo Tamanho",
+      isActive: true,
+      price: "0.00",
+      priceModifier: "0.00",
+      mainDishWeight: "200.00",
+      iconKey: "Box",
+      groupsOrder: [],
+      noAccompanimentsMessage: "",
+      // NÃO colocamos order aqui por padrão porque pode não existir no CreateSizeInput.
+    } as unknown as CreateSizeInput;
+
+    sizesTab.actions.create(payload);
   };
 
-  return (
-    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-700 p-4 md:p-6 pb-24 bg-[#F8FAFC]">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6 mb-6 md:mb-10">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-emerald-600 font-bold">
-            <Settings2 size={18} />
-            <span className="text-[10px] uppercase tracking-[0.3em]">Engenharia de Porções</span>
-          </div>
-          <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">
-            Menu <span className="text-emerald-600">Master</span>.
-          </h1>
-        </div>
-        <Button onClick={state.activeTab === 'sizes' ? handleCreateSize : handleCreateGroup} className={cn("h-16 px-10 rounded-[2rem] font-black text-[11px] uppercase tracking-widest gap-2 shadow-xl transition-all active:scale-95", state.activeTab === 'sizes' ? "bg-slate-900 text-white" : "bg-emerald-600 text-white shadow-emerald-900/20")}>
-          <Plus size={18}/> {state.activeTab === 'sizes' ? "Novo Tamanho" : "Novo Grupo"}
-        </Button>
-      </header>
+  if (isLoading) {
+    return (
+      <div className="flex h-[400px] items-center justify-center">
+        <Loader2 className="animate-spin text-emerald-500" size={40} />
+      </div>
+    );
+  }
 
-      <div className="flex p-1.5 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm sticky top-4 z-20 overflow-x-auto no-scrollbar max-w-2xl">
-        {(['sizes', 'groups', 'items'] as const).map((tab) => (
-          <button key={tab} onClick={() => actions.setActiveTab(tab as AdminTab)} className={cn("flex-1 min-w-[100px] flex items-center justify-center gap-3 py-4 rounded-[1.8rem] text-[10px] font-black uppercase tracking-widest transition-all", state.activeTab === tab ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:text-slate-600")}>
-            {tab === 'sizes' && <Ruler size={14} />}
-            {tab === 'groups' && <Layers size={14} />}
-            {tab === 'items' && <Database size={14} />}
-            <span>{tab === 'sizes' ? 'Tamanhos' : tab === 'groups' ? 'Grupos' : 'Itens'}</span>
+  return (
+    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 relative px-2 md:px-0 text-left">
+      {/* SELETOR DE ABAS */}
+      <div className="flex p-1.5 bg-slate-200/50 backdrop-blur-sm rounded-2xl w-full md:w-fit border border-slate-200 shadow-inner overflow-x-auto no-scrollbar">
+        {(["sizes", "groups", "options"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "flex-1 md:flex-none whitespace-nowrap px-4 md:px-6 py-3 rounded-xl text-[9px] md:text-[11px] font-black uppercase transition-all flex items-center justify-center gap-2 tracking-wider",
+              activeTab === tab
+                ? "bg-white shadow-md text-slate-900 scale-100 md:scale-105"
+                : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            {tab === "sizes" && <LayoutList size={14} />}
+            {tab === "groups" && <Layers size={14} />}
+            {tab === "options" && <Grid size={14} />}
+            <span className="inline">{tab === "sizes" ? "Tamanhos" : tab === "groups" ? "Grupos" : "Fichas"}</span>
           </button>
         ))}
       </div>
 
       <div className="min-h-[400px]">
-        <DragDropContext onDragEnd={onDragEnd}>
-          {state.activeTab === 'sizes' && (
-            <Droppable droppableId="sizes-list" type="SIZE">
-              {(provided) => (
-                <div {...provided.droppableProps} ref={provided.innerRef} className="grid grid-cols-1 gap-8">
-                  {data.sizes?.map((size: any, index: number) => {
-                    const style = getSizeStyle(size.name);
-                    return (
-                      <Draggable key={`size-${size.id}`} draggableId={`size-${size.id}`} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            style={{ ...provided.draggableProps.style }}
-                            className={cn("relative transition-all", snapshot.isDragging && "z-50")}
-                          >
-                            <div className={cn("absolute -top-2.5 left-12 px-4 py-1 rounded-full text-[8px] font-black uppercase tracking-widest z-10 shadow-sm border", style.bg, style.color, "border-current/10")}>
-                              {style.label}
-                            </div>
-                            
-                            <SizeCard 
-                              size={size}
-                              groups={data.groups}
-                              linkedIds={state.linkedGroups[size.id]}
-                              isExpanded={state.expandedSize === size.id}
-                              dragHandleProps={provided.dragHandleProps}
-                              onToggleExpand={() => actions.setExpandedSize(state.expandedSize === size.id ? null : size.id)}
-                              onUpdate={(id: number, updated: any) => actions.updateSize(id, updated)}
-                              onDelete={() => mutations.deleteSize.mutate({ id: size.id })}
-                              onToggleLink={(sizeId: number, groupId: number) => actions.toggleLink(sizeId, groupId)}
-                            />
-                          </div>
-                        )}
-                      </Draggable>
-                    );
-                  })}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          )}
-        </DragDropContext>
+        {/* ABA: TAMANHOS */}
+        {activeTab === "sizes" && (
+          <div className="space-y-6">
+            <div className="flex justify-end">
+              <Button
+                onClick={handleCreateSize}
+                className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-widest italic shadow-lg"
+              >
+                <Plus size={18} className="mr-2" /> Novo Tamanho
+              </Button>
+            </div>
 
-        {state.activeTab === 'groups' && (
-          <div className="grid grid-cols-1 gap-6">
-             {data.groups?.map((group: any) => (
-               <div key={group.id} className="group overflow-hidden rounded-[3rem] border border-slate-100 bg-white shadow-sm transition-all hover:border-emerald-100">
-                 <div className="flex justify-between items-center p-8 gap-6">
-                    <div className="flex items-center gap-6">
-                       <div className="h-16 w-16 rounded-[1.5rem] bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-500 shadow-inner"><Layers size={28} /></div>
-                       <div>
-                         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-600 block mb-0.5">Customização</span>
-                         <h3 className="text-3xl font-black uppercase tracking-tighter italic text-slate-900 leading-none truncate">{group.name}</h3>
-                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <Button variant="ghost" size="icon" onClick={() => confirm(`Remover grupo?`) && deleteGroup.mutate({ id: group.id })} className="text-slate-200 hover:text-red-500 rounded-xl h-12 w-12"><Trash2 size={18} /></Button>
-                       <Button onClick={() => actions.setExpandedGroup(state.expandedGroup === group.id ? null : group.id)} className={cn("h-14 px-10 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-md", state.expandedGroup === group.id ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-600")}>{state.expandedGroup === group.id ? "Fechar" : "Gerenciar"}</Button>
-                    </div>
-                 </div>
-                 {state.expandedGroup === group.id && (
-                   <div className="border-t border-slate-50 bg-[#FBFBFC] p-4 md:p-10 animate-in slide-in-from-top-2 duration-300">
-                     <GroupOptionsList groupId={group.id} />
-                   </div>
-                 )}
-               </div>
-             ))}
+            <DragDropContext onDragEnd={onDragEndSizes}>
+              <Droppable droppableId="sizes-list">
+                {(provided) => (
+                  <div className="space-y-4" {...provided.droppableProps} ref={provided.innerRef}>
+                    {normalizedSizes.map((size, index) => {
+                      const sizeId = toNumberId((size as unknown as { id?: unknown }).id) ?? index;
+
+                      return (
+                        <Draggable key={String(sizeId)} draggableId={String(sizeId)} index={index}>
+                          {(p) => (
+                            <SizeCard
+                              innerRef={p.innerRef}
+                              draggableProps={p.draggableProps as unknown as Record<string, unknown>}
+                              dragHandleProps={p.dragHandleProps as unknown as Record<string, unknown>}
+                              size={size}
+                              groups={normalizedGroups as unknown as SizeCardProps["groups"]}
+                              linkedIds={linkedGroupsBySizeId[sizeId] || []}
+                              isExpanded={expandedId === sizeId}
+                              onToggleExpand={() => setExpandedId(expandedId === sizeId ? null : sizeId)}
+                              onUpdate={sizesTab.actions.update as UpdateSizeFn}
+                              onDelete={() => sizesTab.actions.remove(sizeId)}
+                              onDuplicate={() => sizesTab.actions.duplicate(size as unknown as DuplicateSizeInput)}
+                              onToggleLink={async (sId, gId) => {
+                                await sizesTab.actions.toggleLink(sId, gId);
+                              }}
+                            />
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
           </div>
         )}
 
-        {state.activeTab === 'items' && <div className="animate-in slide-in-from-right-4 duration-500"><MasterAccompanimentsList /></div>}
+        {/* ABA: GRUPOS */}
+        {activeTab === "groups" && (
+          <div className="space-y-6">
+            <div className="flex justify-end">
+              <Button
+                onClick={() => groupsTab.actions.upsert({ name: "Novo Grupo" })}
+                className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-white rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-widest italic shadow-xl"
+              >
+                <Plus size={18} className="mr-2" /> Criar Grupo
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {normalizedGroups.map((group) => {
+                const groupId = toNumberId((group as unknown as { id?: unknown }).id) ?? 0;
+
+                return (
+                  <GroupCard
+                    key={groupId}
+                    group={group}
+                    allOptions={optionsTab.items as unknown as GroupOption[]}
+                    isExpanded={expandedId === groupId}
+                    onToggleExpand={() => setExpandedId(expandedId === groupId ? null : groupId)}
+                    onUpdate={(id, data) => groupsTab.actions.upsert({ ...data, id })}
+                    onDelete={() => groupsTab.actions.remove(groupId)}
+                    onToggleOption={groupsTab.actions.toggleOption}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ABA: FICHAS TÉCNICAS */}
+        {activeTab === "options" && (
+          <div className="space-y-6">
+            <div className="flex justify-end">
+              <Button
+                onClick={() => handleOpenAccDrawer()}
+                className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-widest italic shadow-lg"
+              >
+                <Plus size={18} className="mr-2" /> Novo Item Master
+              </Button>
+            </div>
+
+            {/* MOBILE VIEW */}
+            <div className="grid grid-cols-1 gap-3 md:hidden">
+              {(optionsTab.items as unknown as Accompaniment[]).map((item) => (
+                <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
+                        <Package size={18} />
+                      </div>
+                      <div className="text-left">
+                        <h4 className="font-black text-slate-800 uppercase italic text-[11px] leading-tight">{item.name}</h4>
+                        <span className="text-[9px] text-slate-400 font-bold uppercase">ID: {item.id}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenAccDrawer(item as unknown as AccData)}
+                      className="h-10 w-10 rounded-xl bg-slate-50 text-slate-400"
+                    >
+                      <Edit2 size={16} />
+                    </Button>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-50">
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Categoria Visual</p>
+                    <select
+                      value={String(item.accompanimentCategoryId || "")}
+                      onChange={(e) => optionsTab.actions.updateCategory(item.id, Number(e.target.value) || null)}
+                      className="w-full bg-slate-100 rounded-xl px-4 py-3 text-[10px] font-black uppercase border-none outline-none"
+                    >
+                      <option value="">Sem Categoria</option>
+                      {(optionsTab.categories as unknown as Category[]).map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DESKTOP VIEW */}
+            <div className="hidden md:block bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="p-6 text-[10px] font-black uppercase text-slate-400">Item / Insumo</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-slate-400 text-center">Categoria</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-slate-400 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(optionsTab.items as unknown as Accompaniment[]).map((item) => (
+                    <tr key={item.id} className="group hover:bg-slate-50/50 transition-colors">
+                      <td className="p-6">
+                        <div className="flex flex-col">
+                          <span className="font-black text-slate-800 uppercase italic text-sm">{item.name}</span>
+                          <span className="text-[9px] text-slate-400 font-bold mt-0.5">ID: {item.id}</span>
+                        </div>
+                      </td>
+                      <td className="p-6 text-center">
+                        <select
+                          value={String(item.accompanimentCategoryId || "")}
+                          onChange={(e) => optionsTab.actions.updateCategory(item.id, Number(e.target.value) || null)}
+                          className="bg-slate-100 rounded-xl px-4 py-2 text-[10px] font-black uppercase border-none focus:ring-2 focus:ring-emerald-500 cursor-pointer min-w-[140px]"
+                        >
+                          <option value="">Geral</option>
+                          {(optionsTab.categories as unknown as Category[]).map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.name.toUpperCase()}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-6 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenAccDrawer(item as unknown as AccData)}
+                          className="h-10 w-10 rounded-xl text-slate-300 hover:text-emerald-500 transition-all"
+                        >
+                          <Edit2 size={16} />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
+
+      <AccDrawer open={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} acc={selectedAcc} />
     </div>
   );
 }

@@ -1,8 +1,27 @@
-import { useEffect, useCallback } from "react";
-import posthog from 'posthog-js'; // Certifique-se de ter instalado: npm install posthog-js
+import { useEffect, useCallback, useRef } from "react";
+import posthog from 'posthog-js';
+import ReactGA from "react-ga4"; // ✅ Importando o GA4
 
-export function useCheckoutTracking(cart: any) {
-  
+// --- INTERFACES DE TIPAGEM ---
+
+interface TrackingCartItem {
+  id?: string | number;
+  packageId?: string | number;
+  name?: string;
+  displayPrice?: number | string;
+  price?: number | string;
+  quantity: number;
+}
+
+interface TrackingCart {
+  items: TrackingCartItem[];
+  subtotal: number | string;
+  couponDescription?: string;
+}
+
+export function useCheckoutTracking(cart: TrackingCart | null | undefined) {
+  const beginCheckoutTrackedRef = useRef(false);
+
   // 1. CAPTURA E PERSISTÊNCIA DE UTMs (Atribuição de Marketing)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -30,36 +49,50 @@ export function useCheckoutTracking(cart: any) {
         initial_utm_campaign: trafficData.campaign
       });
     }
-  }, []);
+  }, []); 
 
   // 2. RASTREIO DE INÍCIO DE CHECKOUT (begin_checkout)
   useEffect(() => {
-    if (cart?.items?.length > 0) {
-      const itemsFormatted = cart.items.map((item: any) => ({
+    if (cart && cart.items && cart.items.length > 0) {
+      if (beginCheckoutTrackedRef.current) return;
+      beginCheckoutTrackedRef.current = true;
+
+      const itemsFormatted = cart.items.map((item) => ({
         item_id: item.id || item.packageId,
         item_name: item.name,
-        price: Number(item.displayPrice || item.price),
+        price: Number(item.displayPrice || item.price || 0),
         quantity: item.quantity,
         item_category: item.packageId ? "Pacote" : "Prato Avulso"
       }));
 
-      // Evento padrão GA4 / PostHog
-      posthog.capture("begin_checkout", {
-        value: Number(cart.subtotal),
+      const eventPayload = {
+        value: Number(cart.subtotal || 0),
         currency: "BRL",
         items: itemsFormatted,
         coupon: cart.couponDescription || ""
-      });
+      };
 
-       }
-  }, []); // Executa apenas uma vez ao montar o componente de Checkout
+      // Evento padrão PostHog
+      posthog.capture("begin_checkout", eventPayload);
+
+      // ✅ Evento Padrão GA4 (Agora o Google sabe que um carrinho foi aberto!)
+      ReactGA.event("begin_checkout", eventPayload);
+    }
+  }, [cart]); 
 
   // 3. EVENTOS DE ETAPAS (Ações do Usuário)
   
   // Rastrear quando escolhe endereço
   const trackShippingSelected = useCallback((type: string, cost: number) => {
     posthog.capture("add_shipping_info", {
-      shipping_type: type, // 'delivery' | 'pickup'
+      shipping_type: type, 
+      value: cost,
+      currency: "BRL"
+    });
+
+    // ✅ Disparo para o Google Analytics
+    ReactGA.event("add_shipping_info", {
+      shipping_tier: type,
       value: cost,
       currency: "BRL"
     });
@@ -68,6 +101,12 @@ export function useCheckoutTracking(cart: any) {
   // Rastrear quando seleciona método de pagamento
   const trackPaymentSelected = useCallback((methodId: string) => {
     posthog.capture("add_payment_info", {
+      payment_type: methodId,
+      currency: "BRL"
+    });
+
+    // ✅ Disparo para o Google Analytics
+    ReactGA.event("add_payment_info", {
       payment_type: methodId,
       currency: "BRL"
     });

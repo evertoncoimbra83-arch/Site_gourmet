@@ -5,28 +5,23 @@ export async function generateDatabaseBackup(): Promise<string> {
   const dbName = "gourmet_saudavel";
 
   try {
-    console.log(`📦 [BACKUP] Executando dump via shell seguro...`);
-
-    // ✅ Mudança: Usamos aspas duplas internas para o shell do Windows não se perder
-    // E removemos o aviso de senha na CLI para evitar erros de pipe
+    // ✅ Comando formatado para compatibilidade com Docker/MySQL
     const command = `docker exec ${containerName} /usr/bin/mysqldump -u root --password=root ${dbName}`;
     
     const output = execSync(command, { 
       maxBuffer: 1024 * 1024 * 64, 
       encoding: 'utf8',
-      // 'pipe' no stderr nos permite ver o erro real se falhar
       stdio: ['pipe', 'pipe', 'pipe'] 
     });
 
     return output;
 
-  } catch (error: any) {
-    // Aqui pegamos o erro REAL que o MySQL devolveu (stderr)
-    const stderr = error.stderr?.toString() || "";
-    const message = error.message || "";
+  } catch (error: unknown) {
+    // ✅ CORREÇÃO: Cast seguro de unknown para capturar as propriedades do erro de processo
+    const processError = error as { stderr?: Buffer; message?: string };
     
-    console.error("❌ [MYSQL ERROR]:", stderr);
-    console.error("❌ [EXEC ERROR]:", message);
+    const stderr = processError.stderr?.toString() || "";
+    const message = processError.message || "";
 
     // Tratamento de erro específico para o usuário
     if (stderr.includes("Unknown database")) {

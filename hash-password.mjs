@@ -12,12 +12,12 @@ function hashPassword(password) {
 const password = process.argv[2];
 
 if (!password) {
-  console.log("Use: node hash-password.mjs SUA_SENHA");
+  
   process.exit(1);
 }
 
 const hashed = hashPassword(password);
-console.log("\nHash gerado:\n");
-console.log(hashed);
-console.log("\nCole esse valor no campo password do usuário.\n");
+
+
+
 process.exit(0);

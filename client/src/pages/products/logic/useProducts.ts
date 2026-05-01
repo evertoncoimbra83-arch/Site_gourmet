@@ -1,21 +1,33 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/_core/trpc"; 
 import { keepPreviousData } from "@tanstack/react-query";
+import { mapDishFromDb } from "./mappers"; 
+
+type RawDbData = Record<string, unknown>;
 
 export function useProducts() {
   const [selectedDishId, setSelectedDishId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState(""); 
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
 
-  // 1. Rota pública para categorias
-  const { data: categoriesData } = trpc.products.categories.useQuery();
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  const { data: categoriesData } = trpc.public.dishes.categories.useQuery(
+    undefined, 
+    { staleTime: 1000 * 60 * 30 } 
+  );
   
-  // 2. Rota pública para listagem
-  const { data: productData, isLoading, error } = trpc.products.list.useQuery(
+  const { data: productData, isLoading, error } = trpc.public.dishes.list.useQuery(
     {
       page: 1,
       perPage: 100, 
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       category: selectedCategory ? selectedCategory : undefined,
     },
     { 
@@ -24,39 +36,44 @@ export function useProducts() {
     }
   );
 
-  // 3. ✅ REVISÃO: Ordenação de Engenharia (Tamanhos e DisplayOrder)
   const products = useMemo(() => {
-    if (!productData?.data) return [];
-    
-    // Mapeamos os produtos garantindo que os tamanhos internos 
-    // venham na ordem correta para o Drawer não bugar
-    return productData.data.map((dish: any) => {
-      if (!dish.sizes) return dish;
+    const rawList = Array.isArray(productData) 
+      ? (productData as RawDbData[])
+      : (productData as unknown as { data?: RawDbData[] })?.data || [];
 
-      return {
-        ...dish,
-        // ✅ Ordena os tamanhos pelo displayOrder (P antes de G, etc)
-        sizes: [...dish.sizes].sort((a: any, b: any) => 
-          (a.displayOrder || 0) - (b.displayOrder || 0)
-        )
-      };
-    });
+    if (!rawList.length) return [];
+    
+    return rawList
+      .map((dish) => {
+        const mappedDish = mapDishFromDb(dish);
+        if (!mappedDish) return null;
+
+        // ✅ CORREÇÃO: Usamos unknown em vez de any para satisfazer o ESLint
+        // e incluímos o categoryId na reconstrução do objeto
+        const baseMapped = mappedDish as unknown as Record<string, unknown>;
+        
+        return {
+          ...mappedDish,
+          categoryId: baseMapped.categoryId ?? dish.categoryId ?? dish.category_id ?? (dish.dish as RawDbData | undefined)?.categoryId
+        };
+      })
+      .filter((dish): dish is NonNullable<typeof dish> => dish !== null);
   }, [productData]);
 
-  // 4. ✅ REVISÃO: Ordenação das Categorias
   const catList = useMemo(() => {
     if (!Array.isArray(categoriesData)) return [];
     
-    // Ordena as categorias pelo displayOrder configurado no Admin
-    return [...categoriesData].sort((a: any, b: any) => 
-      (a.displayOrder || 0) - (b.displayOrder || 0)
-    );
+    return [...(categoriesData as RawDbData[])].sort((a, b) => {
+      const orderA = Number(a.displayOrder ?? a.display_order ?? 0);
+      const orderB = Number(b.displayOrder ?? b.display_order ?? 0);
+      return orderA - orderB;
+    });
   }, [categoriesData]);
 
   return {
     state: {
       selectedDishId,
-      search,
+      search, 
       selectedCategory,
       products,
       catList,

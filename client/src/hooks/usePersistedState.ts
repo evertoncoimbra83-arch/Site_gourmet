@@ -1,15 +1,12 @@
 import { useState, useEffect } from "react";
+import { safeJsonParse } from "@/lib/safe-parse";
 
 export function usePersistedState<T>(key: string, initialState: T) {
   // 1. Tenta carregar o valor inicial do localStorage
   const [state, setState] = useState<T>(() => {
     const saved = localStorage.getItem(key);
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return initialState;
-      }
+      return safeJsonParse(saved, initialState);
     }
     return initialState;
   });

@@ -80,5 +80,5 @@ report += "=== FIM DO RELATÓRIO ===\n";
 
 fs.writeFileSync(reportPath, report);
 
-console.log(`✅ Relatório gerado: ${reportPath}`);
-console.log("Você pode me enviar este arquivo para análise detalhada de erros e warnings.");
+
+

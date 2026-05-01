@@ -1,63 +1,61 @@
-import { mysqlTable, varchar, decimal, int, timestamp, text } from "drizzle-orm/mysql-core";
-import { dishes } from "./catalog.js"; 
+import { decimal, int, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
 
 /**
- * 1. BIBLIOTECA DE INSUMOS (Ingredients)
- * Valores baseados em 100g ou 100ml.
- * Esta tabela armazena a base de dados TACO/TBCA + Insumos Manuais.
+ * ✅ 1. DEFINIÇÃO DOS CAMPOS NUTRICIONAIS BASE (Macros)
+ * Centraliza os nomes das colunas e tipos para evitar erros de TypeScript.
+ * Usado em: nutrition_facts, dish_composition, ingredients e dishes.
+ * Precisão: decimal 10,3 para gramas e 10,2 para calorias/mg.
  */
-export const ingredients = mysqlTable("ingredients", {
-  id: int("id").primaryKey().autoincrement(),
-  
-  // ✅ Alterado para 'text' para evitar o erro de "Data too long" com a base TACO/TBCA
-  name: text("name").notNull(),
-  
-  // ✅ Categoria para organizar os itens (ex: Carnes, Frutas, Cereais, Leguminosas)
-  category: varchar("category", { length: 100 }),
-  
-  source: varchar("source", { length: 50 }).default("Manual"), 
-  externalId: varchar("external_id", { length: 50 }),
-  yieldFactor: decimal("yield_factor", { precision: 10, scale: 2 }).default("1.00"),
-
-  // Macronutrientes (Baseados em 100g/ml)
-  calories: decimal("calories", { precision: 10, scale: 2 }).default("0.00"),
+export const nutritionFields = {
+  // Energia
+  energyKcal: decimal("energy_kcal", { precision: 10, scale: 2 }).default("0.00"),
   energyKj: decimal("energy_kj", { precision: 10, scale: 2 }).default("0.00"),
-  carbohydrates: decimal("carbohydrates", { precision: 10, scale: 2 }).default("0.00"),
+  yieldFactor: decimal('yield_factor', { precision: 10, scale: 2 }).default('1.00'),
   
-  // ✅ Açúcares de Adição (Obrigatório na nova rotulagem da Anvisa)
-  addedSugars: decimal("added_sugars", { precision: 10, scale: 2 }).default("0.00"),
+  // Macros Principais
+  proteins: decimal("proteins", { precision: 10, scale: 3 }).default("0.000"),
+  carbs: decimal("carbs", { precision: 10, scale: 3 }).default("0.000"),
+  fatTotal: decimal("fat_total", { precision: 10, scale: 3 }).default("0.000"),
   
-  protein: decimal("protein", { precision: 10, scale: 2 }).default("0.00"),
-  fats: decimal("fats", { precision: 10, scale: 2 }).default("0.00"),
-  fatSaturated: decimal("fat_saturated", { precision: 10, scale: 2 }).default("0.00"),
-  fatTrans: decimal("fat_trans", { precision: 10, scale: 2 }).default("0.00"),
-  fiber: decimal("fiber", { precision: 10, scale: 2 }).default("0.00"),
-  sodium: decimal("sodium", { precision: 10, scale: 2 }).default("0.00"),
+  // Detalhamento de Gorduras
+  fatSaturated: decimal("fat_saturated", { precision: 10, scale: 3 }).default("0.000"),
+  fatTrans: decimal("fat_trans", { precision: 10, scale: 3 }).default("0.000"),
   
-  unit: varchar("unit", { length: 20 }).default("g"), 
-
-  // Controle de auditoria
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
-});
+  // Fibras e Sódio
+  fiber: decimal("fiber", { precision: 10, scale: 3 }).default("0.000"),
+  sodium: decimal("sodium", { precision: 10, scale: 2 }).default("0.00"), // armazenado em mg
+};
 
 /**
- * 2. FICHA TÉCNICA (Product Ingredients)
- * Tabela Pivot que liga os pratos (dishes) aos insumos (ingredients) 
- * definindo a composição exata de cada marmita/produto.
+ * ✅ 2. COLUNAS EXTRAS (Micronutrientes / TACO)
+ * Adicione novos campos aqui (Ex: Vitamina C, Potássio) para atualizar o sistema todo.
  */
-export const productIngredients = mysqlTable("product_ingredients", {
+export const ingredientExtraColumns = {
+  addedSugars: decimal("added_sugars", { precision: 10, scale: 2 }).default("0.00"),
+  calcium: decimal("calcium", { precision: 10, scale: 2 }).default("0.00"),
+  iron: decimal("iron", { precision: 10, scale: 2 }).default("0.00"),
+};
+
+/**
+ * ✅ 3. ESTRUTURA PARA A TABELA NUTRITION_FACTS
+ * Agrupa as colunas técnicas com os campos nutricionais.
+ * Exportado para o objeto de definição de tabela no index.ts ou catalog.ts.
+ */
+export const nutritionFactsColumns = {
   id: int("id").primaryKey().autoincrement(),
   
-  // Referência ao prato em catalog.ts
-  productId: int("product_id")
-    .notNull()
-    .references(() => dishes.id, { onDelete: "cascade" }),
-    
-  // Referência ao insumo nesta tabela
-  ingredientId: int("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "cascade" }),
-    
-  // Quantidade líquida usada no prato (ex: 0.150 para 150g)
-  quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(),
-});
+  // IDs para Relações Polimórficas (Chaves Estrangeiras Flexíveis)
+  ingredientId: int("ingredient_id"), 
+  dishId: int("dish_id"),             
+  compositionId: int("composition_id"), 
+
+  // Controle de Contexto Nutricional
+  // BASE = Cadastro do Insumo | TOTAL = Soma do Prato | SNAPSHOT = Foto da Ficha Técnica
+  entityType: mysqlEnum("entity_type", ["BASE", "TOTAL", "SNAPSHOT"]).notNull(),
+
+  // Injeção via Spread de todos os campos definidos acima
+  ...nutritionFields,
+  ...ingredientExtraColumns,
+
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
+};

@@ -1,21 +1,45 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Sheet, 
   SheetContent, 
-  SheetHeader, 
   SheetTitle,
+  SheetHeader,
   SheetDescription 
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Save, Image as ImageIcon, Wallet, PlusCircle } from "lucide-react";
+import { Loader2, Save, Image as ImageIcon, Wallet, PlusCircle, Camera } from "lucide-react";
 
-// ✅ Import corrigido para o MediaLibraryDrawer que revisamos
-import { MediaLibraryDrawer } from "../../adminMedia/view/MediaLibraryDrawer";
+// ✅ Import atualizado para o componente global de nuvem
+import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { cn } from "@/lib/utils";
 
-export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending }: any) {
+// --- INTERFACES ---
+
+interface PaymentMethod {
+  id?: string | number;
+  name: string;
+  discountPercentage?: string | number;
+  discount_percentage?: string | number;
+  description?: string;
+  icon?: string;
+  brandName?: string;
+  brand_name?: string;
+  brandLogoUrl?: string;
+  brand_logo_url?: string;
+}
+
+interface PaymentMethodDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  method: PaymentMethod | null;
+  onSubmit: (payload: Record<string, unknown>) => void;
+  isPending: boolean;
+}
+
+export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending }: PaymentMethodDrawerProps) {
   const [formData, setFormData] = useState({
     name: "", 
     discountPercentage: "0", 
@@ -28,18 +52,28 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
   const [isMediaOpen, setIsMediaOpen] = useState(false);
 
   /**
-   * ✅ Helper para visualização local (Preview)
+   * ✅ Utilitário de URL Blindado (Cloudinary + Local)
    */
   const getImageUrl = (url: string | null | undefined) => {
     if (!url) return "";
-    if (url.startsWith('http') || url.startsWith('data:') || url.startsWith('/')) {
+    
+    // Se for Cloudinary ou base64, retorna direto
+    if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) {
       return url;
     }
-    // Endereço do seu backend para servir o arquivo estático
-    return `http://localhost:3001/uploads/${url}`;
+    
+    // Limpeza de paths locais legados
+    const cleanPath = url
+      .replace(/^\/?public\//, "")
+      .replace(/^\//, "");
+
+    const apiBase = (import.meta.env.VITE_API_URL as string || "").replace(/\/$/, "");
+    
+    return cleanPath.includes('uploads/') 
+      ? `${apiBase}/${cleanPath}` 
+      : `${apiBase}/uploads/${cleanPath}`;
   };
 
-  // ✅ Sincronização ao carregar dados existentes
   useEffect(() => {
     if (open) {
       if (method) {
@@ -49,7 +83,7 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
           description: method.description || "",
           icon: method.icon || "",
           brandName: method.brand_name ?? method.brandName ?? "",
-          brandLogoUrl: getImageUrl(method.brand_logo_url ?? method.brandLogoUrl)
+          brandLogoUrl: method.brand_logo_url ?? method.brandLogoUrl ?? ""
         });
       } else {
         setFormData({ name: "", discountPercentage: "0", description: "", icon: "", brandName: "", brandLogoUrl: "" });
@@ -57,31 +91,18 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
     }
   }, [method, open]);
 
-  /**
-   * ✅ Recebe a seleção da Galeria
-   */
-  const handleImageSelect = (fileName: string) => {
-    // A galeria agora nos envia apenas o nome do arquivo (ex: pix.png)
-    // Atualizamos o estado com a URL completa para o Preview funcionar
-    const previewUrl = getImageUrl(fileName);
-    
-    setFormData(prev => ({ ...prev, brandLogoUrl: previewUrl }));
+  const handleImageSelect = (url: string) => {
+    setFormData(prev => ({ ...prev, brandLogoUrl: url }));
     setIsMediaOpen(false);
   };
 
-  /**
-   * ✅ Envio final para o Backend
-   */
   const handleSubmit = () => {
-    // 🔍 Limpeza final: Salvamos apenas o nome do arquivo no banco
-    const cleanFileName = formData.brandLogoUrl.split('/').pop() || "";
-
     const payload = {
       name: formData.name,
       description: formData.description,
       icon: formData.icon,
       brand_name: formData.brandName,
-      brand_logo_url: cleanFileName, 
+      brand_logo_url: formData.brandLogoUrl, // ✅ Enviamos a URL completa (Cloudinary amigável)
       discount_percentage: parseFloat(formData.discountPercentage) || 0,
     };
     
@@ -90,118 +111,127 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-full sm:max-w-xl p-0 border-none bg-[#F8FAFC] flex flex-col h-screen outline-none z-[100]">
+      <SheetContent side="right" className="w-full sm:max-w-xl p-0 border-none bg-[#F8FAFC] flex flex-col h-screen outline-none z-100 text-left">
         
         {/* HEADER */}
-        <div className="p-8 md:p-10 bg-white border-b border-slate-100 shrink-0">
+        <SheetHeader className="p-8 md:p-10 bg-white border-b border-slate-100 shrink-0 text-left">
           <div className="flex items-center gap-3 text-emerald-600 mb-2">
             <Wallet size={18} />
             <span className="text-[10px] font-black uppercase tracking-[0.4em]">Financeiro & Checkout</span>
           </div>
-          <SheetTitle className="text-3xl font-black uppercase text-slate-900 tracking-tighter italic leading-none">
+          <SheetTitle className="text-3xl font-black uppercase text-slate-900 tracking-tighter italic leading-none text-left">
             {method ? "Editar" : "Novo"} <span className="text-emerald-600">Pagamento</span>
           </SheetTitle>
-          <SheetDescription className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2">
-            Configure descontos e a logo que aparece para o cliente.
+          <SheetDescription className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2 text-left">
+            Configure descontos e a logo que aparece para o cliente no checkout.
           </SheetDescription>
-        </div>
+        </SheetHeader>
 
         {/* BODY */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-8 md:p-10 space-y-10 pb-32">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-8 md:p-10 space-y-10 pb-32 text-left">
           
-          {/* NOME E DESCONTO */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-8 rounded-4xl border border-slate-100 shadow-sm">
+            <div className="space-y-2 text-left">
               <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400">Método *</Label>
               <Input 
-                className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg" 
+                className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg focus-visible:ring-emerald-500" 
                 value={formData.name} 
                 onChange={e => setFormData({...formData, name: e.target.value})} 
                 placeholder="Ex: PIX"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 text-left">
               <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400 text-center">Desconto (%)</Label>
               <Input 
                 type="number" 
-                className="h-14 rounded-2xl bg-slate-50 border-none font-black text-xl text-emerald-600 text-center" 
+                className="h-14 rounded-2xl bg-slate-50 border-none font-black text-xl text-emerald-600 text-center focus-visible:ring-emerald-500" 
                 value={formData.discountPercentage} 
                 onChange={e => setFormData({...formData, discountPercentage: e.target.value})} 
               />
             </div>
           </div>
 
-          {/* PREVIEW DA LOGO */}
-          <div className="space-y-4">
+          <div className="space-y-4 text-left">
             <Label className="font-black uppercase text-[10px] tracking-widest text-slate-400 ml-1 flex items-center gap-2">
               <ImageIcon size={14} /> Logo da Bandeira
             </Label>
             
             <div 
               onClick={() => setIsMediaOpen(true)}
-              className="group relative h-48 w-full rounded-[2.5rem] border-2 border-dashed border-slate-200 bg-white flex flex-col items-center justify-center cursor-pointer transition-all hover:border-emerald-500 overflow-hidden"
+              className={cn(
+                "group relative h-48 w-full rounded-4xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden bg-white",
+                formData.brandLogoUrl ? "border-emerald-200 shadow-inner" : "border-slate-200 hover:border-emerald-500"
+              )}
             >
               {formData.brandLogoUrl ? (
                 <div className="relative w-full h-full flex items-center justify-center bg-slate-50/50">
                   <img 
-                    src={formData.brandLogoUrl} 
+                    src={getImageUrl(formData.brandLogoUrl)} 
                     className="h-full w-full object-contain p-6 transition-transform group-hover:scale-105" 
                     alt="Preview"
                     onError={(e) => {
                       e.currentTarget.src = "https://placehold.co/400x400/f1f5f9/cbd5e1?text=Erro+no+Link";
                     }}
                   />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <span className="text-white font-black text-[10px] uppercase tracking-widest bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">Alterar Imagem</span>
+                  <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[1px]">
+                     <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-xl">
+                        <Camera size={14} className="text-emerald-600" />
+                        <span className="text-slate-900 text-[10px] font-black uppercase tracking-widest">Alterar Logo</span>
+                     </div>
                   </div>
                 </div>
               ) : (
                 <div className="text-center space-y-2">
-                  <PlusCircle size={32} className="mx-auto text-slate-200" />
-                  <p className="text-[10px] font-black uppercase text-slate-400">Escolher Logo</p>
+                  <PlusCircle size={32} className="mx-auto text-slate-200 group-hover:text-emerald-500 transition-colors" />
+                  <p className="text-[10px] font-black uppercase text-slate-400 group-hover:text-slate-600">Escolher na Biblioteca</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* CAMPOS ADICIONAIS */}
-          <div className="space-y-6 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+          <div className="space-y-6 bg-white p-8 rounded-4xl border border-slate-100 shadow-sm text-left">
             <div className="space-y-2">
               <Label className="font-black uppercase text-[9px] text-slate-400 ml-1">Descrição Comercial</Label>
               <Textarea 
-                className="rounded-2xl bg-slate-50 border-none font-medium h-24 p-4 resize-none" 
+                className="rounded-2xl bg-slate-50 border-none font-medium h-24 p-4 resize-none focus-visible:ring-emerald-500" 
                 value={formData.description} 
                 onChange={e => setFormData({...formData, description: e.target.value})} 
-                placeholder="Descreva as vantagens deste método..."
+                placeholder="Ex: Pagamento instantâneo com aprovação imediata."
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Input placeholder="Bandeira" value={formData.brandName} onChange={e => setFormData({...formData, brandName: e.target.value})} className="h-12 rounded-xl bg-slate-50 border-none font-bold" />
-              <Input placeholder="Ícone CSS" value={formData.icon} onChange={e => setFormData({...formData, icon: e.target.value})} className="h-12 rounded-xl bg-slate-50 border-none font-bold" />
+              <div className="space-y-1">
+                <Label className="text-[8px] font-black uppercase text-slate-300 ml-1">Bandeira</Label>
+                <Input placeholder="Ex: Visa" value={formData.brandName} onChange={e => setFormData({...formData, brandName: e.target.value})} className="h-12 rounded-xl bg-slate-50 border-none font-bold focus-visible:ring-emerald-500" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[8px] font-black uppercase text-slate-300 ml-1">Ícone CSS</Label>
+                <Input placeholder="Opcional" value={formData.icon} onChange={e => setFormData({...formData, icon: e.target.value})} className="h-12 rounded-xl bg-slate-50 border-none font-bold focus-visible:ring-emerald-500" />
+              </div>
             </div>
           </div>
         </div>
 
         {/* FOOTER */}
-        <div className="p-8 md:p-10 bg-white border-t border-slate-100 shrink-0 flex gap-4">
-          <Button variant="ghost" onClick={onClose} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-slate-400">
+        <div className="p-8 md:p-10 bg-white border-t border-slate-100 shrink-0 flex gap-4 text-left">
+          <Button variant="ghost" onClick={onClose} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-slate-400 hover:bg-slate-50">
             Descartar
           </Button>
           <Button 
             onClick={handleSubmit} 
             disabled={isPending} 
-            className="flex-[2] h-14 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] shadow-xl"
+            className="flex-[2] h-14 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] shadow-xl transition-all active:scale-95"
           >
-            {isPending ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2" />}
-            Salvar
+            {isPending ? <Loader2 className="animate-spin mr-2" size={16} /> : <Save className="mr-2" size={16} />}
+            {method ? "Salvar Alterações" : "Criar Método"}
           </Button>
         </div>
 
-        {/* COMPONENTE DE MÍDIA */}
-        <MediaLibraryDrawer 
+        <MediaPickerModal 
           open={isMediaOpen} 
           onClose={() => setIsMediaOpen(false)} 
           onSelect={handleImageSelect} 
+          defaultFolder="logo"
         />
       </SheetContent>
     </Sheet>

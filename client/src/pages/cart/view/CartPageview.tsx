@@ -1,94 +1,154 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useCartPageLogic } from "./../logic/useCartPageLogic";
-import { ChevronLeft, ShoppingBag, Loader2 } from "lucide-react"; 
-import { Link } from "wouter";
-import { AnimatePresence } from "framer-motion"; 
+import { ChevronLeft, ShoppingBag, Loader2, ChevronDown } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 
-import { CartItem } from "./../view/parts/CartItemRow"; 
-import { CartSummary } from "./../view/parts/CartSummary"; 
-import CartLoyalty from "./../view/parts/CartLoyalty"; 
-import { DiscountRoadmap } from "./../view/parts/DiscountRoadmap"; 
+import CartItem from "./../view/parts/CartItemRow"; 
+import { CartSummary } from "./../view/parts/CartSummary";
+import { CartLoyalty } from "./../view/parts/CartLoyalty";
+import { DiscountRoadmap } from "./../view/parts/DiscountRoadmap";
+import type { NutritionValues } from "@/_core/type/utils";
+
+/* --------------------------------- TYPES ---------------------------------- */
+
+interface ProcessedCartItem {
+  id: string;
+  uniqueKey: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image: string | null;
+  sizeName: string | null;
+  itemType?: string;
+  appliedNutrition: Record<string, unknown> | NutritionValues;
+  options: Record<string, unknown>;
+}
+
+const EMPTY_NUTRITION: NutritionValues = {
+  energyKcal: 0,
+  proteins: 0,
+  carbs: 0,
+  fatTotal: 0,
+  fiber: 0,
+  sodium: 0,
+  yieldWeight: 0
+};
+
+/* ------------------------------- COMPONENT -------------------------------- */
 
 export function CartPageView() {
   const [couponInput, setCouponInput] = useState("");
-  const logic = useCartPageLogic();
+  const [isSummaryInView, setIsSummaryInView] = useState(false);
+  const summaryRef = useRef<HTMLDivElement>(null);
+
+  const [simulatedShipping, setSimulatedShipping] = useState<number | null>(null);
+  const [isDeliveryAvailable, setIsDeliveryAvailable] = useState(true);
+  const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
 
   const {
-    items = [], 
-    totals, 
-    handleApplyCoupon, 
-    handleRemoveCoupon, 
-    updateQuantity, 
-    removeItem, 
-    money, 
-    isLoading, 
-    isCartEmpty, 
-    handleCheckout, 
-    discountsInfo, 
-    allTiers, 
+    items = [],
+    totals,
+    handleApplyCoupon,
+    handleRemoveCoupon,
+    updateQuantity,
+    removeItem,
+    money,
+    isLoading,
+    isCartEmpty,
+    handleCheckout,
+    discountsInfo,
+    allTiers,
     totalQuantity,
-    cartId
-  } = logic;
+  } = useCartPageLogic();
 
-  // 🔄 PROCESSAMENTO DE ITENS (Sincronizado com o novo Schema)
-  const processedItems = useMemo(() => {
-    return items.map((item: any, index: number) => {
-      // ✅ Prioridade absoluta para os dados do objeto 'options' (JSON do banco)
-      // O CartContext já fez o JSON.parse, aqui apenas consumimos.
-      const options = item.options || {};
-      
-      // Resolvemos o label de tamanho de forma unificada
-      const sizeLabel = options.selectedSize?.name || item._sizeLabel || item.sizeName || null;
-      
-      // Verificamos se é pacote (Kit)
-      const isPkg = item.itemType === 'package' || !!options.meals || (item.packageDetails?.length > 0);
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, {
+    stiffness: 100,
+    damping: 30,
+    restDelta: 0.001,
+  });
 
-      // Limpeza de imagem (Fallback para ícone se a URL for inválida ou genérica)
-      let finalImage = item.image || item.imageUrl;
-      if (!finalImage || String(finalImage).includes('undefined') || String(finalImage).includes('null')) {
-        finalImage = null;
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsSummaryInView(entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+
+    if (summaryRef.current) observer.observe(summaryRef.current);
+    window.scrollTo({ top: 0, behavior: "instant" });
+
+    return () => observer.disconnect();
+  }, []);
+
+  const scrollToSummary = () => {
+    summaryRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  /**
+   * ✅ PROCESSAMENTO ROBUSTO SEM ANY
+   * Garante que strings JSON sejam convertidas e campos snake_case sejam mapeados.
+   */
+  const processedItems = useMemo<ProcessedCartItem[]>(() => {
+    return items.map((item, index) => {
+      // 1. Parse seguro de options (pode vir como string ou objeto)
+      let rawOptions: Record<string, unknown> = {};
+      if (typeof item.options === 'string') {
+        try { rawOptions = JSON.parse(item.options); } catch { rawOptions = {}; }
+      } else {
+        rawOptions = (item.options || {}) as Record<string, unknown>;
       }
 
-      return { 
+      // 2. Parse seguro de nutrição (suporta appliedNutrition e applied_nutrition)
+      const nutritionSource = item.appliedNutrition || (item as unknown as Record<string, unknown>).applied_nutrition;
+      let safeNutrition: Record<string, unknown> | NutritionValues = EMPTY_NUTRITION;
+
+      if (typeof nutritionSource === 'string') {
+        try { safeNutrition = JSON.parse(nutritionSource); } catch { safeNutrition = EMPTY_NUTRITION; }
+      } else if (nutritionSource && typeof nutritionSource === 'object') {
+        safeNutrition = nutritionSource as unknown as Record<string, unknown>;
+      }
+
+      return {
+        // Preservamos o item original para garantir propriedades extras (price, quantity, etc)
         ...item,
-        image: finalImage,
-        uniqueKey: item.id || `row-${index}-${item.dishId || item.packageId}`,
-        isPackage: isPkg, 
-        _sizeLabel: sizeLabel,
-        
-        // ✅ MAPIAMENTO CRUCIAL:
-        // Pega do JSON options (onde salvamos no backend) ou usa o fallback antigo
-        accompaniments: options.selectedAccompaniments || item.accompaniments || [],
-        packageDetails: options.meals || item.packageDetails || [],
-        
-        // Garante que a nutrição chegue no componente para mostrar o ícone de chama 🔥
-        appliedNutrition: options.appliedNutrition || item.appliedNutrition || null
+        id: String(item.id),
+        uniqueKey: String(item.uniqueKey ?? item.id ?? `item-${index}`),
+        name: String(item.name || "Produto"),
+        price: Number(item.price || 0),
+        quantity: Number(item.quantity || 0),
+        image: item.image ?? null,
+        // Fallbacks para o nome do tamanho (suporta várias fontes de dados)
+        sizeName: item.sizeName ?? 
+                  (rawOptions?.sizeName as string) ?? 
+                  (rawOptions?.selectedSizeName as string) ?? 
+                  null,
+        appliedNutrition: safeNutrition,
+        options: rawOptions
       };
     });
   }, [items]);
 
   if (isLoading && items.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="animate-spin text-emerald-600 h-10 w-10 opacity-40" />
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sincronizando sacola...</p>
-        </div>
+      <div className="h-screen flex flex-col items-center justify-center bg-white text-center p-10">
+        <Loader2 className="animate-spin text-emerald-600 h-10 w-10 opacity-40 mb-4" />
+        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sincronizando...</span>
       </div>
     );
   }
 
   if (isCartEmpty) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-center bg-[#FBFBFC] p-20">
-        <div className="bg-white p-8 rounded-[3rem] shadow-xl shadow-slate-200/50 mb-8">
-          <ShoppingBag size={48} className="text-emerald-100" />
-        </div>
-        <h2 className="text-2xl font-black uppercase italic text-slate-900 tracking-tighter">Sua sacola está vazia</h2>
-        <p className="text-slate-400 text-sm mt-2 font-medium">Seus pratos favoritos estão a um clique de distância.</p>
-        <Link href="/produtos">
-          <button className="mt-8 bg-slate-900 text-white font-black px-10 h-14 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg hover:bg-emerald-600 transition-all active:scale-95">
-            Explorar Cardápio
+      <div className="flex flex-col items-center justify-center min-h-screen text-center bg-[#FBFBFC] p-6">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white p-12 rounded-[3.5rem] shadow-xl mb-10 border border-slate-100">
+          <ShoppingBag size={56} className="text-emerald-500/10" />
+        </motion.div>
+        <h2 className="text-3xl font-black uppercase italic text-slate-900 tracking-tighter">Sacola Vazia</h2>
+        <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2">Adicione delícias saudáveis para continuar</p>
+        <Link to="/produtos">
+          <button className="mt-10 bg-slate-900 text-white font-black px-16 h-18 rounded-3xl uppercase text-[11px] tracking-[0.2em] shadow-2xl active:scale-95 transition-all">
+            Ver Cardápio
           </button>
         </Link>
       </div>
@@ -96,76 +156,113 @@ export function CartPageView() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FBFBFC] pt-10 pb-32">
-      <div className="max-w-2xl mx-auto px-4 space-y-8">
-        
-        {/* Header com Navegação */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/produtos">
-              <div className="h-10 w-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl cursor-pointer shadow-sm hover:bg-slate-50 transition-colors">
-                <ChevronLeft size={20} strokeWidth={3} className="text-slate-900" />
+    <div className="min-h-screen bg-[#FBFBFC] pt-6 md:pt-12 pb-40">
+      <motion.div className="fixed top-0 left-0 right-0 h-1.5 bg-emerald-500 z-100 origin-left" style={{ scaleX }} />
+
+      <div className="max-w-2xl mx-auto px-4 space-y-6 md:space-y-10">
+        {/* HEADER */}
+        <div className="flex items-center justify-between gap-4 sticky top-0 bg-[#FBFBFC]/90 backdrop-blur-xl z-30 py-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <Link to="/produtos">
+              <div className="h-12 w-12 flex items-center justify-center bg-white border border-slate-100 rounded-2xl shadow-sm active:scale-90 hover:bg-slate-50 transition-all">
+                <ChevronLeft size={24} strokeWidth={3} className="text-slate-900" />
               </div>
             </Link>
-            <h1 className="text-3xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">Minha Sacola</h1>
+            <div>
+              <h1 className="text-3xl md:text-5xl font-black uppercase italic tracking-tighter text-slate-900 leading-none truncate">
+                Sacola
+              </h1>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">Gourmet Saudável</p>
+            </div>
           </div>
-          <div className="bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/10">
-             <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tight">{totalQuantity} unidades</span>
+          <div className="bg-slate-950 px-5 py-2.5 rounded-2xl shadow-xl border border-white/5 shrink-0">
+            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-tighter italic">
+              {totalQuantity} {totalQuantity === 1 ? "unidade" : "unidades"}
+            </span>
           </div>
         </div>
 
-        {/* Roadmap de Desconto Progressivo */}
-        <DiscountRoadmap tiers={allTiers} itemCount={totalQuantity} />
+        <DiscountRoadmap tiers={allTiers ?? []} itemCount={totalQuantity} />
 
-        {/* Lista de Itens do Carrinho */}
         <div className="space-y-4">
           <AnimatePresence mode="popLayout" initial={false}>
-            {processedItems.map((group: any) => (
-              <CartItem 
-                key={group.uniqueKey} 
+            {processedItems.map((group) => (
+              <CartItem
+                key={group.uniqueKey}
                 group={group} 
-                money={money} 
-                updateQuantity={updateQuantity} 
-                removeItem={removeItem} 
+                money={money}
+                updateQuantity={(id, qty) => updateQuantity(String(id), qty)}
+                removeItem={(id) => removeItem(String(id))}
               />
             ))}
           </AnimatePresence>
         </div>
 
-        {/* Módulo de Pontos de Fidelidade */}
         <CartLoyalty />
 
-        {/* Checkout & Resumo Financeiro */}
-        <CartSummary 
-          subtotal={totals.subtotal} 
-          discount={totals.couponDiscount} 
-          autoDiscount={totals.autoDiscount} 
-          loyaltyDiscountValue={Number(totals.loyaltyDiscount) || 0} 
-          shipping={totals.shipping}
-          quantityRuleName={discountsInfo?.autoDiscountName} 
-          couponCode={discountsInfo?.coupon?.code} 
-          couponDescription={discountsInfo?.coupon?.description}
-          removeCoupon={handleRemoveCoupon} 
-          
-          // Regra de acúmulo: 1 ponto a cada R$ 1,00 gasto (subtotal)
-          earnedPoints={Math.floor(totals.subtotal)} 
-          
-          money={money} 
-          goCheckout={handleCheckout} 
-          isDeliveryAvailable={true} 
-          couponInput={couponInput} 
-          setCouponInput={setCouponInput} 
-          
-          // ✅ CORREÇÃO DE TIPO (Promise<void>): Aceita o código como argumento
-          onApplyCoupon={async (codeStr) => {
-             const codeToUse = codeStr || couponInput;
-             if (codeToUse.trim()) {
-               await handleApplyCoupon(codeToUse.trim());
-               setCouponInput("");
-             }
-          }}
-        />
+        <div ref={summaryRef} className="scroll-mt-32">
+          <CartSummary
+            subtotal={totals?.subtotal ?? 0}
+            discount={totals?.couponDiscount ?? 0}
+            autoDiscount={totals?.autoDiscount ?? 0}
+            loyaltyDiscountValue={Number(totals?.loyaltyDiscount || 0)}
+            shipping={simulatedShipping !== null ? simulatedShipping : (totals?.shipping ?? 0)}
+            isDeliveryAvailable={isDeliveryAvailable}
+            isCalculatingShipping={isCalculatingShipping} 
+            
+            onShippingResult={(cost, isAvailable) => {
+              setSimulatedShipping(cost);
+              setIsDeliveryAvailable(isAvailable);
+              setIsCalculatingShipping(false);
+            }}
+
+            quantityRuleName={discountsInfo?.autoDiscountName}
+            couponCode={discountsInfo?.coupon?.code}
+            couponDescription={discountsInfo?.coupon?.description}
+            couponBannerColor={discountsInfo?.coupon?.bannerColor}
+            couponLogoUrl={discountsInfo?.coupon?.logoUrl}
+            couponError={discountsInfo?.coupon?.hasError ? "Cupom inválido" : null}
+            removeCoupon={handleRemoveCoupon}
+            money={money}
+            goCheckout={() => {
+               if (!isCalculatingShipping) {
+                 handleCheckout();
+               }
+            }}
+            couponInput={couponInput}
+            setCouponInput={setCouponInput}
+            onApplyCoupon={async (codeStr) => {
+              const code = codeStr || couponInput;
+              if (code.trim()) {
+                await handleApplyCoupon(code.trim());
+                setCouponInput("");
+              }
+            }}
+          />
+        </div>
       </div>
+
+      <AnimatePresence>
+        {!isSummaryInView && (
+          <div className="fixed bottom-8 left-0 right-0 flex justify-center z-40 md:hidden px-6 pointer-events-none">
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8, y: 40 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.8, y: 40 }}
+              onClick={scrollToSummary}
+              className="pointer-events-auto w-full max-w-70 bg-slate-950/95 backdrop-blur-2xl text-white px-7 h-16 rounded-4xl shadow-2xl border border-white/10 flex items-center justify-between active:scale-95 transition-all"
+            >
+              <div className="flex flex-col items-start leading-none">
+                <span className="text-[10px] font-black uppercase italic tracking-widest text-emerald-400">Totalizar Sacola</span>
+                <span className="text-[8px] font-bold text-slate-500 mt-1 uppercase">Sincronizar</span>
+              </div>
+              <div className="bg-emerald-500 rounded-2xl p-2 shadow-lg shadow-emerald-500/30">
+                <ChevronDown size={16} className="text-slate-950 animate-bounce" strokeWidth={4} />
+              </div>
+            </motion.button>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

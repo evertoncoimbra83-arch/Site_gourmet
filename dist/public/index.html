@@ -4,41 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
 
-    <title>Site React</title>
+    <!-- PWA -->
+    <meta name="application-name" content="Gourmet Saudável" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Gourmet" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#E8670A" />
+    <link rel="manifest" href="/manifest.json" />
 
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>Gourmet Saudável</title>
+
+    <!-- Favicons -->
+    <link rel="icon" href="/uploads/favicon.ico?v=7" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/uploads/favicon-32x32.png?v=7" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/android-chrome-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/android-chrome-512x512.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="/assets/index-CXEcRTdv.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Cty3dt4P.css">
-  </head>
+
+    <!-- OpenDyslexic — usada pelo widget de acessibilidade quando ativada -->
+    <link
+      href="https://fonts.cdnfonts.com/css/opendyslexic"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/assets/index-DouO6uBK.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CRLH7f3f.css">
+  <script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
 
   <body>
     <div id="root"></div>
-
-
-    <script>
-      (function() {
-        const endpoint = "http://localhost:3001/api/analytics";
-        const websiteId = "dev-mode";
-
-        // Verifica se as variáveis foram preenchidas e se não são o próprio placeholder 
-        // (Isso evita erros se as variáveis não estiverem no .env)
-        if (endpoint && websiteId && !endpoint.startsWith('%')) {
-          const script = document.createElement("script");
-          script.defer = true;
-          // O Umami geralmente usa /script.js ou /umami.js dependendo da versão
-          script.src = `${endpoint.replace(/\/$/, "")}/script.js`;
-          script.setAttribute("data-website-id", websiteId);
-          document.head.appendChild(script);
-        }
-      })();
-    </script>
   </body>
 </html>

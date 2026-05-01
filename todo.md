@@ -1,7 +1,7 @@
 # Gourmet Saudável - Project TODO
 
 ## ✅ Fase 1: Análise e Pesquisa
-- [x] Analisar site atual (gourmetsaudavel.com.br)
+- [x] Analisar site atual (gourmetsaudavel.com)
 - [x] Documentar estrutura e componentes existentes
 - [x] Coletar referências de design para e-commerce de alimentos fit
 - [x] Pesquisar teoria das cores para alimentos fit

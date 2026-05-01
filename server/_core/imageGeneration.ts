@@ -15,8 +15,9 @@
  *     }]
  *   });
  */
-import { storagePut } from "server/storage";
+import { storagePut } from "../../server/storage";
 import { ENV } from "./env";
+import { MAX_AI_PROMPT_LENGTH, validateAiTextInput } from "../lib/ai-safety.js";
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -34,6 +35,10 @@ export type GenerateImageResponse = {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
+  const safePrompt = validateAiTextInput(options.prompt).slice(
+    0,
+    MAX_AI_PROMPT_LENGTH,
+  );
   if (!ENV.forgeApiUrl) {
     throw new Error("BUILT_IN_FORGE_API_URL is not configured");
   }
@@ -59,7 +64,7 @@ export async function generateImage(
       authorization: `Bearer ${ENV.forgeApiKey}`,
     },
     body: JSON.stringify({
-      prompt: options.prompt,
+      prompt: safePrompt,
       original_images: options.originalImages || [],
     }),
   });

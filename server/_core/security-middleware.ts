@@ -1,23 +1,20 @@
-import type { Express, Request, Response, NextFunction } from "express";
-import crypto from "crypto";
+// server/_core/security-middleware.ts
+// ✅ CSP Atualizada para permitir Google Analytics, OneSignal e Fontes externas.
 
-/**
- * Configuração de segurança para headers HTTP
- */
+import type { Express, NextFunction, Request, Response } from "express";
+import crypto from "crypto";
+import { logger } from "../logger.js";
+import { redisConnection } from "../lib/redis.js";
+
+const CSRF_TTL_SECONDS = 24 * 60 * 60; // 24h
+
 export function setupSecurityHeaders(app: Express) {
   app.use((req: Request, res: Response, next: NextFunction) => {
-    // Previne clickjacking
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
-
-    // Previne MIME type sniffing
     res.setHeader("X-Content-Type-Options", "nosniff");
-
-    // Ativa proteção XSS no navegador
     res.setHeader("X-XSS-Protection", "1; mode=block");
 
-    // Content Security Policy - mais permissivo em desenvolvimento
-    if (process.env.NODE_ENV === 'development') {
-      // Em desenvolvimento, permite tudo para Vite funcionar
+    if (process.env.NODE_ENV === "development") {
       res.setHeader(
         "Content-Security-Policy",
         "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
@@ -25,28 +22,45 @@ export function setupSecurityHeaders(app: Express) {
           "style-src * 'unsafe-inline'; " +
           "img-src * data: blob:; " +
           "font-src * data:; " +
-          "connect-src * ws: wss:; "
+          "connect-src * ws: wss:; " +
+          "worker-src * blob:;"
       );
     } else {
-      // Produção - restritivo
-      res.setHeader(
-        "Content-Security-Policy",
-        "default-src 'self'; " +
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-          "style-src 'self' 'unsafe-inline'; " +
-          "img-src 'self' data: https:; " +
-          "font-src 'self' data:; " +
-          "connect-src 'self' https:; " +
-          "frame-ancestors 'self'; " +
-          "base-uri 'self'; " +
-          "form-action 'self'"
-      );
+      // ✅ CSP de produção corrigida para liberar scripts e estilos externos
+      const productionCSP = `
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' 
+          https://www.googletagmanager.com 
+          https://www.google-analytics.com 
+          https://cdn.onesignal.com 
+          https://api.onesignal.com 
+          https://*.onesignal.com 
+          https://www.google.com 
+          blob:;
+        style-src 'self' 'unsafe-inline' 
+          https://fonts.googleapis.com 
+          https://fonts.cdnfonts.com;
+        font-src 'self' data: 
+          https://fonts.gstatic.com 
+          https://fonts.googleapis.com 
+          https://fonts.cdnfonts.com;
+        img-src 'self' data: https: http://localhost:3001;
+        connect-src 'self' https: wss: 
+          https://www.google-analytics.com 
+          https://analytics.google.com
+          https://stats.g.doubleclick.net
+          https://api.onesignal.com 
+          https://*.onesignal.com;
+        worker-src 'self' blob:;
+        frame-ancestors 'self';
+        base-uri 'self';
+        form-action 'self';
+      `.replace(/\s+/g, " ").trim();
+
+      res.setHeader("Content-Security-Policy", productionCSP);
     }
 
-    // Referrer Policy - proteção de privacidade
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-
-    // Permissions Policy (antigo Feature-Policy)
     res.setHeader(
       "Permissions-Policy",
       "geolocation=(), microphone=(), camera=(), payment=()"
@@ -56,91 +70,95 @@ export function setupSecurityHeaders(app: Express) {
   });
 }
 
-/**
- * Proteção contra CSRF com tokens
- */
 export function setupCsrfProtection(app: Express) {
-  // Armazena tokens CSRF em memória (em produção, use Redis)
-  const csrfTokens = new Map<string, { token: string; expires: number }>();
+  const fallbackMap = new Map<string, { token: string; expires: number }>();
 
-  // Limpa tokens expirados a cada 1 hora
-  setInterval(() => {
-    const now = Date.now();
-    const keysToDelete: string[] = [];
-    csrfTokens.forEach((value, key) => {
-      if (value.expires < now) {
-        keysToDelete.push(key);
-      }
-    });
-    keysToDelete.forEach((key) => csrfTokens.delete(key));
-  }, 60 * 60 * 1000);
+  const storeToken = async (sessionId: string, token: string) => {
+    const key = `csrf:${sessionId}`;
+    try {
+      await redisConnection.set(key, token, "EX", CSRF_TTL_SECONDS);
+    } catch {
+      fallbackMap.set(sessionId, { token, expires: Date.now() + CSRF_TTL_SECONDS * 1000 });
+    }
+  };
 
-  // Middleware para gerar/validar tokens CSRF
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const sessionId = (req.cookies?.["session"] as string) || "";
+  const getToken = async (sessionId: string): Promise<string | null> => {
+    const key = `csrf:${sessionId}`;
+    try {
+      return await redisConnection.get(key);
+    } catch {
+      const entry = fallbackMap.get(sessionId);
+      if (!entry || entry.expires < Date.now()) return null;
+      return entry.token;
+    }
+  };
 
-    // GET requests recebem um novo token CSRF
+  const deleteToken = async (sessionId: string) => {
+    const key = `csrf:${sessionId}`;
+    try {
+      await redisConnection.del(key);
+    } catch {
+      fallbackMap.delete(sessionId);
+    }
+  };
+
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    const sessionId = (req.cookies?.session as string) || "";
+
     if (req.method === "GET" && sessionId) {
       const token = crypto.randomBytes(32).toString("hex");
-      csrfTokens.set(sessionId, {
-        token,
-        expires: Date.now() + 24 * 60 * 60 * 1000, // 24 horas
-      });
+      await storeToken(sessionId, token);
       res.locals.csrfToken = token;
+      return next();
     }
 
-    // POST/PUT/DELETE/PATCH requerem validação do token
     if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
       const token =
         req.body?.csrfToken ||
         req.headers["x-csrf-token"] ||
         req.query?.csrfToken;
 
-      const stored = csrfTokens.get(sessionId);
+      const stored = sessionId ? await getToken(sessionId) : null;
 
-      if (!token || !stored || stored.token !== token) {
-        console.warn(
-          `[CSRF] Token inválido ou ausente | Session: ${sessionId} | Method: ${req.method}`
+      if (!token || !stored || stored !== token) {
+        logger.warn(
+          { sessionId, method: req.method, path: req.path, ip: getClientIp(req) },
+          "[SECURITY] Falha na validacao do Token CSRF"
         );
         return res.status(403).json({ error: "CSRF token validation failed" });
       }
 
-      // Consome o token (one-time use)
-      csrfTokens.delete(sessionId);
+      await deleteToken(sessionId);
     }
 
     next();
   });
 }
 
-/**
- * Rate limiting básico por IP
- */
 export function setupRateLimiting(app: Express) {
   const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
-  // Limpa contadores expirados a cada 5 minutos
   setInterval(() => {
     const now = Date.now();
-    const keysToDelete: string[] = [];
     requestCounts.forEach((value, key) => {
-      if (value.resetTime < now) {
-        keysToDelete.push(key);
-      }
+      if (value.resetTime < now) requestCounts.delete(key);
     });
-    keysToDelete.forEach((key) => requestCounts.delete(key));
   }, 5 * 60 * 1000);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
-    // Não aplica rate limiting em desenvolvimento ou a assets estáticos
-    if (process.env.NODE_ENV === "development" || req.path.startsWith("/public/") || req.path.startsWith("/.")) {
+    if (
+      process.env.NODE_ENV === "development" ||
+      req.path.startsWith("/public/") ||
+      req.path.startsWith("/.") ||
+      isLocalRequest(req)
+    ) {
       return next();
     }
 
     const clientIp = getClientIp(req);
     const now = Date.now();
-    const windowMs = 15 * 60 * 1000; // 15 minutos
-    const maxRequests = 100; // máximo de requisições por janela
+    const windowMs = 15 * 60 * 1000;
+    const maxRequests = 100;
 
     let record = requestCounts.get(clientIp);
 
@@ -149,22 +167,16 @@ export function setupRateLimiting(app: Express) {
       requestCounts.set(clientIp, record);
     }
 
-    record.count++;
+    record.count += 1;
 
-    // Headers informativos
     res.setHeader("X-RateLimit-Limit", maxRequests.toString());
-    res.setHeader(
-      "X-RateLimit-Remaining",
-      Math.max(0, maxRequests - record.count).toString()
-    );
-    res.setHeader(
-      "X-RateLimit-Reset",
-      new Date(record.resetTime).toISOString()
-    );
+    res.setHeader("X-RateLimit-Remaining", Math.max(0, maxRequests - record.count).toString());
+    res.setHeader("X-RateLimit-Reset", new Date(record.resetTime).toISOString());
 
     if (record.count > maxRequests) {
-      console.warn(
-        `[RATE_LIMIT] Limite excedido | IP: ${clientIp} | Requests: ${record.count}`
+      logger.warn(
+        { ip: clientIp, requestCount: record.count, path: req.path },
+        "[SECURITY] Limite de requisicoes excedido (Rate Limit)"
       );
       return res.status(429).json({
         error: "Too many requests",
@@ -176,9 +188,6 @@ export function setupRateLimiting(app: Express) {
   });
 }
 
-/**
- * Logging de segurança
- */
 export function setupSecurityLogging(app: Express) {
   app.use((req: Request, res: Response, next: NextFunction) => {
     const start = Date.now();
@@ -187,10 +196,22 @@ export function setupSecurityLogging(app: Express) {
       const duration = Date.now() - start;
       const clientIp = getClientIp(req);
 
-      // Log apenas de requisições suspeitas ou erros
-      if (res.statusCode >= 400) {
-        console.log(
-          `[SECURITY] ${req.method} ${req.path} | Status: ${res.statusCode} | IP: ${clientIp} | Duration: ${duration}ms`
+      if (res.statusCode >= 500) {
+        logger.error(
+          { method: req.method, path: req.path, status: res.statusCode, ip: clientIp, durationMs: duration },
+          "[SECURITY] Erro de servidor detectado"
+        );
+        return;
+      }
+
+      if (isLocalRequest(req)) return;
+
+      const isSecurityRelevant = res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 429;
+
+      if (isSecurityRelevant) {
+        logger.warn(
+          { method: req.method, path: req.path, status: res.statusCode, ip: clientIp, durationMs: duration },
+          "[SECURITY] Requisicao bloqueada"
         );
       }
     });
@@ -199,24 +220,23 @@ export function setupSecurityLogging(app: Express) {
   });
 }
 
-/**
- * Extrai o IP real do cliente, considerando proxies
- */
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.socket?.remoteAddress || "unknown";
+  const rawIp =
+    typeof forwarded === "string"
+      ? forwarded.split(",")[0].trim()
+      : req.socket?.remoteAddress || "unknown";
+
+  return rawIp.startsWith("::ffff:") ? rawIp.replace("::ffff:", "") : rawIp;
 }
 
-/**
- * Aplica todas as proteções de segurança
- */
+function isLocalRequest(req: Request) {
+  const clientIp = getClientIp(req);
+  return clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost";
+}
+
 export function setupAllSecurityMiddleware(app: Express) {
   setupSecurityHeaders(app);
   setupRateLimiting(app);
   setupSecurityLogging(app);
-  // CSRF é opcional - descomente se necessário
-  // setupCsrfProtection(app);
 }

@@ -1,11 +1,13 @@
+import { Request, Response, NextFunction } from 'express';
 import fs from 'fs-extra';
 import path from 'path';
 
-export const maintenanceMiddleware = async (req, res, next) => {
+export const maintenanceMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   const maintenanceFile = path.join(process.cwd(), '.maintenance');
   const isMaintenance = await fs.pathExists(maintenanceFile);
 
   // Se o arquivo existir e não for a rota de deploy (para não bloquear o próprio upgrade)
+  // Nota: req.path no Express é sempre uma string.
   if (isMaintenance && !req.path.includes('upgr4de-sys')) {
     return res.status(503).json({
       maintenance: true,

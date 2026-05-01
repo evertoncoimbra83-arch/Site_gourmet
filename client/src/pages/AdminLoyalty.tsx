@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Adicionado para resolver erro de escopo JSX
 import { AdminLoyaltyView } from "./adminLoyalty/view/AdminLoyaltyView";
 
 export default function AdminLoyalty() {

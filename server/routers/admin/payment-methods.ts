@@ -2,15 +2,23 @@ import { z } from "zod";
 import { router, adminProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { paymentMethods } from "../../../drizzle/schema/index.js";
-import { eq, sql } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm"; // ✅ CORREÇÃO: 'sql' removido e 'asc' adicionado
+
+// Tipagem inferida para inserção
+type PaymentMethodInsert = typeof paymentMethods.$inferInsert;
 
 export const adminPaymentMethodsRouter = router({
+  // --- LISTAGEM ---
   listAll: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-    return await db.select().from(paymentMethods).orderBy(sql`display_order ASC`);
+    // Ordenação por nome usando o helper nativo do Drizzle
+    return await db.select().from(paymentMethods).orderBy(asc(paymentMethods.name));
   }),
 
+  /**
+   * ✅ CRIAÇÃO
+   */
   create: adminProcedure
     .input(z.object({
       name: z.string().min(1),
@@ -23,92 +31,94 @@ export const adminPaymentMethodsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      // Ajustado para usar as chaves do Schema (CamelCase)
-      await db.insert(paymentMethods).values({
+      
+      // ✅ CORREÇÃO ESLint: Usando Record para evitar 'any'
+      const payload: Record<string, unknown> = {
         name: input.name,
-        isActive: input.isActive, // Schema: isActive
-        brandName: input.brand_name, // Schema: brandName
-        brandLogoUrl: input.brand_logo_url, // Schema: brandLogoUrl
+        isActive: input.isActive, 
+        brandName: input.brand_name,
+        brandLogoUrl: input.brand_logo_url,
         description: input.description,
         icon: input.icon,
-        discountPercentage: String(input.discount_percentage), // Schema: discountPercentage
-      } as any);
-      return { success: true };
+        discountPercentage: String(input.discount_percentage),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Inserção com cast seguro para o Schema
+      const [res] = await db.insert(paymentMethods).values(payload as PaymentMethodInsert) as unknown as [{ insertId: number }];
+
+      return { 
+        success: true, 
+        id: res.insertId,
+        message: `Método "${input.name}" cadastrado!` 
+      };
     }),
 
+  /**
+   * ✅ ATUALIZAÇÃO
+   */
   update: adminProcedure
     .input(z.object({
-      id: z.coerce.string(),
-      
+      id: z.coerce.number(),
       name: z.string().optional().nullable(),
       description: z.string().optional().nullable(),
-      brand_name: z.string().optional().nullable(),
       brandName: z.string().optional().nullable(),
-      brand_logo_url: z.string().optional().nullable(),
+      brand_name: z.string().optional().nullable(),
       brandLogoUrl: z.string().optional().nullable(),
+      brand_logo_url: z.string().optional().nullable(),
       icon: z.string().optional().nullable(),
-      discount_percentage: z.coerce.number().optional().nullable(),
       discountPercentage: z.coerce.number().optional().nullable(),
-      isActive: z.any().optional(), 
+      discount_percentage: z.coerce.number().optional().nullable(),
+      isActive: z.boolean().optional().nullable(), 
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
-
-      // Normalização
-      const finalName = input.name;
-      const finalDesc = input.description;
-      const finalBrand = input.brand_name ?? input.brandName;
-      const finalLogo = input.brand_logo_url ?? input.brandLogoUrl;
-      const finalIcon = input.icon;
-      const finalDiscount = input.discount_percentage ?? input.discountPercentage;
       
-      // ⚠️ CORREÇÃO CRÍTICA: Usando chaves CamelCase do Schema
-      const updateData: any = {};
+      // ✅ CORREÇÃO ESLint: Tipagem robusta para o objeto de update
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+      };
       
-      if (finalName !== undefined) updateData.name = finalName;
-      if (finalDesc !== undefined) updateData.description = finalDesc;
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.description !== undefined) updateData.description = input.description;
       
-      // Drizzle espera 'brandName', não 'brand_name'
-      if (finalBrand !== undefined) updateData.brandName = finalBrand;
-      if (finalLogo !== undefined) updateData.brandLogoUrl = finalLogo;
-      if (finalIcon !== undefined) updateData.icon = finalIcon;
-      if (finalDiscount !== undefined) updateData.discountPercentage = String(finalDiscount);
+      // Tratando variações de nomes vindas do front (Snake vs Camel)
+      const brandName = input.brandName ?? input.brand_name;
+      if (brandName !== undefined) updateData.brandName = brandName;
       
-      if (input.isActive !== undefined) {
-        // O Schema espera 'isActive' (booleano ou número dependendo da config)
-        // Se no log apareceu isActive: true, o Drizzle trata a conversão.
-        // Vamos mandar o boolean ou number, o Drizzle resolve.
-        updateData.isActive = input.isActive ? 1 : 0;
-      }
+      const brandLogo = input.brandLogoUrl ?? input.brand_logo_url;
+      if (brandLogo !== undefined) updateData.brandLogoUrl = brandLogo;
+      
+      if (input.icon !== undefined) updateData.icon = input.icon;
+      
+      const discount = input.discountPercentage ?? input.discount_percentage;
+      if (discount !== undefined) updateData.discountPercentage = String(discount);
+      
+      if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
-      // Se seu schema usa snake_case para updated_at, mantenha. 
-      // Se no log apareceu updated_at, então é snake_case mesmo.
-      updateData.updated_at = new Date();
+      await db.update(paymentMethods)
+        .set(updateData as Partial<PaymentMethodInsert>)
+        .where(eq(paymentMethods.id, String(input.id)));
 
-
-      if (Object.keys(updateData).length > 1) {
-        const [result]: any = await db.update(paymentMethods)
-          .set(updateData)
-          .where(eq(paymentMethods.id, input.id));
-          
-        console.log("📊 [RESULTADO] Linhas afetadas:", result.affectedRows);
-      }
-
-      const [confimacao] = await db.select()
-        .from(paymentMethods)
-        .where(eq(paymentMethods.id, input.id));
-
-      console.log("👀 [VERIFICAÇÃO] Valor no banco:", confimacao);
-
-      return { success: true };
+      return { 
+        success: true, 
+        message: "Método atualizado com sucesso!" 
+      };
     }),
 
+  /**
+   * ✅ EXCLUSÃO
+   */
   delete: adminProcedure
-    .input(z.object({ id: z.coerce.string() }))
+    .input(z.object({ id: z.coerce.number(), name: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.delete(paymentMethods).where(eq(paymentMethods.id, input.id));
-      return { success: true };
+      await db.delete(paymentMethods).where(eq(paymentMethods.id, String(input.id)));
+      
+      return { 
+        success: true, 
+        message: input.name ? `"${input.name}" removido.` : "Excluído com sucesso." 
+      };
     }),
 });

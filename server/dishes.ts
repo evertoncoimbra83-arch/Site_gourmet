@@ -1,110 +1,183 @@
-import { eq, asc, desc, sql } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "./db";
+import { getAccsWithNutrition } from "./accompaniments"; 
+
 import { 
   dishes, 
   dishSizes, 
   sizeAccompanimentGroups, 
-  accompanimentOptions,
-  categories
-} from "../drizzle/schema";
+  accompanimentGroups, 
+  dishesToSizes
+} from "../drizzle/schema/catalog"; 
 
-// ========================================================================
-// 1. LISTAGEM DE PRATOS (Admin)
-// ========================================================================
-
-export async function listDishesAdmin() {
-  const db = await getDb();
-  
-  return await db
-    .select({
-      id: dishes.id,
-      name: dishes.name,
-      description: dishes.description,
-      categoryId: dishes.categoryId,
-      categoryName: categories.name,
-      price: dishes.price,
-      isActive: dishes.isActive,
-      imageUrl: dishes.imageUrl,
-    })
-    .from(dishes)
-    .leftJoin(categories, eq(dishes.categoryId, categories.id))
-    .orderBy(dishes.name);
-}
-
-// ========================================================================
-// 2. DETALHES COMPLETOS DO PRATO
-// ========================================================================
-
+/**
+ * Busca detalhes completos de um prato, incluindo tamanhos, acompanhamentos e macros.
+ */
 export async function getDishDetails(dishId: number) {
   const db = await getDb();
+  if (!db) throw new Error("Database not available");
 
-  const [dish] = await db.select().from(dishes).where(eq(dishes.id, dishId)).limit(1);
-  if (!dish) return null;
+  try {
+    // 1. BUSCA O PRATO
+    const dishRows = await db
+      .select({
+        id: dishes.id,
+        name: dishes.name,
+        slug: dishes.slug,
+        description: dishes.description,
+        imageUrl: dishes.imageUrl,
+        price: dishes.basePrice,      
+        salePrice: dishes.salePrice, 
+        categoryId: dishes.categoryId,
+        isActive: dishes.isActive,
+        show_nutrition: dishes.showNutrition,
+        ingredients: dishes.ingredients,
+        energyKcal: dishes.energyKcal,
+        energyKj: dishes.energyKj,
+        proteins: dishes.proteins,
+        carbs: dishes.carbs,
+        fatTotal: dishes.fatTotal,
+        sodium: dishes.sodium,
+        fiber: dishes.fiber,
+        calcium: dishes.calcium,
+        iron: dishes.iron
+      })
+      .from(dishes)
+      .where(eq(dishes.id, dishId))
+      .limit(1);
+    
+    if (!dishRows || dishRows.length === 0) {
+      return null;
+    }
 
-  // Busca Tamanhos 
-  // ✅ CORREÇÃO: O TS indicou que 'price' e 'dishId' não existem em dishSizes.
-  // Mudei para as alternativas comuns do Drizzle (verifique seu schema.ts).
-  const sizes = await db
-    .select()
-    .from(dishSizes)
-    // @ts-ignore - Verifique se no schema é 'dish_id' ou 'dishId'
-    .where(eq(dishSizes.dishId || dishSizes.dish_id, dishId));
+    const rawDish = dishRows[0];
 
-  const sizesWithGroups = await Promise.all(
-    sizes.map(async (size: any) => {
-      // ✅ CORREÇÃO: O TS indicou que 'name', 'minChoices' e 'maxChoices' 
-      // não existem em sizeAccompanimentGroups. Usei os nomes brutos comuns.
-      const groups = await db
-        .select()
-        .from(sizeAccompanimentGroups)
-        .where(eq(sizeAccompanimentGroups.sizeId, size.id));
+    // 2. BUSCA TAMANHOS (Sizes)
+    const sizes = await db
+      .select({
+        id: dishSizes.id,
+        name: dishSizes.name,
+        price: dishSizes.price,
+        priceModifier: dishSizes.priceModifier,
+        mainDishWeight: dishSizes.mainDishWeight,
+        isActive: dishSizes.isActive,
+        displayOrder: dishSizes.displayOrder
+      })
+      .from(dishSizes)
+      .innerJoin(dishesToSizes, eq(dishSizes.id, dishesToSizes.sizeId))
+      .where(and(eq(dishesToSizes.dishId, dishId), eq(dishSizes.isActive, true)))
+      .orderBy(asc(dishSizes.displayOrder));
 
-      const groupsWithOptions = await Promise.all(
-        groups.map(async (group: any) => {
-          const options = await db
-            .select()
-            .from(accompanimentOptions)
-            // ✅ CORREÇÃO: Verifique se o campo é 'price' ou 'extraPrice'
-            // @ts-ignore
-            .where(eq(accompanimentOptions.accompanimentGroupId || accompanimentOptions.groupId, group.id));
+    // 3. BUSCA MACROS DOS ACOMPANHAMENTOS
+    const allOptions = (await getAccsWithNutrition()) || [];
 
-          return { ...group, options };
-        })
-      );
+    // 4. PROCESSA GRUPOS E OPÇÕES PARA CADA TAMANHO
+    const sizesWithGroups = await Promise.all(
+      (sizes || []).map(async (size) => {
+        const rawGroups = await db
+          .select({
+            pivot: sizeAccompanimentGroups,
+            group: accompanimentGroups
+          })
+          .from(sizeAccompanimentGroups)
+          .innerJoin(accompanimentGroups, eq(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id))
+          .where(and(
+            eq(sizeAccompanimentGroups.sizeId, size.id),
+            eq(accompanimentGroups.isActive, true)
+          ));
 
-      return { ...size, groups: groupsWithOptions };
-    })
-  );
+        const groupsWithOptions = (rawGroups || []).map((row) => {
+          const { group, pivot } = row;
+          if (!group || !pivot) return null;
 
-  return { ...dish, sizes: sizesWithGroups };
-}
+          let itemsConfig: unknown[] = [];
+          try {
+            itemsConfig = typeof group.itemsOrder === 'string' 
+              ? JSON.parse(group.itemsOrder) 
+              : (group.itemsOrder || []);
+          } catch { itemsConfig = []; }
 
-// ========================================================================
-// 3. ATUALIZAÇÃO E CRIAÇÃO
-// ========================================================================
+          const relevantOptions = (Array.isArray(itemsConfig) ? itemsConfig : []).map((config: unknown) => {
+            const c = config as Record<string, unknown>;
+            const optId = c?.optionId || c?.id || c?.group_id || c;
+            const masterOpt = allOptions.find(opt => Number(opt.id) === Number(optId));
+            
+            if (!masterOpt) return null;
 
-export async function createDish(data: any) {
-  const db = await getDb();
-  
-  // Limpeza de campos para evitar erro de inserção se passarem campos extras
-  const { isFeatured, displayOrder, ...validData } = data;
+            return {
+              ...masterOpt,
+              id: Number(masterOpt.id),
+              priceModifier: Number((c?.priceModifier || c?.price_modifier || masterOpt.priceModifier || 0) as number),
+              energyKcal: Number(masterOpt.energyKcal || 0),
+              proteins: Number(masterOpt.proteins || 0),
+              carbs: Number(masterOpt.carbs || 0),
+              fatTotal: Number(masterOpt.fatTotal || 0),
+              sodium: Number(masterOpt.sodium || 0),
+              fiber: Number(masterOpt.fiber || 0),
+              calcium: Number(masterOpt.calcium || 0),
+              iron: Number(masterOpt.iron || 0)
+            };
+          }).filter(Boolean);
 
-  const [result]: any = await db.insert(dishes).values({
-    ...validData,
-    updatedAt: new Date(),
-  });
+          return {
+            id: pivot.id,
+            groupId: group.id,
+            name: group.name,
+            defaultGrammage: Number(group.defaultGrammage || 100),
+            minSelections: Number(pivot.minSelections ?? group.minSelections ?? 0),
+            maxSelections: Number(pivot.maxSelections ?? group.maxSelections ?? 1),
+            options: relevantOptions
+          };
+        }).filter(Boolean);
 
-  return { id: result.insertId };
-}
+        return { 
+          ...size, 
+          id: Number(size.id),
+          price: Number(size.price || 0),
+          priceModifier: Number(size.priceModifier || 0),
+          mainDishWeight: Number(size.mainDishWeight || 200),
+          accompanimentGroups: groupsWithOptions 
+        };
+      })
+    );
 
-export async function updateDish(id: number, data: any) {
-  const db = await getDb();
-  
-  const { isFeatured, displayOrder, ...validData } = data;
+    // 5. NORMALIZAÇÃO FINAL
+    const finalNutrition = {
+      kcal: Math.round(Number(rawDish.energyKcal || 0)),
+      kj: Math.round(Number(rawDish.energyKj || (Number(rawDish.energyKcal) * 4.184) || 0)),
+      proteins: Number(rawDish.proteins || 0),
+      carbs: Number(rawDish.carbs || 0),
+      fats: Number(rawDish.fatTotal || 0),
+      sodium: Number(rawDish.sodium || 0),
+      fiber: Number(rawDish.fiber || 0),
+      calcium: Number(rawDish.calcium || 0),
+      iron: Number(rawDish.iron || 0)
+    };
 
-  await db.update(dishes)
-    .set({ ...validData, updatedAt: new Date() })
-    .where(eq(dishes.id, id));
+    return { 
+      ...rawDish,
+      id: Number(rawDish.id),
+      slug: rawDish.slug || String(rawDish.id),
+      categoryId: rawDish.categoryId ? Number(rawDish.categoryId) : null,
+      price: Number(rawDish.price || 0),
+      salePrice: rawDish.salePrice ? Number(rawDish.salePrice) : null,
+      showNutrition: !!rawDish.show_nutrition,
+      ingredients: rawDish.ingredients || "", 
+      
+      energyKcal: Number(rawDish.energyKcal || 0),
+      proteins: Number(rawDish.proteins || 0),
+      carbs: Number(rawDish.carbs || 0),
+      fatTotal: Number(rawDish.fatTotal || 0),
+      sodium: Number(rawDish.sodium || 0),
+      fiber: Number(rawDish.fiber || 0),
+      calcium: Number(rawDish.calcium || 0),
+      iron: Number(rawDish.iron || 0),
 
-  return { success: true };
+      nutritional_info: finalNutrition,
+      sizes: sizesWithGroups
+    };
+
+  } catch {
+    throw new Error(`Falha ao carregar o prato.`);
+  }
 }
