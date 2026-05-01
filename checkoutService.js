@@ -1,0 +1,8 @@
+// checkoutService.js
+import { calculateCartDetailedTotals } from '../cartPricingEngine';
+
+export async function processCheckout(cartItems, couponCode) {
+  const totals = calculateCartDetailedTotals(cartItems, couponCode);
+  // Lógica de negócio para processar o pagamento
+  return totals;
+}
