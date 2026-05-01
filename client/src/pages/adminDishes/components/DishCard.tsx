@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Edit2, Trash2, Utensils, Info } from "lucide-react";
+import { Edit2, Trash2, Utensils, Info, Tag } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
@@ -13,10 +13,15 @@ interface DishCardProps {
 }
 
 export function DishCard({ dish, onEdit, onDelete, onToggle }: DishCardProps) {
-  const money = (v: any) =>
-    Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-  const hasNutrition = dish.nutritional_info || dish.nutritionalInfo;
+  // ✅ Lógica de Preço e Desconto
+  const originalPrice = Number(dish.price || 0);
+  const salePrice = dish.salePrice ? Number(dish.salePrice) : null;
+  const hasDiscount = Boolean(salePrice && salePrice > 0 && salePrice < originalPrice);
+  
+  // Cálculo da porcentagem de desconto
+  const discountBadge = hasDiscount 
+    ? Math.round(((originalPrice - salePrice!) / originalPrice) * 100) 
+    : 0;
 
   return (
     <Card className="group border-none shadow-[0_4px_20px_rgba(0,0,0,0.03)] rounded-[2.5rem] bg-white overflow-hidden hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] transition-all duration-500">
@@ -43,9 +48,16 @@ export function DishCard({ dish, onEdit, onDelete, onToggle }: DishCardProps) {
                    <Badge className="bg-white text-slate-900 text-[8px] font-black border-none">OCULTO</Badge>
                 </div>
               )}
+
+              {/* ✅ BADGE DE DESCONTO SOBRE A FOTO */}
+              {hasDiscount && (
+                <div className="absolute top-2 right-2 bg-emerald-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-lg shadow-lg flex items-center gap-1">
+                  <Tag size={8} />
+                  {discountBadge}% OFF
+                </div>
+              )}
             </div>
 
-            {/* ✅ BOTÕES DE AÇÃO ABAIXO DA FOTO (Fácil acesso no mobile) */}
             <div className="flex gap-2">
               <Button 
                 variant="secondary" 
@@ -69,7 +81,6 @@ export function DishCard({ dish, onEdit, onDelete, onToggle }: DishCardProps) {
           {/* COLUNA DA DIREITA (TEXTO) */}
           <div className="flex-1 min-w-0 py-1 flex flex-col h-full">
             <div className="space-y-1.5">
-              {/* ✅ Título agora tem a largura total da coluna de texto */}
               <h3 className="font-black text-base md:text-xl text-slate-900 uppercase tracking-tight leading-tight break-words">
                 {dish.name}
               </h3>
@@ -78,7 +89,7 @@ export function DishCard({ dish, onEdit, onDelete, onToggle }: DishCardProps) {
                 <Badge className="bg-slate-100 text-slate-500 border-none font-black text-[7px] md:text-[8px] tracking-widest uppercase rounded-lg px-2 py-0.5">
                   {dish.categoryName || "Geral"}
                 </Badge>
-                {hasNutrition && (
+                {dish.showNutrition && (
                   <div className="flex items-center gap-1 text-emerald-500">
                     <Info size={10} />
                     <span className="text-[7px] font-black uppercase tracking-widest">Nutri OK</span>
@@ -87,15 +98,29 @@ export function DishCard({ dish, onEdit, onDelete, onToggle }: DishCardProps) {
               </div>
             </div>
 
-            <p className="text-slate-400 font-medium text-[10px] md:text-xs line-clamp-3 mt-3 leading-relaxed">
+            <p className="text-slate-400 font-medium text-[10px] md:text-xs line-clamp-2 mt-3 leading-relaxed">
               {dish.description || "Sem descrição disponível."}
             </p>
 
-            {/* RODAPÉ DO CARD */}
+            {/* RODAPÉ DO CARD - PREÇOS */}
             <div className="mt-auto pt-4 flex items-center justify-between border-t border-slate-50">
-              <div className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter italic uppercase">
-                <span className="text-emerald-600 mr-1 text-xs">R$</span>
-                {Number(dish.price || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              <div className="flex flex-col">
+                {hasDiscount ? (
+                  <>
+                    <span className="text-[10px] font-bold text-slate-300 line-through">
+                      De {originalPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </span>
+                    <div className="text-xl md:text-2xl font-black text-emerald-600 tracking-tighter italic uppercase leading-none">
+                      <span className="text-xs mr-0.5">R$</span>
+                      {salePrice?.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter italic uppercase leading-none">
+                    <span className="text-emerald-600 mr-0.5 text-xs">R$</span>
+                    {originalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </div>
+                )}
               </div>
 
               <div className={cn(

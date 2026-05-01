@@ -7,7 +7,7 @@ import {
   accompanimentCategories 
 } from "../../../drizzle/schema/catalog.js"; 
 import { eq, asc, desc, sql } from "drizzle-orm";
-import { adminSizesRouter } from "./sizes.js"; // ✅ Importando o roteador de tamanhos (dishSizes)
+import { adminSizesRouter } from "./sizes.js";
 
 const generateSlug = (text: string) => 
   text.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
@@ -18,7 +18,6 @@ const generateSlug = (text: string) =>
  */
 export const adminAccompanimentsRouter = router({
   
-  // ✅ CONEXÃO COM TAMANHOS: Resolve o caminho trpc.admin.accompaniments.dishSizes
   dishSizes: adminSizesRouter,
 
   // ===================================================================
@@ -59,13 +58,33 @@ export const adminAccompanimentsRouter = router({
   }),
 
   // ===================================================================
-  // ✅ GRUPOS (Slots de Escolha)
+  // ✅ GRUPOS (Slots de Escolha com Drag & Drop JSON)
   // ===================================================================
   groups: router({
     list: adminProcedure.query(async () => {
       const db = await getDb();
       return await db.select().from(accompanimentGroups).orderBy(desc(accompanimentGroups.id));
     }),
+
+    // Especialmente para atualizações rápidas (como a nova ordem do Drag & Drop)
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        description: z.string().optional().nullable(),
+        maxSelections: z.number().optional(),
+        minSelections: z.number().optional(),
+        isActive: z.boolean().optional(),
+        itemsOrder: z.array(z.number()).optional(), // ✅ Suporte ao JSON de IDs
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        const { id, ...data } = input;
+        await db.update(accompanimentGroups)
+          .set({ ...data, updatedAt: new Date() })
+          .where(eq(accompanimentGroups.id, id));
+        return { success: true };
+      }),
 
     upsert: adminProcedure
       .input(z.object({
@@ -74,7 +93,8 @@ export const adminAccompanimentsRouter = router({
         description: z.string().optional().nullable(),
         maxSelections: z.number().min(1).default(1),
         minSelections: z.number().default(0),
-        isActive: z.boolean().default(true)
+        isActive: z.boolean().default(true),
+        itemsOrder: z.array(z.number()).optional()
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -104,7 +124,7 @@ export const adminAccompanimentsRouter = router({
   }),
 
   // ===================================================================
-  // ✅ OPÇÕES (Itens individuais)
+  // ✅ OPÇÕES (Itens individuais do Banco Master)
   // ===================================================================
   options: router({
     listAll: adminProcedure.query(async () => {
@@ -130,8 +150,13 @@ export const adminAccompanimentsRouter = router({
         groupsConfig: z.union([z.array(z.any()), z.string()]).optional().default([]),
         isActive: z.boolean().optional().default(true),
         displayOrder: z.number().optional().default(0),
-        nutritionalInfo: z.string().optional().nullable(),
-        showNutrition: z.boolean().optional().default(false)
+        showNutrition: z.boolean().optional().default(false),
+        
+        // ✅ ADICIONADO: Colunas individuais para bater com o Schema e resolver erro 2353
+        energyKcal: z.number().optional().nullable(),
+        proteins: z.union([z.string(), z.number()]).optional().nullable(),
+        carbs: z.union([z.string(), z.number()]).optional().nullable(),
+        fatTotal: z.union([z.string(), z.number()]).optional().nullable(),
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -146,10 +171,14 @@ export const adminAccompanimentsRouter = router({
         }));
 
         const { id, ...rest } = input;
+        
+        // Garantimos que os valores decimais sejam salvos como string para o MySQL
         const data = {
           ...rest,
           groupsConfig: cleanGroupsConfig,
-          nutritionalInfo: rest.nutritionalInfo || "", 
+          proteins: rest.proteins ? String(rest.proteins) : null,
+          carbs: rest.carbs ? String(rest.carbs) : null,
+          fatTotal: rest.fatTotal ? String(rest.fatTotal) : null,
           updatedAt: new Date()
         };
 

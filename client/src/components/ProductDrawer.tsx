@@ -39,7 +39,6 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
       setQuantity(1);
       setSelectedAccs([]);
       const sizes = dish.sizes || [];
-      
       if (sizes.length > 0) {
         setSelectedSize(sizes[0]);
       } else {
@@ -48,54 +47,34 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
     }
   }, [dish]);
 
-  // ✅ 1. LÓGICA DE ORDENAÇÃO POR PESO (CORRIGIDA: MENOR -> MAIOR)
   const sortedAccompanimentGroups = useMemo(() => {
-    if (!selectedSize?.accompanimentGroups) return [];
-
-    const extractNumber = (str: string) => {
-      const match = str.match(/(\d+)/);
-      return match ? parseInt(match[0], 10) : 0;
-    };
-
-    const groups = [...selectedSize.accompanimentGroups].sort((a: any, b: any) => 
-      (a.name || "").localeCompare(b.name || "", 'pt-BR', { numeric: true })
-    );
-
-    return groups.map((group: any) => ({
-      ...group,
-      maxSelections: Number(group.maxSelections || 1),
-      options: [...(group.options || [])].sort((a: any, b: any) => {
-        const numA = extractNumber(a.name || "");
-        const numB = extractNumber(b.name || "");
-
-        // Ordenação numérica crescente (ex: 80g antes de 120g)
-        if (numA !== numB) {
-          return numA - numB;
-        }
-        return (a.name || "").localeCompare(b.name || "", 'pt-BR');
-      })
-    }));
+    return selectedSize?.accompanimentGroups || [];
   }, [selectedSize]);
 
-  // ✅ 2. VALIDAÇÃO DE ITENS OBRIGATÓRIOS
   const isAccompanimentsComplete = useMemo(() => {
-    if (!selectedSize?.accompanimentGroups?.length) return true;
-    
-    return selectedSize.accompanimentGroups.every((group: any) => {
+    if (!sortedAccompanimentGroups.length) return true;
+    return sortedAccompanimentGroups.every((group: any) => {
       const count = selectedAccs.filter(a => Number(a.groupId) === Number(group.id)).length;
       return count === Number(group.maxSelections || 1);
     });
-  }, [selectedSize, selectedAccs]);
+  }, [sortedAccompanimentGroups, selectedAccs]);
 
+  // ✅ CÁLCULO DE PREÇO COM PORCENTAGEM
   const totalUnitPrice = useMemo(() => {
     if (!dish) return 0;
     const basePrice = Number(dish.price || 0);
-    const sizeMod = Number(selectedSize?.priceModifier || 0);
+    
+    // 1. Calcula o valor do acréscimo percentual do tamanho
+    // Se priceModifier for 10, o acréscimo é 10% do valor base
+    const percentage = Number(selectedSize?.priceModifier || 0);
+    const sizePriceExtra = basePrice * (percentage / 100);
+    
+    // 2. Soma os acompanhamentos (estes continuam sendo valores fixos em R$)
     const accsTotal = selectedAccs.reduce((sum, acc) => sum + Number(acc.priceModifier || 0), 0);
-    return basePrice + sizeMod + accsTotal;
+    
+    return basePrice + sizePriceExtra + accsTotal;
   }, [dish, selectedSize, selectedAccs]);
 
-  // ✅ 3. LÓGICA DE ADIÇÃO (CHAVE COMPOSTA PARA PERMITIR REPETIDOS EM GRUPOS DIFERENTES)
   const handleAddAcc = (group: any, optionId: number | string) => {
     const opt = group.options.find((o: any) => Number(o.id) === Number(optionId));
     if (!opt) return;
@@ -133,7 +112,9 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
         selectedSize: {
           id: selectedSize.id,
           name: selectedSize.name,
-          priceModifier: Number(selectedSize.priceModifier || 0)
+          // Enviamos a porcentagem original para o payload do pedido
+          priceModifier: Number(selectedSize.priceModifier || 0),
+          isPercentage: true 
         },
         selectedAccompaniments: selectedAccs.map(acc => ({
           id: acc.id,
@@ -175,8 +156,8 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
       <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col h-full bg-[#FBFBFC] border-none shadow-2xl overflow-hidden">
         
         <SheetHeader className="sr-only">
-          <SheetTitle>Detalhes do Produto: {dish?.name}</SheetTitle>
-          <SheetDescription>Selecione as opções e acompanhamentos</SheetDescription>
+          <SheetTitle>{dish?.name}</SheetTitle>
+          <SheetDescription>Configure sua refeição</SheetDescription>
         </SheetHeader>
 
         {isLoading ? (
@@ -229,7 +210,6 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
                       groups={sortedAccompanimentGroups} 
                       selectedAccs={selectedAccs} 
                       onAdd={handleAddAcc} 
-                      // ✅ REMOÇÃO FILTRANDO POR ID + GROUPID
                       onRemove={(id: string, groupId: number | string) => 
                         setSelectedAccs(prev => prev.filter(
                           a => !(Number(a.id) === Number(id) && Number(a.groupId) === Number(groupId))
@@ -246,7 +226,7 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
                 {!isAccompanimentsComplete && selectedSize && (
                   <div className="flex items-center justify-center gap-2 text-amber-600 animate-pulse">
                     <AlertCircle size={12} />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Selecione os itens obrigatórios</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest">Selecione todos os itens obrigatórios</span>
                   </div>
                 )}
 
@@ -262,7 +242,7 @@ export default function ProductDrawer({ dishId, onClose }: { dishId: string | nu
                     onClick={handleAddToCart} 
                     className={cn(
                       "flex-1 h-16 font-black rounded-full uppercase text-[12px] tracking-widest transition-all", 
-                      canConfirm ? "bg-slate-950 text-emerald-400" : "bg-slate-100 text-slate-400"
+                      canConfirm ? "bg-slate-950 text-emerald-400 shadow-xl shadow-slate-950/20" : "bg-slate-100 text-slate-400"
                     )}
                   >
                     {isAdding ? <Loader2 className="animate-spin" /> : (

@@ -27,16 +27,22 @@ export const packages = mysqlTable("packages", {
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 255 }).notNull().unique(), 
   description: text("description"),
+  
+  // Preços
   price: decimal("base_price", { precision: 10, scale: 2 }).notNull(), 
+  salePrice: decimal("sale_price", { precision: 10, scale: 2 }), // ✅ NOVA COLUNA: Preço promocional do combo
+  
   numberOfOptions: int("number_of_options").default(3), 
   month: varchar("month", { length: 50 }), 
   imageUrl: varchar("image_url", { length: 500 }),
   
-  // ✅ NOVA COLUNA: Para controle de visibilidade (Toggle)
+  // ✅ COLUNA REATIVADA: Agora existe no seu MySQL após o comando ALTER TABLE
+  displayOrder: int("display_order").default(0),
+
   status: varchar("status", { length: 20 }).default("active"), 
-  
   isActive: boolean("is_active").default(true),
-  config: json("config"), 
+  config: json("config"), // Aqui dentro salvamos os slots e a ordem groupsOrder
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
@@ -73,6 +79,9 @@ export const packageOptionGroups = mysqlTable("package_option_groups", {
   groupId: int("group_id")
     .notNull()
     .references(() => accompanimentGroups.id, { onDelete: 'cascade' }),
+  
+  // ✅ NOVA COLUNA: Ordem das opções (itens) dentro deste grupo do pacote
+  itemsOrder: json("items_order").$type<number[]>().default([]),
 });
 
 // ====================================================

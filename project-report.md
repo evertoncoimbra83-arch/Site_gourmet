@@ -1,6 +1,6 @@
 # Project Report
 
-Gerado em: 2026-01-19T22:59:04.556Z
+Gerado em: 2026-01-21T19:48:41.913Z
 
 ## Estrutura do Projeto
 
@@ -135,6 +135,7 @@ client/src/hooks/useLabelLogic.ts
 client/src/hooks/useMobile.tsx
 client/src/hooks/usePackageSelection.tsx
 client/src/hooks/usePersistFn.ts
+client/src/hooks/usePersistedState.ts
 client/src/hooks/useProductNutrition.ts
 client/src/index.css
 client/src/lib
@@ -567,6 +568,7 @@ vite.config.ts
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
+    "@hello-pangea/dnd": "^18.0.1",
     "@hookform/resolvers": "^3.9.0",
     "@lucia-auth/adapter-drizzle": "^1.1.0",
     "@node-rs/argon2": "^2.0.2",
@@ -651,7 +653,6 @@ vite.config.ts
     "recharts": "^2.12.7",
     "resend": "^4.0.0",
     "sharp": "^0.33.5",
-    "sonner": "^1.5.0",
     "streamdown": "^1.4.0",
     "superjson": "^2.2.1",
     "tailwind-merge": "^2.5.2",
@@ -1971,7 +1972,7 @@ export async function updateStoreSettings(data: {
 ### Arquivo: `server/admin-sizes-accompaniments.ts`
 
 ```ts
-import { asc, eq, sql, and, desc } from "drizzle-orm"; 
+import { asc, eq, sql, desc } from "drizzle-orm"; 
 import { getDb } from "./db.js";
 import {
   dishSizes,
@@ -1985,6 +1986,7 @@ import {
 // ===================================================================
 // HELPERS
 // ===================================================================
+
 function toPriceString(price: any): string {
   if (price === undefined || price === null || price === "") return "0.00";
   const num = typeof price === "string" ? parseFloat(price.replace(',', '.')) : price;
@@ -2004,9 +2006,6 @@ function generateSlug(name: string): string {
 // 1) DISH SIZES (TAMANHOS)
 // ===================================================================
 
-/**
- * ✅ BUSCA TODOS OS VÍNCULOS (Pivot Table)
- */
 export async function getAllLinks() {
   const db = await getDb();
   try {
@@ -2023,25 +2022,31 @@ export async function getAllLinks() {
   }
 }
 
-/**
- * ✅ BUSCA TAMANHOS PARA O ADMIN
- */
 export async function getAllDishSizes() {
   const db = await getDb();
   const result = await db.select().from(dishSizes).orderBy(asc(dishSizes.displayOrder));
-  return result.map(size => ({
+  
+  return result.map((size: any) => ({
     ...size,
     id: Number(size.id),
     priceModifier: Number(size.priceModifier || 0),
+    displayOrder: Number(size.displayOrder || 0),
+    description: size.description || "", 
     isActive: Boolean(size.isActive)
   }));
 }
 
-export async function getSizeById(id: number) {
+export async function getSizeById(id: number | string) {
   const db = await getDb();
   const rows = await db.select().from(dishSizes).where(eq(dishSizes.id, Number(id))).limit(1);
   if (!rows[0]) return null;
-  return { ...rows[0], id: Number(rows[0].id) };
+  return { 
+    ...rows[0], 
+    id: Number(rows[0].id),
+    priceModifier: Number(rows[0].priceModifier || 0),
+    displayOrder: Number(rows[0].displayOrder || 0),
+    description: rows[0].description || "" 
+  };
 }
 
 export async function createDishSize(data: any) {
@@ -2049,23 +2054,27 @@ export async function createDishSize(data: any) {
   const [result]: any = await db.insert(dishSizes).values({
     name: data.name,
     weight: data.weight ?? null,
+    description: data.description ?? null,
+    iconKey: data.iconKey ?? "Cube",
     priceModifier: toPriceString(data.priceModifier),
     displayOrder: Number(data.displayOrder ?? 0),
     isActive: data.isActive ?? true,
-  } as any);
+  });
   return { success: true, id: result.insertId };
 }
 
-export async function updateDishSize(id: number, data: any) {
+export async function updateDishSize(id: number | string, data: any) {
   const db = await getDb();
-  await db.update(dishSizes).set({ 
-    ...data, 
-    priceModifier: data.priceModifier !== undefined ? toPriceString(data.priceModifier) : undefined 
-  }).where(eq(dishSizes.id, Number(id)));
+  const { id: _, ...updateData } = data;
+  if (Object.keys(updateData).length === 0) return { success: true };
+  if (updateData.priceModifier !== undefined) updateData.priceModifier = toPriceString(updateData.priceModifier);
+  if (updateData.displayOrder !== undefined) updateData.displayOrder = Number(updateData.displayOrder);
+
+  await db.update(dishSizes).set(updateData).where(eq(dishSizes.id, Number(id)));
   return { success: true };
 }
 
-export async function deleteDishSize(id: number) {
+export async function deleteDishSize(id: number | string) {
   const db = await getDb();
   await db.execute(sql`DELETE FROM size_accompaniment_groups WHERE size_id = ${Number(id)}`);
   await db.delete(dishSizes).where(eq(dishSizes.id, Number(id)));
@@ -2079,10 +2088,12 @@ export async function deleteDishSize(id: number) {
 export async function getAllAccompanimentGroups() {
   const db = await getDb();
   const result = await db.select().from(accompanimentGroups).orderBy(asc(accompanimentGroups.name));
-  return result.map(g => ({ 
+  return result.map((g: any) => ({ 
     ...g, 
     id: Number(g.id),
-    maxSelections: Number((g as any).max_selections || (g as any).maxSelections || 1)
+    maxSelections: Number(g.maxSelections || 1),
+    // ✅ Sanitização do JSON de ordem
+    itemsOrder: Array.isArray(g.itemsOrder) ? g.itemsOrder : JSON.parse(g.itemsOrder || "[]")
   }));
 }
 
@@ -2094,90 +2105,77 @@ export async function createAccompanimentGroup(data: any) {
     description: data.description || null,
     maxSelections: data.maxSelections ?? 1,
     isActive: true,
-  } as any);
+    itemsOrder: [], // Inicia vazio
+  });
   return { success: true, id: result.insertId };
 }
 
 /**
- * ✅ REVISADO: Duplicação com correção de Tipagem (JSON)
+ * ✅ ATUALIZADO: Salva a nova ordem (JSON) e outros campos do grupo
  */
-export async function duplicateGroup(data: { id: number, newName: string }) {
+export async function updateAccompanimentGroup(id: number | string, data: any) {
   const db = await getDb();
-  return await db.transaction(async (tx) => {
-    const [original]: any = await tx.select().from(accompanimentGroups).where(eq(accompanimentGroups.id, Number(data.id))).limit(1);
-    if (!original) throw new Error("Original não encontrado");
+  const { id: _, ...updateData } = data;
 
-    const [newGroupResult]: any = await tx.insert(accompanimentGroups).values({
-      name: data.newName,
-      slug: generateSlug(data.newName),
-      description: original.description,
-      maxSelections: original.maxSelections || 1,
-      isActive: true,
-    } as any);
+  if (Object.keys(updateData).length === 0) return { success: true };
 
-    const newGroupId = newGroupResult.insertId;
+  await db.update(accompanimentGroups)
+    .set(updateData)
+    .where(eq(accompanimentGroups.id, Number(id)));
 
-    const originalOptions = await tx.select()
-      .from(accompanimentOptions)
-      .where(sql`JSON_CONTAINS(${accompanimentOptions.groupsConfig}, JSON_OBJECT('group_id', ${Number(data.id)}))`);
-
-    for (const opt of originalOptions) {
-      const currentConfigs = Array.isArray(opt.groupsConfig) ? opt.groupsConfig : [];
-      const newConfigs = [...currentConfigs, { group_id: Number(newGroupId), price_modifier: "0.00" }];
-
-      await tx.update(accompanimentOptions)
-        .set({ groupsConfig: newConfigs }) // 🚀 CORREÇÃO: Passando o objeto direto, sem JSON.stringify
-        .where(eq(accompanimentOptions.id, opt.id));
-    }
-    return { success: true, newGroupId };
-  });
-}
-
-export async function deleteAccompanimentGroup(id: number) {
-  const db = await getDb();
-  await db.execute(sql`DELETE FROM size_accompaniment_groups WHERE accompaniment_group_id = ${Number(id)}`);
-  await db.delete(accompanimentGroups).where(eq(accompanimentGroups.id, Number(id)));
   return { success: true };
 }
 
 // ===================================================================
-// 3) ACCOMPANIMENT OPTIONS (OPÇÕES)
+// 3) ACCOMPANIMENT OPTIONS (OPÇÕES MASTER)
 // ===================================================================
 
-export async function getAccompanimentOptionsByGroup(groupId: number) {
+/**
+ * ✅ REVISADO: Agora busca os itens e os ordena pelo mapa JSON do grupo
+ */
+export async function getAccompanimentOptionsByGroup(groupId: number | string) {
   const db = await getDb();
-  return await db.select()
+  
+  // 1. Pega o grupo para ler o array de ordem
+  const [group]: any = await db.select().from(accompanimentGroups).where(eq(accompanimentGroups.id, Number(groupId))).limit(1);
+  const orderArray = Array.isArray(group?.itemsOrder) ? group.itemsOrder : JSON.parse(group?.itemsOrder || "[]");
+
+  // 2. Busca os itens que pertencem a este grupo
+  const items = await db.select()
     .from(accompanimentOptions)
     .where(sql`JSON_CONTAINS(${accompanimentOptions.groupsConfig}, JSON_OBJECT('group_id', ${Number(groupId)}))`);
+
+  // 3. Ordena os itens baseando-se no índice que eles ocupam no array itemsOrder
+  if (orderArray && orderArray.length > 0) {
+    return items.sort((a: any, b: any) => {
+      const posA = orderArray.indexOf(Number(a.id));
+      const posB = orderArray.indexOf(Number(b.id));
+      
+      // Se o item não está no array (item novo), vai para o final
+      const indexA = posA === -1 ? 999 : posA;
+      const indexB = posB === -1 ? 999 : posB;
+      
+      return indexA - indexB;
+    });
+  }
+
+  return items;
 }
 
-export async function createAccompanimentOption(data: any) {
+export async function updateAccompanimentOption(id: number | string, data: any) {
   const db = await getDb();
-  return await db.insert(accompanimentOptions).values({
-    ...data,
-    slug: generateSlug(data.name),
-    priceModifier: toPriceString(data.priceModifier)
-  } as any);
-}
-
-export async function updateAccompanimentOption(id: number, data: any) {
-  const db = await getDb();
-  const updateData = { ...data };
+  const { id: _, ...updateData } = data;
+  if (Object.keys(updateData).length === 0) return { success: true };
   if (updateData.priceModifier !== undefined) updateData.priceModifier = toPriceString(updateData.priceModifier);
   
   return await db.update(accompanimentOptions).set(updateData).where(eq(accompanimentOptions.id, Number(id)));
 }
 
-export async function deleteAccompanimentOption(id: number) {
-  const db = await getDb();
-  return await db.delete(accompanimentOptions).where(eq(accompanimentOptions.id, Number(id)));
-}
-
 // ===================================================================
-// 4) VÍNCULOS (TAMANHO <-> GRUPO)
+// 4) VÍNCULOS E AUXILIARES (PERMANECEM IGUAIS)
 // ===================================================================
 
-export async function linkAccompanimentToSize(data: { sizeId: number, groupId: number }) {
+export async function linkAccompanimentToSize(data: { sizeId: number | string, groupId: number | string }) {
   const db = await getDb();
   await db.execute(sql`
     INSERT INTO size_accompaniment_groups (size_id, accompaniment_group_id) 
@@ -2187,7 +2185,7 @@ export async function linkAccompanimentToSize(data: { sizeId: number, groupId: n
   return { success: true };
 }
 
-export async function unlinkAccompanimentFromSize(sizeId: number, groupId: number) {
+export async function unlinkAccompanimentFromSize(sizeId: number | string, groupId: number | string) {
   const db = await getDb();
   await db.execute(sql`
     DELETE FROM size_accompaniment_groups 
@@ -2196,19 +2194,9 @@ export async function unlinkAccompanimentFromSize(sizeId: number, groupId: numbe
   return { success: true };
 }
 
-// ===================================================================
-// 5) DISHES & CATEGORIES (FALLBACKS)
-// ===================================================================
-
-export async function getPaginatedDishes(input: any) {
+export async function getPaginatedDishes() {
   const db = await getDb();
   return await db.select().from(dishes).orderBy(desc(dishes.id)).limit(100); 
-}
-
-export async function getDishById(id: number) {
-  const db = await getDb();
-  const [row] = await db.select().from(dishes).where(eq(dishes.id, Number(id))).limit(1);
-  return row ?? null;
 }
 
 export async function getLocalCategories() {
@@ -2591,48 +2579,45 @@ declare module "lucia" {
 ### Arquivo: `server/backup.ts`
 
 ```ts
-import { exec } from "child_process";
-import fs from "fs";
-import path from "path";
-import { promisify } from "util";
+import { execSync } from "child_process";
 
-const execAsync = promisify(exec);
-
-export async function generateDatabaseBackup() {
-  // ⚠️ IMPORTANTE: Ajustei para os nomes que o seu sistema usa no .env
-  const host = process.env.WC_DB_HOST || "localhost";
-  const user = process.env.WC_DB_USER || "root";
-  const password = process.env.WC_DB_PASSWORD || "root";
-  const database = process.env.WC_DB_NAME || "local";
-  const port = process.env.WC_DB_PORT || "3306";
-
-  const tempPath = path.resolve("temp_backup.sql");
-
-  // Comando com aspas para evitar erro em senhas com caracteres especiais
-  const command = `mysqldump -h ${host} -P ${port} -u ${user} -p"${password}" --column-statistics=0 --databases ${database} > "${tempPath}"`;
+export async function generateDatabaseBackup(): Promise<string> {
+  const containerName = "gourmet_db"; 
+  const dbName = "gourmet_saudavel";
 
   try {
-    console.log("📦 [BACKUP] Executando comando...");
-    
-    await execAsync(command);
-    
-    if (!fs.existsSync(tempPath)) {
-      throw new Error("O arquivo de backup não foi gerado pelo sistema.");
-    }
+    console.log(`📦 [BACKUP] Executando dump via shell seguro...`);
 
-    const sqlContent = fs.readFileSync(tempPath, "utf-8");
-    fs.unlinkSync(tempPath); // Limpa o temporário
+    // ✅ Mudança: Usamos aspas duplas internas para o shell do Windows não se perder
+    // E removemos o aviso de senha na CLI para evitar erros de pipe
+    const command = `docker exec ${containerName} /usr/bin/mysqldump -u root --password=root ${dbName}`;
+    
+    const output = execSync(command, { 
+      maxBuffer: 1024 * 1024 * 64, 
+      encoding: 'utf8',
+      // 'pipe' no stderr nos permite ver o erro real se falhar
+      stdio: ['pipe', 'pipe', 'pipe'] 
+    });
 
-    return sqlContent;
+    return output;
+
   } catch (error: any) {
-    console.error("❌ [BACKUP ERROR]:", error.message);
+    // Aqui pegamos o erro REAL que o MySQL devolveu (stderr)
+    const stderr = error.stderr?.toString() || "";
+    const message = error.message || "";
     
-    // Se o erro for que o mysqldump não existe, avisa o usuário
-    if (error.message.includes("not found") || error.message.includes("não é reconhecido")) {
-      throw new Error("O utilitário 'mysqldump' não está instalado no servidor.");
+    console.error("❌ [MYSQL ERROR]:", stderr);
+    console.error("❌ [EXEC ERROR]:", message);
+
+    // Tratamento de erro específico para o usuário
+    if (stderr.includes("Unknown database")) {
+      throw new Error(`O banco '${dbName}' não existe no container.`);
+    }
+    if (stderr.includes("Access denied")) {
+      throw new Error("Senha do banco incorreta no script de backup.");
     }
     
-    throw new Error(error.message);
+    throw new Error(`Erro no Docker: ${stderr || message}`);
   }
 }
 ```
@@ -5104,14 +5089,21 @@ import {
   accompanimentCategories 
 } from "../../../drizzle/schema/catalog.js"; 
 import { eq, asc, desc, sql } from "drizzle-orm";
+import { adminSizesRouter } from "./sizes.js";
 
 const generateSlug = (text: string) => 
   text.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
 
+/**
+ * 🥗 ACCOMPANIMENTS ROUTER
+ * Este roteador centraliza Categorias, Grupos, Opções e Tamanhos.
+ */
 export const adminAccompanimentsRouter = router({
+  
+  dishSizes: adminSizesRouter,
 
   // ===================================================================
-  // ✅ CATEGORIAS (Ícones e Cores: 'Proteína', 'Legume')
+  // ✅ CATEGORIAS (Proteína, Legumes, etc.)
   // ===================================================================
   categories: router({
     list: adminProcedure.query(async () => {
@@ -5130,12 +5122,13 @@ export const adminAccompanimentsRouter = router({
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
-        const data = { ...input, updatedAt: new Date() };
+        const { id, ...data } = input;
+        const payload = { ...data, updatedAt: new Date() };
 
-        if (input.id) {
-          await db.update(accompanimentCategories).set(data).where(eq(accompanimentCategories.id, input.id));
+        if (id) {
+          await db.update(accompanimentCategories).set(payload).where(eq(accompanimentCategories.id, id));
         } else {
-          await db.insert(accompanimentCategories).values({ ...data, createdAt: new Date() });
+          await db.insert(accompanimentCategories).values({ ...payload, createdAt: new Date() });
         }
         return { success: true };
       }),
@@ -5147,13 +5140,33 @@ export const adminAccompanimentsRouter = router({
   }),
 
   // ===================================================================
-  // ✅ GRUPOS (Slots como 'Escolha 1 Acompanhamento')
+  // ✅ GRUPOS (Slots de Escolha com Drag & Drop JSON)
   // ===================================================================
   groups: router({
     list: adminProcedure.query(async () => {
       const db = await getDb();
       return await db.select().from(accompanimentGroups).orderBy(desc(accompanimentGroups.id));
     }),
+
+    // Especialmente para atualizações rápidas (como a nova ordem do Drag & Drop)
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        description: z.string().optional().nullable(),
+        maxSelections: z.number().optional(),
+        minSelections: z.number().optional(),
+        isActive: z.boolean().optional(),
+        itemsOrder: z.array(z.number()).optional(), // ✅ Suporte ao JSON de IDs
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        const { id, ...data } = input;
+        await db.update(accompanimentGroups)
+          .set({ ...data, updatedAt: new Date() })
+          .where(eq(accompanimentGroups.id, id));
+        return { success: true };
+      }),
 
     upsert: adminProcedure
       .input(z.object({
@@ -5162,21 +5175,20 @@ export const adminAccompanimentsRouter = router({
         description: z.string().optional().nullable(),
         maxSelections: z.number().min(1).default(1),
         minSelections: z.number().default(0),
-        isActive: z.boolean().default(true)
+        isActive: z.boolean().default(true),
+        itemsOrder: z.array(z.number()).optional()
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
+        const { id, ...rest } = input;
         const data = {
-          name: input.name,
-          description: input.description || "",
-          maxSelections: input.maxSelections,
-          minSelections: input.minSelections,
-          isActive: input.isActive,
+          ...rest,
+          description: rest.description || "",
           updatedAt: new Date()
         };
 
-        if (input.id) {
-          await db.update(accompanimentGroups).set(data).where(eq(accompanimentGroups.id, input.id));
+        if (id) {
+          await db.update(accompanimentGroups).set(data).where(eq(accompanimentGroups.id, id));
         } else {
           await db.insert(accompanimentGroups).values({ 
             ...data, 
@@ -5194,7 +5206,7 @@ export const adminAccompanimentsRouter = router({
   }),
 
   // ===================================================================
-  // ✅ OPÇÕES (Itens como 'Arroz', 'Feijão')
+  // ✅ OPÇÕES (Itens individuais do Banco Master)
   // ===================================================================
   options: router({
     listAll: adminProcedure.query(async () => {
@@ -5212,34 +5224,25 @@ export const adminAccompanimentsRouter = router({
           .orderBy(asc(accompanimentOptions.displayOrder));
       }),
 
-    // ✅ ROTA QUE ESTAVA DANDO 404
-    getComposition: adminProcedure
-      .input(z.object({ optionId: z.number() }))
-      .query(async ({ input }) => {
-        const db = await getDb();
-        const result = await db.select()
-          .from(accompanimentOptions)
-          .where(eq(accompanimentOptions.id, input.optionId))
-          .limit(1);
-        return result[0] || null;
-      }),
-
     upsert: adminProcedure
       .input(z.object({
         id: z.number().optional(),
         name: z.string().min(1),
         accompanimentCategoryId: z.number().optional().nullable(),
-        // ✅ CORREÇÃO ZOD: Aceita array ou string (JSON) para evitar erro de tipo
         groupsConfig: z.union([z.array(z.any()), z.string()]).optional().default([]),
         isActive: z.boolean().optional().default(true),
         displayOrder: z.number().optional().default(0),
-        nutritionalInfo: z.string().optional().nullable(),
-        showNutrition: z.boolean().optional().default(false)
+        showNutrition: z.boolean().optional().default(false),
+        
+        // ✅ ADICIONADO: Colunas individuais para bater com o Schema e resolver erro 2353
+        energyKcal: z.number().optional().nullable(),
+        proteins: z.union([z.string(), z.number()]).optional().nullable(),
+        carbs: z.union([z.string(), z.number()]).optional().nullable(),
+        fatTotal: z.union([z.string(), z.number()]).optional().nullable(),
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
         
-        // ✅ PARSE SEGURO: Se vier string do banco/frontend, converte para objeto
         const rawConfig = typeof input.groupsConfig === 'string' 
           ? JSON.parse(input.groupsConfig) 
           : input.groupsConfig;
@@ -5249,19 +5252,20 @@ export const adminAccompanimentsRouter = router({
           price_modifier: String(g.price_modifier || "0.00")
         }));
 
+        const { id, ...rest } = input;
+        
+        // Garantimos que os valores decimais sejam salvos como string para o MySQL
         const data = {
-          name: input.name,
-          accompanimentCategoryId: input.accompanimentCategoryId,
+          ...rest,
           groupsConfig: cleanGroupsConfig,
-          isActive: input.isActive,
-          displayOrder: input.displayOrder,
-          showNutrition: input.showNutrition,
-          nutritionalInfo: input.nutritionalInfo || "", 
+          proteins: rest.proteins ? String(rest.proteins) : null,
+          carbs: rest.carbs ? String(rest.carbs) : null,
+          fatTotal: rest.fatTotal ? String(rest.fatTotal) : null,
           updatedAt: new Date()
         };
 
-        if (input.id) {
-          await db.update(accompanimentOptions).set(data).where(eq(accompanimentOptions.id, input.id));
+        if (id) {
+          await db.update(accompanimentOptions).set(data).where(eq(accompanimentOptions.id, id));
         } else {
           await db.insert(accompanimentOptions).values({ 
             ...data, 
@@ -5746,7 +5750,6 @@ export const adminDiscountRulesRouter = router({
 import { z } from "zod";
 import { router, adminProcedure } from "../../_core/trpc.js"; 
 import * as AdminDishes from "../../admin-dishes.js"; 
-import * as AdminSizes from "../../admin-sizes-accompaniments.js"; 
 import { TRPCError } from "@trpc/server";
 import { logAction } from "../../db/lib/audit.js";
 
@@ -5756,10 +5759,12 @@ const normalizeIdToNumber = (id: any) => {
   return num;
 };
 
-// =========================================================
-// 1. ROTEADOR DE PRATOS (DISHES)
-// =========================================================
+/**
+ * 🥘 ADMIN DISHES ROUTER
+ * Este roteador cuida apenas do catálogo de pratos/marmitas.
+ */
 export const adminDishesRouter = router({
+  // LISTAGEM COM PAGINAÇÃO E FILTRO
   list: adminProcedure
     .input(z.object({
       page: z.number().default(1),
@@ -5786,9 +5791,7 @@ export const adminDishesRouter = router({
       }
     }),
 
-  /**
-   * ✅ BUSCA POR ID: Agora com log de erro explícito para debugar o banco
-   */
+  // BUSCA POR ID
   getById: adminProcedure
     .input(z.number())
     .query(async ({ input }) => {
@@ -5799,7 +5802,6 @@ export const adminDishesRouter = router({
         }
         return dish;
       } catch (error: any) {
-        // Log detalhado no terminal para identificar colunas faltantes no MySQL
         console.error("❌ [TRPC getById ERROR]:", error);
         throw new TRPCError({ 
           code: 'INTERNAL_SERVER_ERROR', 
@@ -5808,6 +5810,7 @@ export const adminDishesRouter = router({
       }
     }),
 
+  // ATIVAR/DESATIVAR PRATO
   toggleActive: adminProcedure
     .input(z.object({
       id: z.number().or(z.string()),
@@ -5832,6 +5835,7 @@ export const adminDishesRouter = router({
       }
     }),
   
+  // LISTAR CATEGORIAS PARA SELECTS
   listCategories: adminProcedure.query(async () => {
     try {
       return await AdminDishes.getLocalCategories();
@@ -5841,6 +5845,7 @@ export const adminDishesRouter = router({
     }
   }),
 
+  // CRIAR NOVO PRATO
   create: adminProcedure
     .input(z.object({
       name: z.string(),
@@ -5865,6 +5870,7 @@ export const adminDishesRouter = router({
       }
     }),
   
+  // ATUALIZAR PRATO
   update: adminProcedure
     .input(z.object({
       id: z.any(),
@@ -5891,6 +5897,7 @@ export const adminDishesRouter = router({
       }
     }),
   
+  // EXCLUIR PRATO
   delete: adminProcedure
     .input(z.object({ id: z.any() }))
     .mutation(async ({ ctx, input }) => {
@@ -5910,96 +5917,6 @@ export const adminDishesRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Erro ao excluir prato.' });
       }
     }),
-});
-
-// =========================================================
-// 2. ROTEADOR DE TAMANHOS E ACOMPANHAMENTOS (SIZES/ACCOMP)
-// =========================================================
-export const adminSizesRouter = router({
-  list: adminProcedure.query(async () => await AdminSizes.getAllDishSizes()),
-  
-  getAccompanimentGroups: adminProcedure.query(async () => 
-    await AdminSizes.getAllLinks()
-  ),
-  
-  create: adminProcedure.input(z.any()).mutation(async ({ ctx, input }) => {
-    const res = await AdminSizes.createDishSize(input);
-    await logAction(ctx, "CREATE_SIZE", "sizes", { new: input });
-    return res;
-  }),
-  
-  delete: adminProcedure.input(z.object({ id: z.any() }))
-    .mutation(async ({ ctx, input }) => {
-      const id = normalizeIdToNumber(input.id);
-      const res = await AdminSizes.deleteDishSize(id);
-      await logAction(ctx, "DELETE_SIZE", "sizes", { entityId: id });
-      return res;
-    }),
-  
-  linkAccompanimentToSize: adminProcedure
-    .input(z.object({ sizeId: z.number(), groupId: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const res = await AdminSizes.linkAccompanimentToSize(input);
-      await logAction(ctx, "LINK_ACCOMPANIMENT", "sizes", { new: input });
-      return res;
-    }),
-  
-  unlinkAccompanimentFromSize: adminProcedure
-    .input(z.object({ sizeId: z.number(), groupId: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const res = await AdminSizes.unlinkAccompanimentFromSize(
-        normalizeIdToNumber(input.sizeId), 
-        normalizeIdToNumber(input.groupId)
-      );
-      await logAction(ctx, "UNLINK_ACCOMPANIMENT", "sizes", { old: input });
-      return res;
-    }),
-});
-
-export const adminAccompanimentsRouter = router({
-  groups: router({
-    list: adminProcedure.query(async () => await AdminSizes.getAllAccompanimentGroups()),
-    
-    upsert: adminProcedure
-      .input(z.any())
-      .mutation(async ({ ctx, input }) => {
-        const res = await AdminSizes.createAccompanimentGroup(input);
-        await logAction(ctx, "UPSERT_ACCOMP_GROUP", "accompaniments", { new: input });
-        return res;
-      }),
-
-    delete: adminProcedure
-      .input(z.object({ id: z.any() }))
-      .mutation(async ({ ctx, input }) => {
-        const id = normalizeIdToNumber(input.id);
-        const res = await AdminSizes.deleteAccompanimentGroup(id);
-        await logAction(ctx, "DELETE_ACCOMP_GROUP", "accompaniments", { entityId: id });
-        return res;
-      }),
-  }),
-
-  options: router({
-    create: adminProcedure.input(z.any()).mutation(async ({ ctx, input }) => {
-       const res = await AdminSizes.createAccompanimentOption(input);
-       await logAction(ctx, "CREATE_ACCOMP_OPTION", "accompaniments", { new: input });
-       return res;
-    }),
-    
-    update: adminProcedure.input(z.any()).mutation(async ({ ctx, input }) => {
-        const { id, ...data } = input;
-        const res = await AdminSizes.updateAccompanimentOption(normalizeIdToNumber(id), data as any);
-        await logAction(ctx, "UPDATE_ACCOMP_OPTION", "accompaniments", { entityId: id, new: data });
-        return res;
-    }),
-
-    delete: adminProcedure.input(z.object({ id: z.any() }))
-      .mutation(async ({ ctx, input }) => {
-        const id = normalizeIdToNumber(input.id);
-        const res = await AdminSizes.deleteAccompanimentOption(id);
-        await logAction(ctx, "DELETE_ACCOMP_OPTION", "accompaniments", { entityId: id });
-        return res;
-      }),
-  }),
 });
 ```
 
@@ -6149,6 +6066,7 @@ import { router } from "../../_core/trpc.js";
  * 1. IMPORTAÇÃO DOS ROTEADORES ADMIN
  */
 import { adminAnalyticsRouter } from "./analytics.js";
+import { adminSizesRouter } from "./sizes.js";
 import { adminLogsRouter } from "./logs.js";
 import { adminMediaRouter } from "./media.js"; 
 import { adminDiscountRulesRouter } from "./discount-rules.js";
@@ -6157,11 +6075,11 @@ import { adminMarketingRouter } from "./marketing.js";
 import { adminFinanceRouter } from "./finance.js";
 import { adminCategoriesRouter } from "./categories.js";
 import { adminNutritionRouter } from "./nutrition.js";
-import { adminAccompanimentsRouter } from "./accompaniments.js";
+import { adminAccompanimentsRouter,  } from "./accompaniments.js";
 import { adminPackagesRouter } from "./packages.js"; 
 import { adminCouponsRouter } from "./coupons.js";
 import { adminPaymentMethodsRouter } from "./payment-methods.js";
-import { adminDishesRouter, adminSizesRouter } from "./dishes.js";
+import { adminDishesRouter } from "./dishes.js";
 import { usersAdminRouter } from "./users.js";
 import { ordersAdminRouter } from "./orders.js"; // Este é o que revisamos com o JOIN e o safeDecrypt
 import { adminSettingsRouter } from "./settings.js"; 
@@ -7014,7 +6932,6 @@ import { getDb } from "../../db.js";
 import { ingredients, productIngredients } from "../../../drizzle/schema/index.js"; 
 import { eq, like, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import crypto from "crypto";
 
 /**
  * Roteador de Nutrição (Admin)
@@ -7039,47 +6956,67 @@ export const adminNutritionRouter = router({
     .input(z.object({
       id: z.number().optional(),
       name: z.string().min(1, "Nome é obrigatório"),
-      calories: z.coerce.number().default(0),    // Mapeado para 'energy' no banco
+      energyKcal: z.coerce.number().optional(),
+      calories: z.coerce.number().optional(),    
       protein: z.coerce.number().default(0),
       carbohydrates: z.coerce.number().optional(),
-      carbs: z.coerce.number().optional(),       // Fallback para o front
-      fats: z.coerce.number().optional(),
-      fat_total: z.coerce.number().optional(),   // Fallback para o front
+      carbs: z.coerce.number().optional(),       
+      fatTotal: z.coerce.number().optional(),
+      fats: z.coerce.number().optional(),        
       sodium: z.coerce.number().default(0),
       fiber: z.coerce.number().default(0),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       
-      // Normalização: Escolhe qual campo usar (carbs vs carbohydrates)
-      const carbs = input.carbohydrates ?? input.carbs ?? 0;
-      const fat = input.fats ?? input.fat_total ?? 0;
+      // Normalização baseada nos nomes que o banco real utiliza
+      const caloriesValue = input.calories ?? input.energyKcal ?? 0;
+      const carbsValue = input.carbohydrates ?? input.carbs ?? 0;
+      const fatsValue = input.fats ?? input.fatTotal ?? 0;
 
       try {
-        // Usamos SQL puro para lidar com o ON DUPLICATE KEY UPDATE de forma atômica
+        // ✅ Query SQL corrigida usando os nomes reais do seu banco (conforme DESCRIBE)
         await db.execute(sql`
           INSERT INTO ingredients (
-            name, energy, protein, carbohydrates, fats, fiber, sodium
+            name, 
+            calories, 
+            carbohydrates, 
+            protein, 
+            fats, 
+            fiber, 
+            sodium,
+            source
           ) VALUES (
-            ${input.name}, ${input.calories}, ${input.protein}, ${carbs}, ${fat}, ${input.fiber}, ${input.sodium}
+            ${input.name}, 
+            ${caloriesValue}, 
+            ${carbsValue}, 
+            ${input.protein}, 
+            ${fatsValue}, 
+            ${input.fiber}, 
+            ${input.sodium},
+            'Manual'
           )
           ON DUPLICATE KEY UPDATE
-            energy = VALUES(energy),
-            protein = VALUES(protein),
+            calories = VALUES(calories),
             carbohydrates = VALUES(carbohydrates),
+            protein = VALUES(protein),
             fats = VALUES(fats),
             fiber = VALUES(fiber),
             sodium = VALUES(sodium)
         `);
 
         const [rows]: any = await db.execute(sql`SELECT LAST_INSERT_ID() as id`);
-        return { success: true, id: Number(rows[0]?.id) };
+        // Ajuste para pegar o ID independente do formato de retorno do driver
+        const insertedId = rows?.[0]?.id || rows?.[0]?.[0]?.id;
+
+        return { success: true, id: insertedId ? Number(insertedId) : null };
 
       } catch (error: any) {
         console.error("❌ [NUTRITION UPSERT ERROR]:", error);
+        
         throw new TRPCError({ 
           code: "INTERNAL_SERVER_ERROR", 
-          message: "Erro ao salvar dados nutricionais no banco." 
+          message: "Erro ao salvar ingrediente. Verifique se as colunas 'calories' e 'fats' existem no banco." 
         });
       }
     }),
@@ -7087,10 +7024,10 @@ export const adminNutritionRouter = router({
   // 3. Salvar Composição Técnica do Prato (Ficha Técnica)
   saveDishComposition: adminProcedure
     .input(z.object({
-      dishId: z.coerce.string(),
+      dishId: z.coerce.number(),
       composition: z.array(z.object({
-        ingredientId: z.coerce.string(),
-        quantity: z.coerce.string(), // ex: "100" (gramas)
+        ingredientId: z.coerce.number(),
+        quantity: z.coerce.string(), 
       })),
     }))
     .mutation(async ({ input }) => {
@@ -7105,7 +7042,6 @@ export const adminNutritionRouter = router({
         if (input.composition.length > 0) {
           await tx.insert(productIngredients).values(
             input.composition.map(item => ({
-              id: crypto.randomUUID(), 
               productId: input.dishId,
               ingredientId: item.ingredientId,
               quantity: item.quantity,
@@ -7406,11 +7342,8 @@ import { getDb } from "../../db.js";
 import { eq, desc, asc } from "drizzle-orm";
 import { packages, dishes, accompanimentGroups } from "../../../drizzle/schema/index.js";
 import { logAction } from "../../db/lib/audit.js";
-import { nanoid } from "nanoid"; // ✅ NECESSÁRIO: Instale com 'npm i nanoid' ou use crypto.randomUUID()
+import { nanoid } from "nanoid";
 
-/**
- * ✅ ESQUEMA DE CONFIGURAÇÃO DOS SLOTS
- */
 const packageConfigSchema = z.object({
   slots: z.array(z.object({
     name: z.string(),
@@ -7422,7 +7355,6 @@ const packageConfigSchema = z.object({
   }))
 });
 
-// Helper seguro para garantir que o config seja sempre um objeto válido
 const parseConfig = (config: any) => {
   if (!config) return { slots: [] };
   if (typeof config === 'string') {
@@ -7432,10 +7364,10 @@ const parseConfig = (config: any) => {
 };
 
 export const adminPackagesRouter = router({
-  // 1) LISTAGEM
+  // 1) LISTAGEM - Volta a ordenar por data de criação (descendente)
   list: adminProcedure.query(async () => {
     const db = await getDb();
-    const result = await db.select().from(packages).orderBy(desc(packages.createdAt)); // Melhor ordenar por criação ou nome
+    const result = await db.select().from(packages).orderBy(desc(packages.createdAt));
     
     return result.map(pkg => ({
       ...pkg,
@@ -7445,49 +7377,40 @@ export const adminPackagesRouter = router({
     }));
   }),
 
-  // 2) DETALHES
-  get: adminProcedure
-    .input(z.object({ id: z.string().or(z.number()) }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      const [pkg] = await db.select().from(packages).where(eq(packages.id, String(input.id))).limit(1);
-      
-      if (!pkg) throw new TRPCError({ code: 'NOT_FOUND', message: "Pacote não encontrado" });
-
-      return { 
-        ...pkg, 
-        id: String(pkg.id),
-        base_price: Number(pkg.price || 0),
-        config: parseConfig(pkg.config)
-      };
-    }),
-
-  // ✅ SOLUÇÃO DO 404: Listas auxiliares para o formulário
+  // RECUPERAR PRATOS
   getDishes: adminProcedure.query(async () => {
     const db = await getDb();
     const result = await db.select().from(dishes).where(eq(dishes.isActive, true)).orderBy(asc(dishes.name));
     return result.map(d => ({ id: String(d.id), name: d.name }));
   }),
 
+  // RECUPERAR GRUPOS
   getAccompanimentGroups: adminProcedure.query(async () => {
     const db = await getDb();
     const result = await db.select().from(accompanimentGroups).orderBy(asc(accompanimentGroups.name));
     return result.map(g => ({ id: String(g.id), name: g.name }));
   }),
 
-  // 🥘 Auxiliar unificado (Builder) - Ótimo para performance
-  getBuilderData: adminProcedure.query(async () => {
-    const db = await getDb();
-    const allDishes = await db.select().from(dishes).where(eq(dishes.isActive, true)).orderBy(asc(dishes.name));
-    const allGroups = await db.select().from(accompanimentGroups).orderBy(asc(accompanimentGroups.name));
-    
-    return {
-      dishes: allDishes.map(d => ({ id: String(d.id), name: d.name })),
-      groups: allGroups.map(g => ({ id: String(g.id), name: g.name }))
-    };
-  }),
+  // ALTERAR STATUS
+  updateStatus: adminProcedure
+    .input(z.object({
+      id: z.union([z.string(), z.number()]),
+      status: z.enum(["active", "hidden"])
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      await db.update(packages)
+        .set({ status: input.status, isActive: input.status === "active" })
+        .where(eq(packages.id, String(input.id)));
 
-  // 3) CRIAÇÃO
+      await logAction(ctx, "UPDATE_PACKAGE_STATUS", "packages", {
+        entityId: String(input.id),
+        new: { status: input.status }
+      });
+      return { success: true };
+    }),
+
+  // 3) CRIAÇÃO - Removidos price_modifier e display_order
   create: adminProcedure
     .input(z.object({
       name: z.string().min(1),
@@ -7502,13 +7425,10 @@ export const adminPackagesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      
       try {
-        // ✅ CORREÇÃO CRÍTICA: Gerar o ID manualmente pois é VARCHAR
-        const newId = nanoid(); // ou crypto.randomUUID() se estiver no Node 16+
-
+        const newId = nanoid();
         await db.insert(packages).values({
-          id: newId, // <--- Aqui estava faltando o ID
+          id: newId,
           name: input.name,
           slug: input.slug,
           description: input.description,
@@ -7517,17 +7437,16 @@ export const adminPackagesRouter = router({
           numberOfOptions: input.number_of_options,
           month: input.month,
           isActive: input.isActive,
+          status: input.isActive ? "active" : "hidden",
           config: input.config,
-        } as any);
-
-        await logAction(ctx, "CREATE_PACKAGE", "packages", {
-          entityId: newId, // Log com o ID correto
-          new: { name: input.name, price: input.base_price }
         });
 
+        await logAction(ctx, "CREATE_PACKAGE", "packages", {
+          entityId: newId,
+          new: { name: input.name, price: input.base_price }
+        });
         return { success: true, id: newId };
       } catch (error: any) {
-        // Tratamento de erro de chave duplicada (slug)
         if (error.code === 'ER_DUP_ENTRY') {
            throw new TRPCError({ code: "CONFLICT", message: "Já existe um pacote com este Slug." });
         }
@@ -7535,7 +7454,7 @@ export const adminPackagesRouter = router({
       }
     }),
 
-  // 4) ATUALIZAÇÃO
+  // 4) ATUALIZAÇÃO - Removidos price_modifier e display_order
   update: adminProcedure
     .input(z.object({
       id: z.string().or(z.number()),
@@ -7565,15 +7484,15 @@ export const adminPackagesRouter = router({
         numberOfOptions: data.number_of_options,
         month: data.month,
         isActive: data.isActive,
+        status: data.isActive ? "active" : "hidden",
         config: data.config,
-      } as any).where(eq(packages.id, String(id)));
+      }).where(eq(packages.id, String(id)));
 
       await logAction(ctx, "UPDATE_PACKAGE", "packages", {
         entityId: String(id),
         old: { name: old?.name },
         new: { name: data.name }
       });
-
       return { success: true };
     }),
 
@@ -7583,11 +7502,7 @@ export const adminPackagesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       await db.delete(packages).where(eq(packages.id, String(input.id)));
-      
-      await logAction(ctx, "DELETE_PACKAGE", "packages", {
-        entityId: String(input.id)
-      });
-      
+      await logAction(ctx, "DELETE_PACKAGE", "packages", { entityId: String(input.id) });
       return { success: true };
     }),
 });
@@ -7728,17 +7643,34 @@ import { appConfigs } from "../../../drizzle/schema/index.js";
 import { encrypt, decrypt } from "../../encryption.js"; 
 import { generateDatabaseBackup } from "../../backup.js";
 import { logAction } from "../../db/lib/audit.js";
+import { eq } from "drizzle-orm";
+
+// 📊 Estado global simples para a barra de progresso (em memória)
+let exportProgress = { percent: 0, status: "Aguardando..." };
+
+/**
+ * Helper para realizar Upsert (Update ou Insert) manual no MySQL
+ * Garante que as configurações não falhem se o registro ainda não existir.
+ */
+async function upsertConfig(db: any, key: string, value: string) {
+  const result = await db.update(appConfigs)
+    .set({ configValue: value })
+    .where(eq(appConfigs.configKey, key));
+
+  // @ts-ignore - Se zero linhas afetadas, o registro não existe: INSERT
+  if (result[0]?.affectedRows === 0) {
+    await db.insert(appConfigs).values({ configKey: key, configValue: value });
+  }
+}
 
 export const adminSettingsRouter = router({
   
   /**
-   * ⚙️ BUSCAR CONFIGURAÇÕES (Resolvendo 404 de admin.storeSettings.get)
+   * ⚙️ BUSCAR CONFIGURAÇÕES
    */
   get: adminProcedure.query(async () => {
     try {
       const db = await getDb();
-      if (!db) throw new Error("Banco de dados off-line");
-
       const generalSettings = await StoreLogic.getStoreSettings();
       const extraConfigs = await db.select().from(appConfigs);
 
@@ -7758,21 +7690,18 @@ export const adminSettingsRouter = router({
         ...generalSettings,
         googleLogin: getEncryptedConfig('google_auth_credentials') || { enabled: false, clientId: "", clientSecret: "" },
         companyInfo: getEncryptedConfig('company_social_info') || { phone: "", whatsapp: "", email: "", address: "", instagram: "", facebook: "" },
-        
-        // Ajustado para bater com o componente AccessibilitySettings.tsx
         accessibility: {
           vLibrasActive: getRawConfig('accessibility_vlibras') === 'true',
           highContrastActive: getRawConfig('accessibility_high_contrast') === 'true',
         }
       };
     } catch (error: any) {
-      console.error("❌ [SETTINGS GET ERROR]:", error);
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao buscar configurações." });
     }
   }),
 
   /**
-   * 💾 ATUALIZAR ACESSIBILIDADE
+   * 💾 ATUALIZAR ACESSIBILIDADE E GERAL
    */
   update: adminProcedure
     .input(z.any()) 
@@ -7781,21 +7710,11 @@ export const adminSettingsRouter = router({
         const db = await getDb();
         const { accessibility, ...storeData } = input;
 
-        // 1. Dados físicos
         await StoreLogic.updateStoreSettings(storeData);
 
-        // 2. Acessibilidade na app_configs
         if (accessibility) {
-          const updates = [
-            { key: 'accessibility_vlibras', value: String(accessibility.vLibrasActive) },
-            { key: 'accessibility_high_contrast', value: String(accessibility.highContrastActive) }
-          ];
-
-          for (const item of updates) {
-            await db.insert(appConfigs)
-              .values({ configKey: item.key, configValue: item.value })
-              .onDuplicateKeyUpdate({ set: { configValue: item.value } });
-          }
+          await upsertConfig(db, 'accessibility_vlibras', String(accessibility.vLibrasActive));
+          await upsertConfig(db, 'accessibility_high_contrast', String(accessibility.highContrastActive));
         }
 
         await logAction(ctx, "UPDATE_SETTINGS", "settings", { entityId: "global", new: input });
@@ -7806,31 +7725,75 @@ export const adminSettingsRouter = router({
     }),
 
   /**
-   * 🏢 SALVAR INFO DA EMPRESA (Resolvendo 404 de saveCompanyInfo)
+   * 📈 STATUS DO PROGRESSO (Para o Frontend)
+   */
+  getExportStatus: adminProcedure.query(() => {
+    return exportProgress;
+  }),
+
+  /**
+   * 📦 EXPORTAÇÃO COM BARRA DE PROGRESSO
+   */
+  exportKernel: adminProcedure.mutation(async ({ ctx }) => {
+    const { execSync } = await import("child_process");
+    const fs = await import("fs");
+    const path = await import("path");
+    const AdmZip = (await import("adm-zip")).default;
+
+    try {
+      exportProgress = { percent: 10, status: "🚀 Iniciando build e exportação..." };
+      
+      // Build (opcional: pode ser removido se a VPS tiver pouca RAM)
+      try {
+        execSync('npm run build', { stdio: 'ignore', timeout: 300000 });
+        exportProgress = { percent: 40, status: "🛠️ Build concluído, zipando arquivos..." };
+      } catch (e) {
+        exportProgress = { percent: 40, status: "⚠️ Build ignorado, coletando dist atual..." };
+      }
+
+      const zip = new AdmZip();
+      const rootDir = process.cwd();
+      
+      const distPath = path.join(rootDir, 'dist');
+      if (fs.existsSync(distPath)) {
+        zip.addLocalFolder(distPath, 'dist');
+        exportProgress = { percent: 70, status: "📦 Pasta /dist adicionada..." };
+      }
+
+      ['package.json', 'package-lock.json', 'ecosystem.config.cjs', '.env'].forEach(f => { 
+        const filePath = path.join(rootDir, f);
+        if (fs.existsSync(filePath)) zip.addLocalFile(filePath); 
+      });
+
+      exportProgress = { percent: 90, status: "🔐 Finalizando compressão..." };
+      const buffer = zip.toBuffer();
+      
+      await logAction(ctx, "EXPORT_KERNEL", "system", { entityId: "dist.zip" });
+      
+      exportProgress = { percent: 100, status: "🏁 Pronto para download!" };
+      return {
+        base64: buffer.toString('base64'),
+        filename: `kernel-deploy-${Date.now()}.zip`
+      };
+    } catch (err: any) {
+      exportProgress = { percent: 0, status: "❌ Erro na exportação" };
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
+    }
+  }),
+
+  /**
+   * 🏢 SALVAR INFO DA EMPRESA
    */
   saveCompanyInfo: adminProcedure
     .input(z.any())
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const encryptedValue = encrypt(JSON.stringify(input));
-      
-      await db.insert(appConfigs)
-        .values({ configKey: 'company_social_info', configValue: encryptedValue! })
-        .onDuplicateKeyUpdate({ set: { configValue: encryptedValue! } });
+      if (!encryptedValue) throw new Error("Erro na criptografia");
 
+      await upsertConfig(db, 'company_social_info', encryptedValue);
       await logAction(ctx, "UPDATE_COMPANY_INFO", "app_configs", { entityId: "company_info" });
       return { success: true };
-    }),
-
-  /**
-   * 🚨 BOTÃO DE PÂNICO
-   */
-  toggleEmergency: adminProcedure
-    .input(z.boolean())
-    .mutation(async ({ ctx, input }) => {
-      await StoreLogic.updateStoreSettings({ emergencyMode: input });
-      await logAction(ctx, "TOGGLE_EMERGENCY", "settings", { entityId: "emergency_mode", new: { active: input } });
-      return input; 
     }),
 
   /**
@@ -7845,16 +7808,15 @@ export const adminSettingsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const encryptedValue = encrypt(JSON.stringify(input));
-      await db.insert(appConfigs)
-        .values({ configKey: 'google_auth_credentials', configValue: encryptedValue! })
-        .onDuplicateKeyUpdate({ set: { configValue: encryptedValue! } });
-      
+      if (!encryptedValue) throw new Error("Erro na criptografia");
+
+      await upsertConfig(db, 'google_auth_credentials', encryptedValue);
       await logAction(ctx, "UPDATE_GOOGLE_AUTH", "app_configs", { entityId: "google_auth" });
       return { success: true };
     }),
 
   /**
-   * 📦 BACKUP E KERNEL
+   * 💾 BACKUP SQL
    */
   downloadBackup: adminProcedure.mutation(async ({ ctx }) => {
       const sqlContent = await generateDatabaseBackup();
@@ -7862,24 +7824,35 @@ export const adminSettingsRouter = router({
       return { sql: sqlContent, filename: `backup_${Date.now()}.sql` };
   }),
 
-  exportKernel: adminProcedure.mutation(async ({ ctx }) => {
-      const { execSync } = await import("child_process");
-      const fs = await import("fs");
-      const AdmZip = (await import("adm-zip")).default;
+  /**
+   * 📥 UPGRADE SYSTEM (IMPLANTAÇÃO)
+   */
+  upgradeSystem: adminProcedure
+    .input(z.object({ fileBase64: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const { exec } = await import("child_process");
 
-      execSync('npm run build', { stdio: 'inherit' });
-      const zip = new AdmZip();
-      if (fs.existsSync('./dist')) zip.addLocalFolder('./dist', 'dist');
-      ['package.json', 'package-lock.json'].forEach(f => { if (fs.existsSync(f)) zip.addLocalFile(f); });
+        const buffer = Buffer.from(input.fileBase64, 'base64');
+        const uploadPath = path.join(process.cwd(), 'update_package.zip');
+        
+        fs.writeFileSync(uploadPath, buffer);
+        await logAction(ctx, "UPGRADE_SYSTEM", "system", { entityId: "kernel_zip" });
 
-      const buffer = zip.toBuffer();
-      await logAction(ctx, "EXPORT_KERNEL", "system", { entityId: "dist.zip" });
-      
-      return {
-        base64: buffer.toString('base64'),
-        filename: `kernel-deploy-${Date.now()}.zip`
-      };
-  }),
+        // Comando para VPS: Extrai, limpa e reinicia via PM2
+        const deployCommand = 'unzip -o update_package.zip && npm install --production && (sleep 2 && pm2 restart gourmet-novo &)';
+        
+        exec(deployCommand, (error) => {
+          if (error) console.error("❌ [DEPLOY ERROR]:", error.message);
+        });
+
+        return { success: true };
+      } catch (error: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha no deploy: " + error.message });
+      }
+    }),
 });
 ```
 
@@ -8100,25 +8073,22 @@ import * as AdminSizes from "../../admin-sizes-accompaniments.js";
 
 /**
  * 📏 ADMIN SIZES ROUTER
- * Gerencia tamanhos de pratos e seus vínculos com grupos de acompanhamento.
+ * Este roteador gerencia a engenharia de tamanhos das marmitas,
+ * incluindo pesos, ícones, ordens e modificadores de preço para combos.
  */
 export const adminSizesRouter = router({
   
-  // 1. Lista todos os tamanhos (Marmita P, M, G, etc)
-  // Resolve: trpc.admin.sizes.list
+  // 1. Lista todos os tamanhos (já ordenados pelo service)
   list: adminProcedure.query(async () => {
-    // Certifique-se que esta função está exportada em admin-sizes-accompaniments.ts
     return await AdminSizes.getAllDishSizes();
   }),
 
-  // 2. Busca todos os vínculos da tabela pivot (Mapa de IDs)
-  // Resolve: trpc.admin.sizes.getAccompanimentGroups
+  // 2. Busca todos os vínculos da tabela pivot (Size <-> AccompanimentGroup)
   getAccompanimentGroups: adminProcedure.query(async () => {
     return await AdminSizes.getAllLinks(); 
   }),
 
-  // 3. Cria o vínculo entre Tamanho e Grupo (Pivot Table)
-  // Resolve: trpc.admin.sizes.linkAccompanimentToSize
+  // 3. Cria o vínculo entre Tamanho e Grupo
   linkAccompanimentToSize: adminProcedure
     .input(z.object({ 
       sizeId: z.number(), 
@@ -8128,8 +8098,7 @@ export const adminSizesRouter = router({
       return await AdminSizes.linkAccompanimentToSize(input);
     }),
 
-  // 4. Remove o vínculo (Pivot Table)
-  // Resolve: trpc.admin.sizes.unlinkAccompanimentFromSize
+  // 4. Remove o vínculo
   unlinkAccompanimentFromSize: adminProcedure
     .input(z.object({ 
       sizeId: z.number(), 
@@ -8142,11 +8111,14 @@ export const adminSizesRouter = router({
   // 5. Cadastrar novo tamanho
   create: adminProcedure
     .input(z.object({
-      name: z.string(),
-      weight: z.string().optional(),
-      priceModifier: z.union([z.string(), z.number()]).optional(),
-      displayOrder: z.number().optional(),
-      isActive: z.boolean().optional()
+      name: z.string().min(1, "O nome é obrigatório"),
+      weight: z.union([z.string(), z.number()]).optional().nullable(),
+      description: z.string().optional().nullable(),
+      iconKey: z.string().optional().nullable(),
+      // ✅ Coerce garante que mesmo que venha string do input, vire número ou string formatada
+      priceModifier: z.union([z.string(), z.number()]).optional().default(0),
+      displayOrder: z.coerce.number().optional().default(0),
+      isActive: z.boolean().optional().default(true)
     }))
     .mutation(async ({ input }) => {
       return await AdminSizes.createDishSize(input);
@@ -8156,10 +8128,18 @@ export const adminSizesRouter = router({
   update: adminProcedure
     .input(z.object({
       id: z.number(),
-      data: z.any()
+      name: z.string().optional(),
+      weight: z.union([z.string(), z.number()]).optional().nullable(),
+      description: z.string().optional().nullable(),
+      iconKey: z.string().optional().nullable(),
+      // ✅ Permite atualização individual de campos (onBlur do SizeCard)
+      priceModifier: z.union([z.string(), z.number()]).optional(),
+      displayOrder: z.coerce.number().optional(),
+      isActive: z.boolean().optional()
     }))
     .mutation(async ({ input }) => {
-      return await AdminSizes.updateDishSize(input.id, input.data);
+      const { id, ...data } = input;
+      return await AdminSizes.updateDishSize(id, data);
     }),
 
   // 7. Excluir tamanho
@@ -11690,7 +11670,7 @@ import {
   accompanimentOptions, 
   sizeAccompanimentGroups,
   dishSizes,
-  accompanimentCategories // ✅ Importado para o Join
+  accompanimentCategories 
 } from "../../../drizzle/schema/catalog.js";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 
@@ -11699,12 +11679,19 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
  */
 const normalizeNutritionalInfo = (dish: any) => {
   if (!dish) return dish;
-  const rawInfo = dish.nutritional_info || dish.nutritionalInfo;
-  let parsedInfo = null;
-  if (typeof rawInfo === 'string' && rawInfo.trim() !== "") {
-    try { parsedInfo = JSON.parse(rawInfo); } catch (e) { parsedInfo = null; }
-  } else if (typeof rawInfo === 'object') { parsedInfo = rawInfo; }
-  return { ...dish, nutritionalInfo: parsedInfo };
+  return { 
+    ...dish, 
+    energyKcal: Number(dish.energyKcal || 0),
+    proteins: Number(dish.proteins || 0),
+    carbs: Number(dish.carbs || 0),
+    fatTotal: Number(dish.fatTotal || 0),
+    nutritionalInfo: {
+      kcal: Number(dish.energyKcal || 0),
+      proteins: Number(dish.proteins || 0),
+      carbs: Number(dish.carbs || 0),
+      fats: Number(dish.fatTotal || 0)
+    }
+  };
 };
 
 export const productsRouter = router({
@@ -11730,15 +11717,13 @@ export const productsRouter = router({
   // 2. Procedure de Categorias (Filtros)
   categories: publicProcedure.query(async () => {
     try {
-      const cats = await AdminDishes.getLocalCategories();
-      return cats || [];
+      return await AdminDishes.getLocalCategories() || [];
     } catch (error) {
-      console.error("❌ Erro ao buscar categorias:", error);
       return [];
     }
   }),
 
-  // 3. Procedure de Detalhes (Onde o Drawer do Front busca os dados)
+  // 3. Procedure de Detalhes (Drawer)
   getById: publicProcedure
     .input(z.object({ 
       id: z.union([z.string(), z.number()]).transform((v) => Number(v))
@@ -11752,9 +11737,17 @@ export const productsRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: "Prato não encontrado" });
         }
 
-        // Busca tamanhos globais ativos
+        // ✅ REVISADO: Agora selecionamos iconKey, weight e description explicitamente
         const sizesData = await db
-          .select()
+          .select({
+            id: dishSizes.id,
+            name: dishSizes.name,
+            weight: dishSizes.weight,
+            description: dishSizes.description,
+            iconKey: dishSizes.iconKey,
+            priceModifier: dishSizes.priceModifier,
+            displayOrder: dishSizes.displayOrder,
+          })
           .from(dishSizes)
           .where(eq(dishSizes.isActive, true))
           .orderBy(asc(dishSizes.displayOrder));
@@ -11765,7 +11758,6 @@ export const productsRouter = router({
         let accompanimentStructure: any[] = [];
 
         if (allowAcc && sizeIds.length > 0) {
-          // ✅ BUSCA DE VÍNCULOS
           const groupLinks = await db
             .select({
               sizeId: sizeAccompanimentGroups.sizeId,
@@ -11787,7 +11779,6 @@ export const productsRouter = router({
               eq(accompanimentGroups.isActive, true)
             ));
 
-          // ✅ BUSCA DE OPÇÕES COM CATEGORIAS (ÍCONES E CORES)
           accompanimentStructure = await Promise.all(groupLinks.map(async (link) => {
             const options = await db
               .select({
@@ -11795,8 +11786,10 @@ export const productsRouter = router({
                 name: accompanimentOptions.name,
                 groupsConfig: accompanimentOptions.groupsConfig,
                 showNutrition: accompanimentOptions.showNutrition,
-                nutritionalInfo: accompanimentOptions.nutritionalInfo,
-                // Injetamos a categoria visual
+                energyKcal: accompanimentOptions.energyKcal,
+                carbs: accompanimentOptions.carbs,
+                proteins: accompanimentOptions.proteins,
+                fatTotal: accompanimentOptions.fatTotal,
                 category: {
                   name: accompanimentCategories.name,
                   iconKey: accompanimentCategories.iconKey,
@@ -11804,7 +11797,6 @@ export const productsRouter = router({
                 }
               })
               .from(accompanimentOptions)
-              // 🔄 LEFT JOIN para pegar a categoria visual (se houver)
               .leftJoin(
                 accompanimentCategories,
                 eq(accompanimentOptions.accompanimentCategoryId, accompanimentCategories.id)
@@ -11829,6 +11821,12 @@ export const productsRouter = router({
                 
                 return {
                   ...opt,
+                  nutritionalInfo: {
+                    kcal: Number(opt.energyKcal || 0),
+                    carbs: Number(opt.carbs || 0),
+                    proteins: Number(opt.proteins || 0),
+                    fats: Number(opt.fatTotal || 0)
+                  },
                   priceModifier: specific?.price_modifier || "0.00"
                 };
               })
@@ -11836,11 +11834,14 @@ export const productsRouter = router({
           }));
         }
 
-        // ✅ MAPEAMENTO FINAL: Injeta os acompanhamentos dentro do respectivo tamanho
         const finalSizes = sizesData.map(size => ({
           ...size,
           id: Number(size.id),
           priceModifier: Number(size.priceModifier || 0),
+          // ✅ Repassando as novas informações para o Front
+          iconKey: size.iconKey || "Cube",
+          weight: size.weight || "",
+          description: size.description || "",
           accompanimentGroups: accompanimentStructure
             .filter(acc => Number(acc.sizeId) === Number(size.id))
             .map(acc => ({
@@ -11854,12 +11855,11 @@ export const productsRouter = router({
 
         return {
           ...normalizeNutritionalInfo(dish),
-          sizes: finalSizes,
-          accompaniments: accompanimentStructure 
+          sizes: finalSizes
         };
 
       } catch (error: any) {
-        console.error("❌ Erro detalhado no getById:", error);
+        console.error("❌ Erro detalhado no getById Público:", error);
         throw new TRPCError({ 
           code: 'INTERNAL_SERVER_ERROR', 
           message: "Falha ao processar os detalhes do produto" 
@@ -12116,22 +12116,25 @@ import { eq, inArray } from "drizzle-orm";
 import { decrypt } from "../../encryption.js";
 import { getStoreSettings } from "../../storeSettings.js"; 
 
-// ✅ IMPORTANTE: Importar o productsRouter para criar o alias 'dishes'
+// ✅ IMPORTANTE: Este router deve conter a lógica que busca sizes, iconKey e description
 import { productsRouter } from "./products.js";
 
 /**
- * Roteador Público
+ * 🌎 PUBLIC ROUTER
+ * Este é o ponto de entrada para usuários não autenticados (clientes do site).
  */
 export const publicRouter = router({
   
   /**
-   * 🍽️ Sub-rota de Produtos (Alias para compatibilidade com o Front)
-   * Isso resolve o erro: trpc.public.dishes.getById
+   * 🍽️ Sub-rota de Produtos (Alias 'dishes')
+   * Mapeia trpc.public.dishes para o roteador de produtos.
+   * Certifique-se de que o productsRouter.getById utilize o mapper revisado.
    */
   dishes: productsRouter,
 
   /**
    * 1. CONFIGURAÇÕES DA LOJA E ACESSIBILIDADE
+   * Carrega horários, taxas e flags de acessibilidade (Alto Contraste, Dislexia).
    */
   getStoreSettings: publicProcedure.query(async () => {
     try {
@@ -12172,6 +12175,7 @@ export const publicRouter = router({
 
   /**
    * 2. INFORMAÇÕES DE CONTATO E REDES SOCIAIS
+   * Decripta os dados sensíveis de contato para exibição no rodapé/contato.
    */
   getCompanyInfo: publicProcedure.query(async () => {
     try {
@@ -16225,7 +16229,7 @@ export function SystemUpgradeCard() {
 ```ts
 import React, { Suspense, lazy } from "react";
 import { Route, Switch, useLocation } from "wouter";
-// ✅ Importamos o SEU novo componente Toaster (o que criamos com Framer Motion e Zustand)
+// ✅ Importamos o SEU novo componente Toaster (Zustand + Framer Motion)
 import { Toaster } from "@/components/ui/toaster"; 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16424,7 +16428,7 @@ export default function App() {
                     </Suspense>
                   </MaintenanceInterceptor>
 
-                  {/* ✅ Toaster atualizado com o SEU componente de canto personalizado */}
+                  {/* ✅ TOASTER: Está na posição correta, fora do Switch e dentro do Provider */}
                   <Toaster />
 
                   {!isAdminRoute && <CookieBanner />}
@@ -19586,17 +19590,18 @@ export const NutritionInfo = ({ data }: any) => {
 
 ```ts
 import { cn } from "@/lib/utils";
-import { Check } from "lucide-react"; 
+import { Check, Info } from "lucide-react"; 
 import { Label } from "@/components/ui/label";
 import { Cube, Package, GridFour } from "@phosphor-icons/react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 export function SizeSelector({ sizes, selectedId, onSelect }: any) {
   if (!sizes?.length) return null;
 
-  /**
-   * ✅ AGORA LÊ DO BANCO DE DADOS
-   * Em vez de procurar pelo nome, usamos a chave que salvamos no Admin.
-   */
   const renderSizeIcon = (iconKey: string, isSelected: boolean) => {
     const iconProps = {
       size: 24,
@@ -19604,15 +19609,11 @@ export function SizeSelector({ sizes, selectedId, onSelect }: any) {
       className: isSelected ? "text-white" : "text-slate-400"
     };
 
-    // Mapeamento das chaves que configuramos no Admin
     switch (iconKey) {
-      case "GridFour":
-        return <GridFour {...iconProps} />;
-      case "Package":
-        return <Package {...iconProps} />;
+      case "GridFour": return <GridFour {...iconProps} />;
+      case "Package": return <Package {...iconProps} />;
       case "Cube":
-      default:
-        return <Cube {...iconProps} />;
+      default: return <Cube {...iconProps} />;
     }
   };
 
@@ -19627,44 +19628,76 @@ export function SizeSelector({ sizes, selectedId, onSelect }: any) {
           const isSelected = selectedId === size.id;
 
           return (
-            <button
-              key={size.id}
-              onClick={() => onSelect(size)}
-              className={cn(
-                "flex items-center justify-between p-5 rounded-[1.8rem] border-2 transition-all",
-                isSelected
-                  ? "border-slate-900 bg-slate-900 text-white shadow-lg"
-                  : "border-slate-100 bg-white hover:border-emerald-200"
-              )}
-            >
-              <div className="flex items-center gap-4">
-                <div className={cn(
-                  "flex items-center justify-center w-10 h-10 rounded-2xl",
-                  isSelected ? "bg-white/10" : "bg-slate-50"
-                )}>
-                  {/* ✅ PASSAMOS A COLUNA DO BANCO AQUI */}
-                  {renderSizeIcon(size.iconKey, isSelected)}
+            <div key={size.id} className="relative group">
+              <button
+                onClick={() => onSelect(size)}
+                className={cn(
+                  "w-full flex items-center justify-between p-5 rounded-[1.8rem] border-2 transition-all",
+                  isSelected
+                    ? "border-slate-900 bg-slate-900 text-white shadow-lg"
+                    : "border-slate-100 bg-white hover:border-emerald-200"
+                )}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "flex items-center justify-center w-10 h-10 rounded-2xl",
+                    isSelected ? "bg-white/10" : "bg-slate-50"
+                  )}>
+                    {renderSizeIcon(size.iconKey, isSelected)}
+                  </div>
+
+                  <div className="flex flex-col items-start">
+                    <span className="font-black text-[11px] uppercase italic">
+                      {size.name}
+                    </span>
+                    {size.weight && (
+                      <span className={cn(
+                        "text-[9px] font-bold",
+                        isSelected ? "text-slate-400" : "text-slate-500"
+                      )}>
+                        {size.weight}g
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex flex-col items-start">
-                  <span className="font-black text-[11px] uppercase italic">
-                    {size.name}
-                  </span>
-                  {size.weight && (
-                    <span className={cn(
-                      "text-[9px] font-bold",
-                      isSelected ? "text-slate-400" : "text-slate-500"
-                    )}>
-                      {size.weight}g
-                    </span>
+                <div className="flex items-center gap-3">
+                  {/* ✅ BOTÃO DE INFORMAÇÃO (FAQ) */}
+                  {size.description && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button 
+                          onClick={(e) => e.stopPropagation()} // Impede de selecionar o tamanho ao clicar no Info
+                          className={cn(
+                            "p-2 rounded-full transition-colors",
+                            isSelected ? "hover:bg-white/10 text-white" : "hover:bg-slate-100 text-slate-300"
+                          )}
+                        >
+                          <Info size={16} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent 
+                        side="top" 
+                        className="w-[280px] rounded-2xl p-4 shadow-2xl border-slate-100 bg-white"
+                      >
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">
+                            Dica do Chef
+                          </p>
+                          <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                            {size.description}
+                          </p>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+
+                  {isSelected && (
+                    <Check size={16} className="text-emerald-500" strokeWidth={4} />
                   )}
                 </div>
-              </div>
-
-              {isSelected && (
-                <Check size={16} className="text-emerald-500" strokeWidth={4} />
-              )}
-            </button>
+              </button>
+            </div>
           );
         })}
       </div>
@@ -28802,95 +28835,107 @@ export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
 ### Arquivo: `client/src/components/ui/use-toast.ts`
 
 ```ts
-// client/src/components/ui/use-toast.ts
+import { create } from 'zustand';
 
-import { create, StateCreator } from 'zustand';
-import React from 'react'; // Adicionado para React.ReactNode
+// 1. Tipos
+type ToastType = 'default' | 'destructive' | 'success';
 
-// 1. Definição da Interface do Toast
 type Toast = {
-    id: string;
-    title?: string;
-    description?: string;
-    variant?: 'default' | 'destructive' | 'success'; 
-    action?: React.ReactNode;
-    duration?: number;
-    open: boolean;
+  id: string;
+  title?: string;
+  description?: string;
+  variant?: ToastType;
+  open: boolean;
+  duration?: number;
 };
 
-// 2. Definição do Store do Zustand para gerenciar o estado
 interface ToastStore {
-    toasts: Toast[];
-    // Tipagem explícita para o criador de toast
-    toast: (props: Omit<Toast, 'id' | 'open'>) => { id: string };
-    dismiss: (id: string) => void;
-    update: (id: string, props: Partial<Toast>) => void;
+  toasts: Toast[];
+  // A função principal que adiciona ao estado
+  addToast: (props: Omit<Toast, 'id' | 'open'>) => void;
+  dismiss: (id: string) => void;
 }
 
-// 3. Criação do Hook (useToast)
-// Tipagem explícita dos parâmetros set e get usando StateCreator
-const useToastStore: StateCreator<ToastStore> = (set, get) => ({
-    toasts: [],
+// 2. Store do Zustand
+export const useToastStore = create<ToastStore>((set) => ({
+  toasts: [],
+  
+  addToast: (props) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    set((state) => ({
+      toasts: [{ id, open: true, ...props }, ...state.toasts],
+    }));
+
+    // Auto-dismiss
+    setTimeout(() => {
+      set((state) => ({
+        toasts: state.toasts.map((t) => t.id === id ? { ...t, open: false } : t)
+      }));
+      
+      // Limpeza final do array
+      setTimeout(() => {
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id || t.open === true)
+        }));
+      }, 300);
+    }, props.duration || 4000);
+  },
+
+  dismiss: (id) => set((state) => ({
+    toasts: state.toasts.map((t) => t.id === id ? { ...t, open: false } : t)
+  })),
+}));
+
+// 3. A PONTE (Adapter) para imitar o Sonner
+// Isso permite usar toast.success() mesmo usando nosso sistema customizado
+const toastFunction = (props: { title?: string; description?: string; variant?: ToastType; duration?: number }) => {
+  useToastStore.getState().addToast(props);
+};
+
+export const toast = Object.assign(toastFunction, {
+  success: (message: string, options?: { description?: string; duration?: number }) => 
+    toastFunction({ 
+      title: "Sucesso!", 
+      description: message || options?.description, 
+      variant: 'success',
+      duration: options?.duration
+    }),
+  
+  error: (message: string, options?: { description?: string; duration?: number }) => 
+    toastFunction({ 
+      title: "Erro", 
+      description: message || options?.description, 
+      variant: 'destructive',
+      duration: options?.duration
+    }),
+  
+  info: (message: string, options?: { description?: string; duration?: number }) => 
+    toastFunction({ 
+      title: "Informação", 
+      description: message || options?.description, 
+      variant: 'default',
+      duration: options?.duration
+    }),
     
-    // Função para criar um novo toast
-    toast: (props) => {
-        const id = Math.random().toString(36).substr(2, 9);
-        const newToast: Toast = { id, open: true, ...props };
-        
-        set((state) => ({
-            toasts: [newToast, ...state.toasts],
-        }));
-
-        // Gerencia o tempo de vida (duration)
-        setTimeout(() => {
-             get().dismiss(id);
-        }, props.duration ?? 3000); 
-
-        return { id };
-    },
-
-    // Função para fechar um toast
-    dismiss: (id) => {
-        set((state) => ({
-            toasts: state.toasts.map((t) => 
-                t.id === id ? { ...t, open: false } : t
-            ),
-        }));
-        
-        // Remove do array após a animação de saída
-        setTimeout(() => {
-            set((state) => ({
-                toasts: state.toasts.filter((t) => t.id !== id || t.open === true)
-            }))
-        }, 500); 
-    },
-    
-    // Função para atualizar um toast existente
-    update: (id, props) => {
-        set((state) => ({
-            toasts: state.toasts.map((t) => 
-                t.id === id ? { ...t, ...props } : t
-            ),
-        }));
-    },
+  warning: (message: string, options?: { description?: string; duration?: number }) => 
+    toastFunction({ 
+      title: "Atenção", 
+      description: message || options?.description, 
+      variant: 'default', // Ou crie uma variante 'warning' no Toaster.tsx
+      duration: options?.duration
+    }),
 });
 
-// Criação final do store
-const createToastStore = create<ToastStore>(useToastStore);
-
-
-// ✅ Exporta o hook que será usado nos componentes
+// 4. Hook para usar dentro de componentes (opcional, mas bom ter)
 export function useToast() {
-    return {
-        toast: createToastStore((state) => state.toast),
-        dismiss: createToastStore((state) => state.dismiss),
-        // Adicionando uma função de getter para o Toaster
-        get: createToastStore, 
-    };
+  const dismiss = useToastStore((state) => state.dismiss);
+  return { 
+    toast, 
+    dismiss,
+    // Exportamos o store para o componente Toaster usar
+    get: useToastStore 
+  };
 }
-
-// ⚠️ Lembre-se: Você ainda precisa criar o componente <Toaster />
-// que vai ler o estado e renderizar os toasts na tela.
 ```
 
 ---
@@ -29755,6 +29800,42 @@ export function usePackageSelection(pkg: any) {
 
 ---
 
+### Arquivo: `client/src/hooks/usePersistedState.ts`
+
+```ts
+import { useState, useEffect } from "react";
+
+export function usePersistedState<T>(key: string, initialState: T) {
+  // 1. Tenta carregar o valor inicial do localStorage
+  const [state, setState] = useState<T>(() => {
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return initialState;
+      }
+    }
+    return initialState;
+  });
+
+  // 2. Sempre que o state mudar, salva no localStorage
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(state));
+  }, [key, state]);
+
+  // 3. Função para limpar o rascunho manualmente (ex: após salvar)
+  const clear = () => {
+    localStorage.removeItem(key);
+    setState(initialState);
+  };
+
+  return [state, setState, clear] as const;
+}
+```
+
+---
+
 ### Arquivo: `client/src/hooks/usePersistFn.ts`
 
 ```ts
@@ -30122,7 +30203,6 @@ export function getGuestId(): string {
 export function mapDishFromDb(dish: any) {
   if (!dish) return null;
 
-  // ✅ Normaliza a flag de exibição (MySQL TINYINT 0/1 para Boolean)
   const showNutrition = Boolean(dish.showNutrition ?? dish.show_nutrition);
 
   return {
@@ -30135,59 +30215,64 @@ export function mapDishFromDb(dish: any) {
     showNutrition,
 
     nutrition: showNutrition ? {
-      kcal: Number(dish.energyKcal || 0),
+      kcal: Number(dish.energyKcal || dish.energy_kcal || 0),
       proteins: Number(dish.proteins || 0),
       carbs: Number(dish.carbs || 0),
-      fats: Number(dish.fatTotal || 0),
+      fats: Number(dish.fatTotal || dish.fat_total || 0),
       sodium: Number(dish.sodium || 0),
     } : null,
 
     flags: {
-      isVegetarian: Boolean(dish.isVegetarian),
-      isGlutenFree: Boolean(dish.isGlutenFree),
-      isLactoseFree: Boolean(dish.isLactoseFree),
+      isVegetarian: Boolean(dish.isVegetarian || dish.is_vegetarian),
+      isGlutenFree: Boolean(dish.isGlutenFree || dish.is_gluten_free),
+      isLactoseFree: Boolean(dish.isLactoseFree || dish.is_lactose_free),
     },
 
-    // 🚨 REVISÃO DA ESTRUTURA: Tamanhos -> Grupos -> Opções
     sizes: Array.isArray(dish.sizes) 
-      ? dish.sizes.map((size: any) => ({
-          id: size.id,
-          name: size.name,
-          priceModifier: Number(size.priceModifier || 0),
-          
-          // ✅ 1. ORDENAÇÃO DOS GRUPOS (Alfabética)
-          accompanimentGroups: Array.isArray(size.accompanimentGroups) 
-            ? [...size.accompanimentGroups]
-                .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { numeric: true }))
-                .map((group: any) => ({
-                  id: group.id,
-                  name: group.name,
-                  description: group.description,
-                  maxSelections: Number(group.maxSelections || 1),
-                  minSelections: Number(group.minSelections || 0),
-                  required: Boolean(group.isRequired),
-                  
-                  // ✅ 2. ORDENAÇÃO E VÍNCULO DAS OPÇÕES (Com Ícones)
-                  options: Array.isArray(group.options) 
-                    ? [...group.options]
-                        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { numeric: true }))
-                        .map((opt: any) => ({
-                          id: opt.id,
-                          name: opt.name,
-                          price: Number(opt.priceModifier || 0),
-                          priceModifier: Number(opt.priceModifier || 0),
-                          
-                          // 🎨 O NÓ DESATADO: Repassando a categoria (Ícone e Cor)
-                          category: opt.category, 
-                          
-                          // 🍎 Informações para o cálculo nutricional em tempo real
-                          showNutrition: Boolean(opt.showNutrition),
-                          nutritionalInfo: opt.nutritionalInfo,
-                        }))
-                    : []
-                }))
-            : [] 
-        }))
+      ? dish.sizes.map((size: any) => {
+          // ✅ NORMALIZAÇÃO DE ÍCONES: 
+          // Se vier "box" do banco ou estiver vazio, vira "Cube".
+          let icon = size.iconKey || size.icon_key || "Cube";
+          if (icon === "box") icon = "Cube";
+
+          return {
+            id: size.id,
+            name: size.name,
+            priceModifier: Number(size.priceModifier || size.price_modifier || 0),
+            
+            // ✅ CAMPOS CORRIGIDOS PARA SNAKE_CASE DO BANCO
+            iconKey: icon,
+            weight: size.weight || "",
+            description: size.description || "",
+            
+            accompanimentGroups: Array.isArray(size.accompanimentGroups) 
+              ? [...size.accompanimentGroups]
+                  .sort((a, b) => (a.displayOrder ?? a.display_order ?? 0) - (b.displayOrder ?? b.display_order ?? 0) || a.name.localeCompare(b.name, 'pt-BR', { numeric: true }))
+                  .map((group: any) => ({
+                    id: group.id,
+                    name: group.name,
+                    description: group.description,
+                    maxSelections: Number(group.maxSelections || group.max_selections || 1),
+                    minSelections: Number(group.minSelections || group.min_selections || 0),
+                    required: Boolean(group.isRequired || group.is_required),
+                    
+                    options: Array.isArray(group.options) 
+                      ? [...group.options]
+                          .sort((a, b) => (a.displayOrder ?? a.display_order ?? 0) - (b.displayOrder ?? b.display_order ?? 0) || a.name.localeCompare(b.name, 'pt-BR', { numeric: true }))
+                          .map((opt: any) => ({
+                            id: opt.id,
+                            name: opt.name,
+                            price: Number(opt.priceModifier || opt.price_modifier || 0),
+                            priceModifier: Number(opt.priceModifier || opt.price_modifier || 0),
+                            category: opt.category, 
+                            showNutrition: Boolean(opt.showNutrition || opt.show_nutrition),
+                            nutritionalInfo: opt.nutritionalInfo || opt.nutritional_info,
+                          }))
+                      : []
+                  }))
+              : [] 
+          };
+        })
       : [],
   };
 }
@@ -33019,8 +33104,8 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
 ### Arquivo: `client/src/pages/adminDishes/components/DishDrawer.tsx`
 
 ```ts
-import { useState, useEffect } from "react";
-import { Sheet, SheetContent, SheetTitle, SheetDescription, SheetHeader } from "@/components/ui/sheet"; 
+import { useState, useEffect, useRef } from "react";
+import { Sheet, SheetContent, SheetTitle, SheetHeader } from "@/components/ui/sheet"; 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33030,29 +33115,38 @@ import { Separator } from "@/components/ui/separator";
 import { 
   Zap, Beef, Wheat, Droplets, Activity, Info, 
   Calculator, Settings, Apple, PlusCircle, X, ChevronLeft,
-  Plus, Leaf, MilkOff, WheatOff, Trash2, RefreshCw
+  Plus, Trash2, RefreshCw, Leaf, WheatOff, MilkOff
 } from "lucide-react"; 
 import ImagePicker from "./ImagePicker"; 
 import { trpc } from "@/_core/trpc";
 
+const INITIAL_FORM = {
+  name: "", description: "", price: "", categoryId: "", imageUrl: "",
+  ingredients: "", isVegetarian: false, isGlutenFree: false, isLactoseFree: false,
+  showNutrition: true,
+  energyKcal: "0", energyKj: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0",
+};
+
 export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
-  // ✅ Estado sincronizado com o Backend (Flat columns)
-  const [formData, setFormData] = useState<any>({
-    name: "", description: "", price: "", categoryId: "", imageUrl: "",
-    ingredients: "", 
-    isVegetarian: false, 
-    isGlutenFree: false, 
-    isLactoseFree: false,
-    showNutrition: true,
-    energyKcal: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0",
+  const isFirstRender = useRef(true);
+  const lastDishId = useRef<any>(null);
+
+  const [formData, setFormData] = useState<any>(() => {
+    if (dish) return INITIAL_FORM; 
+    const saved = localStorage.getItem("dish_draft");
+    return saved ? JSON.parse(saved).formData : INITIAL_FORM;
+  });
+
+  const [composition, setComposition] = useState<any[]>(() => {
+    if (dish) return [];
+    const saved = localStorage.getItem("dish_draft");
+    return saved ? JSON.parse(saved).composition : [];
   });
 
   const [view, setView] = useState<'idle' | 'search' | 'manual'>('idle');
   const [searchTerm, setSearchTerm] = useState("");
-  const [composition, setComposition] = useState<any[]>([]);
-  
   const [manualIng, setManualIng] = useState({ 
-    name: "", calories: "0", protein: "0", carbohydrates: "0", fats: "0", sodium: "0", fiber: "0" 
+    name: "", energyKcal: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0" 
   });
 
   const { data: searchResults } = trpc.admin.nutrition.searchIngredients.useQuery(searchTerm, {
@@ -33061,61 +33155,63 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
 
   const upsertManual = trpc.admin.nutrition.upsertIngredient.useMutation();
 
-  // 🔄 SINCRONIZAÇÃO AO ABRIR (LOAD)
   useEffect(() => {
     if (open) {
-      if (dish) {
-        setFormData({
-          name: dish.name || "", 
-          description: dish.description || "",
-          price: String(dish.price || ""), 
-          categoryId: String(dish.categoryId || ""),
-          imageUrl: dish.imageUrl || "",
-          ingredients: dish.ingredients || "",
-          isVegetarian: Boolean(dish.isVegetarian),
-          isGlutenFree: Boolean(dish.isGlutenFree),
-          isLactoseFree: Boolean(dish.isLactoseFree),
-          showNutrition: Boolean(dish.showNutrition ?? true),
-          energyKcal: String(dish.energyKcal || "0"), 
-          protein: String(dish.proteins || "0"), 
-          carbs: String(dish.carbs || "0"), 
-          fatTotal: String(dish.fatTotal || "0"),
-          sodium: String(dish.sodium || "0"), 
-          fiber: String(dish.fiber || "0"),
-        });
-      } else {
-        setFormData({
-          name: "", description: "", price: "", categoryId: "", imageUrl: "",
-          ingredients: "", isVegetarian: false, isGlutenFree: false, isLactoseFree: false,
-          showNutrition: true,
-          energyKcal: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0",
-        });
+      if (dish && dish.id !== lastDishId.current) {
+          setFormData({
+            ...dish,
+            price: String(dish.price || ""),
+            categoryId: String(dish.categoryId || ""),
+            energyKcal: String(dish.energyKcal || "0"),
+            energyKj: String(Math.round((dish.energyKcal || 0) * 4.2)),
+            protein: String(dish.proteins || "0"),
+            carbs: String(dish.carbs || "0"),
+            fatTotal: String(dish.fatTotal || "0"),
+            sodium: String(dish.sodium || "0"),
+            fiber: String(dish.fiber || "0"),
+            ingredients: dish.ingredients || "",
+            isVegetarian: !!dish.isVegetarian,
+            isGlutenFree: !!dish.isGlutenFree,
+            isLactoseFree: !!dish.isLactoseFree,
+          });
+          setComposition([]);
+          lastDishId.current = dish.id;
+      } else if (!dish) {
+        const saved = localStorage.getItem("dish_draft");
+        if (!saved && !isFirstRender.current) {
+          setFormData(INITIAL_FORM);
+          setComposition([]);
+        }
       }
-      setComposition([]);
-      setView('idle');
+      isFirstRender.current = false;
     }
   }, [dish, open]);
+
+  useEffect(() => {
+    if (open && !dish) {
+      localStorage.setItem("dish_draft", JSON.stringify({ formData, composition }));
+    }
+  }, [formData, composition, open, dish]);
 
   const applyTacoCalculations = () => {
     const totals = composition.reduce((acc, curr) => {
       const quantity = parseFloat(String(curr.quantity || "0").replace(',', '.'));
       const factor = quantity / 100;
       return {
-        energy: acc.energy + (parseFloat(curr.calories || "0") * factor),
+        energy: acc.energy + (parseFloat(curr.energyKcal || curr.calories || curr.energy || "0") * factor),
         protein: acc.protein + (parseFloat(curr.protein || "0") * factor),
-        carbs: acc.carbs + (parseFloat(curr.carbohydrates || "0") * factor),
-        fat: acc.fat + (parseFloat(curr.fats || "0") * factor),
+        carbs: acc.carbs + (parseFloat(curr.carbohydrates || curr.carbs || "0") * factor),
+        fat: acc.fat + (parseFloat(curr.fatTotal || curr.fats || "0") * factor),
         fiber: acc.fiber + (parseFloat(curr.fiber || "0") * factor),
         sodium: acc.sodium + (parseFloat(curr.sodium || "0") * factor),
       };
     }, { energy: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sodium: 0 });
 
-    const generatedIngredients = composition.map(c => c.name).join(', ');
-
     setFormData({
       ...formData,
-      ingredients: generatedIngredients,
-      energyKcal: totals.energy.toFixed(0), 
+      ingredients: composition.map(c => c.name).join(', '),
+      energyKcal: totals.energy.toFixed(0),
+      energyKj: (totals.energy * 4.2).toFixed(0),
       protein: totals.protein.toFixed(1),
       carbs: totals.carbs.toFixed(1), 
       fatTotal: totals.fat.toFixed(1),
@@ -33127,70 +33223,23 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
   const handleManualSubmit = async () => {
     if (!manualIng.name) return;
     try {
-      const res = await upsertManual.mutateAsync(manualIng as any);
+      const payload = { ...manualIng, carbohydrates: manualIng.carbs };
+      const res = await upsertManual.mutateAsync(payload as any);
       if (res.success) {
         setComposition([...composition, { ...manualIng, id: res.id, quantity: "100" }]);
+        setSearchTerm("");
         setView('idle');
-        setManualIng({ name: "", calories: "0", protein: "0", carbohydrates: "0", fats: "0", sodium: "0", fiber: "0" });
+        setManualIng({ name: "", energyKcal: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0" });
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
-
-  const handleSaveAll = () => {
-    const cleanNum = (v: any) => {
-        const parsed = parseFloat(String(v).replace(',', '.'));
-        return isNaN(parsed) ? 0 : parsed;
-    };
-
-    onSubmit({
-      id: dish?.id,
-      name: formData.name,
-      description: formData.description,
-      ingredients: formData.ingredients,
-      price: cleanNum(formData.price),
-      categoryId: formData.categoryId ? Number(formData.categoryId) : null,
-      imageUrl: formData.imageUrl,
-      energyKcal: Math.round(cleanNum(formData.energyKcal)),
-      carbs: cleanNum(formData.carbs),
-      proteins: cleanNum(formData.protein), 
-      fatTotal: cleanNum(formData.fatTotal),
-      fiber: cleanNum(formData.fiber),
-      sodium: cleanNum(formData.sodium),
-      showNutrition: formData.showNutrition,
-      isVegetarian: formData.isVegetarian,
-      isGlutenFree: formData.isGlutenFree,
-      isLactoseFree: formData.isLactoseFree,
-      isActive: dish?.isActive ?? true
-    });
-  };
-
-  const NutriField = ({ label, icon: Icon, field, unit }: any) => (
-    <div className="flex flex-col p-4 rounded-3xl bg-slate-50 border border-slate-100 group transition-all hover:bg-white hover:shadow-sm">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-500" />
-        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</span>
-      </div>
-      <Input 
-        type="text"
-        className="h-9 bg-white border-none rounded-xl text-xs font-bold shadow-sm" 
-        placeholder={unit} 
-        value={formData[field]} 
-        onChange={e => setFormData({...formData, [field]: e.target.value})} 
-      />
-    </div>
-  );
 
   const ToggleBadge = ({ label, active, onClick, icon: Icon }: any) => (
     <div 
       onClick={onClick}
       className={`
         cursor-pointer flex items-center gap-2 px-4 py-3 rounded-xl border transition-all select-none
-        ${active 
-          ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-200' 
-          : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'
-        }
+        ${active ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-200' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'}
       `}
     >
       <Icon size={14} className={active ? "text-white" : "text-slate-400"} />
@@ -33198,82 +33247,98 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
     </div>
   );
 
+  const NutriField = ({ label, icon: Icon, field, secondaryValue }: any) => (
+    <div className="flex flex-col p-4 rounded-3xl bg-slate-50 border border-slate-100 group transition-all hover:bg-white hover:shadow-sm">
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex items-center gap-2">
+          <Icon className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-500" />
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</span>
+        </div>
+        {secondaryValue && <span className="text-[8px] font-bold text-slate-300">{secondaryValue}</span>}
+      </div>
+      <Input 
+        className="h-9 bg-white border-none rounded-xl text-xs font-bold shadow-sm" 
+        value={formData[field]} 
+        onChange={e => setFormData({...formData, [field]: e.target.value})} 
+      />
+    </div>
+  );
+
   return (
-    <Sheet open={open} onOpenChange={onClose}>
+    <Sheet open={open} onOpenChange={(v) => { if(!v) onClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-2xl p-0 border-none bg-white flex flex-col h-screen outline-none shadow-2xl overflow-hidden">
         <SheetHeader className="p-8 pb-4 shrink-0">
           <SheetTitle className="text-3xl font-black uppercase text-slate-900 tracking-tighter italic">
             {dish ? "Editar" : "Novo"} Prato<span className="text-emerald-500">.</span>
           </SheetTitle>
-          <SheetDescription>Configure as informações comerciais e nutricionais do prato.</SheetDescription>
         </SheetHeader>
 
         <Tabs defaultValue="geral" className="flex-1 flex flex-col overflow-hidden">
           <div className="px-8 shrink-0">
             <TabsList className="grid w-full grid-cols-2 bg-slate-100 rounded-2xl h-12 p-1">
-              <TabsTrigger value="geral" className="rounded-xl font-black text-[10px] uppercase tracking-widest gap-2"> <Settings size={14} /> Informações Gerais </TabsTrigger>
-              <TabsTrigger value="nutricao" className="rounded-xl font-black text-[10px] uppercase tracking-widest gap-2"> <Apple size={14} /> Nutrição & Ficha </TabsTrigger>
+              <TabsTrigger value="geral" className="rounded-xl font-black text-[10px] uppercase tracking-widest gap-2"> <Settings size={14} /> Geral </TabsTrigger>
+              <TabsTrigger value="nutricao" className="rounded-xl font-black text-[10px] uppercase tracking-widest gap-2"> <Apple size={14} /> Nutrição </TabsTrigger>
             </TabsList>
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-6">
             <TabsContent value="geral" className="m-0 space-y-8">
-              <ImagePicker value={formData.imageUrl} onChange={(url: string) => setFormData({...formData, imageUrl: url})} label="Foto de Capa" />
-              
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Título do Prato</Label>
-                  <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+               <ImagePicker value={formData.imageUrl} onChange={(url: string) => setFormData({...formData, imageUrl: url})} label="Foto de Capa" />
+               <div className="space-y-6">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preço (R$)</Label>
-                    <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-emerald-700" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Título do Prato</Label>
+                    <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoria</Label>
-                    <select className="w-full h-14 bg-slate-50 border-none rounded-2xl px-4 font-bold text-sm outline-none cursor-pointer" value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
-                      <option value="">SELECIONAR...</option>
-                      {categories?.map((c: any) => (<option key={c.id} value={c.id}>{c.name.toUpperCase()}</option>))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preço (R$)</Label>
+                      <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-emerald-700" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoria</Label>
+                      <select className="w-full h-14 bg-slate-50 border-none rounded-2xl px-4 font-bold text-sm outline-none cursor-pointer" value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
+                        <option value="">SELECIONAR...</option>
+                        {categories?.map((c: any) => (<option key={c.id} value={c.id}>{c.name.toUpperCase()}</option>))}
+                      </select>
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
+                  {/* ✅ TAGS DE SAÚDE RECUPERADAS */}
+                  <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tags de Saúde</Label>
                     <div className="flex gap-2 flex-wrap">
                         <ToggleBadge label="Vegetariano" icon={Leaf} active={formData.isVegetarian} onClick={() => setFormData({...formData, isVegetarian: !formData.isVegetarian})} />
                         <ToggleBadge label="Sem Glúten" icon={WheatOff} active={formData.isGlutenFree} onClick={() => setFormData({...formData, isGlutenFree: !formData.isGlutenFree})} />
                         <ToggleBadge label="Sem Lactose" icon={MilkOff} active={formData.isLactoseFree} onClick={() => setFormData({...formData, isLactoseFree: !formData.isLactoseFree})} />
                     </div>
-                </div>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Descrição Comercial</Label>
-                  <Textarea className="rounded-3xl bg-slate-50 border-none font-medium text-sm min-h-25 p-5 resize-none leading-relaxed" placeholder="Destaque os ingredientes e o sabor..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ingredientes (Para Etiqueta)</Label>
-                  <Textarea className="rounded-3xl bg-amber-50 border border-amber-100 font-medium text-xs min-h-20 p-5 resize-none leading-relaxed text-amber-900" placeholder="Ex: Arroz integral, feijão preto, azeite..." value={formData.ingredients} onChange={e => setFormData({...formData, ingredients: e.target.value})} />
-                </div>
-              </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Descrição Comercial</Label>
+                    <Textarea className="rounded-3xl bg-slate-50 border-none font-medium text-sm min-h-25 p-5 resize-none leading-relaxed" placeholder="Destaque o sabor e ingredientes..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                  </div>
+
+                  {/* ✅ CAMPO DE INGREDIENTES PARA ETIQUETA RECUPERADO */}
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ingredientes (Para Etiqueta)</Label>
+                    <Textarea className="rounded-3xl bg-amber-50 border border-amber-100 font-medium text-xs min-h-20 p-5 resize-none leading-relaxed text-amber-900" placeholder="Ex: Arroz integral, feijão preto..." value={formData.ingredients} onChange={e => setFormData({...formData, ingredients: e.target.value})} />
+                  </div>
+               </div>
             </TabsContent>
 
             <TabsContent value="nutricao" className="m-0 space-y-8">
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2"> <Calculator size={14}/> Calculadora de Ficha</h4>
-                  {composition.length > 0 && <Button onClick={applyTacoCalculations} className="h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 text-[9px] font-black uppercase gap-2"> <RefreshCw size={12} /> Aplicar na Tabela </Button>}
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2"> <Calculator size={14}/> Ficha Técnica</h4>
+                  {composition.length > 0 && <Button onClick={applyTacoCalculations} className="h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 text-[9px] font-black uppercase gap-2"> <RefreshCw size={12} /> Calcular Totais </Button>}
                 </div>
 
                 <div className="space-y-3">
                   {composition.map((item, idx) => (
                     <div key={idx} className="flex items-center gap-4 p-4 rounded-3xl bg-slate-50 border border-slate-100">
                       <div className="flex-1">
-                        <p className="text-[10px] font-black uppercase text-slate-800 tracking-tight">{item.name}</p>
-                        <p className="text-[9px] text-slate-400 font-bold">{item.calories || item.energy} kcal/100g</p>
+                        <p className="text-[10px] font-black uppercase text-slate-800">{item.name}</p>
+                        <p className="text-[9px] text-slate-400 font-bold">{item.energyKcal || item.calories || "0"} kcal/100g</p>
                       </div>
                       <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-1.5 border border-slate-100">
                         <input type="number" className="w-12 text-xs font-black text-emerald-600 bg-transparent text-center outline-none" value={item.quantity} onChange={e => { const nc = [...composition]; nc[idx].quantity = e.target.value; setComposition(nc); }} />
@@ -33285,25 +33350,28 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                   
                   {view === 'idle' && (
                     <button onClick={() => setView('search')} className="w-full py-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-500 flex flex-col items-center gap-2 transition-all">
-                      <PlusCircle size={24} /> <span className="text-[10px] font-black uppercase">Adicionar da TACO</span>
+                      <PlusCircle size={24} /> <span className="text-[10px] font-black uppercase">Adicionar Ingrediente</span>
                     </button>
                   )}
 
                   {view === 'search' && (
                     <div className="p-6 rounded-[2.5rem] bg-emerald-50/50 border border-emerald-100 space-y-4">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">Busca Profissional</span>
-                        <X size={16} className="text-emerald-400 cursor-pointer" onClick={() => setView('idle')} />
+                        <span className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">Busca TACO / Manual</span>
+                        <X size={16} className="text-emerald-400 cursor-pointer" onClick={() => { setView('idle'); setSearchTerm(""); }} />
                       </div>
-                      <Input placeholder="Buscar (ex: Arroz, Patinho)..." className="h-12 rounded-xl border-none shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} autoFocus />
+                      <Input placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} autoFocus />
                       <div className="bg-white shadow-xl rounded-xl border max-h-40 overflow-auto divide-y">
                         {searchResults?.map((ing: any) => (
-                          <div key={ing.id} onClick={() => { if (!composition.find(i => i.id === ing.id)) setComposition([...composition, { ...ing, quantity: "100" }]); setView('idle'); }} className="p-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center">
+                          <div key={ing.id} onClick={() => { 
+                            setComposition([...composition, { ...ing, quantity: "100" }]); 
+                            setSearchTerm(""); setView('idle'); 
+                          }} className="p-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-700">{ing.name}</span> <Plus size={14} className="text-emerald-500" />
                           </div>
                         ))}
-                        <div onClick={() => setView('manual')} className="p-4 bg-slate-900 text-white cursor-pointer flex justify-center items-center gap-2 rounded-b-xl hover:bg-emerald-600 transition-colors">
-                          <PlusCircle size={14} /> <span className="text-[9px] font-black uppercase tracking-widest">Insumo Manual</span>
+                        <div onClick={() => { setView('manual'); setSearchTerm(""); }} className="p-4 bg-slate-900 text-white cursor-pointer flex justify-center items-center gap-2 rounded-b-xl hover:bg-emerald-600 transition-colors">
+                          <PlusCircle size={14} /> <span className="text-[9px] font-black uppercase tracking-widest">Criar Insumo Manual</span>
                         </div>
                       </div>
                     </div>
@@ -33313,42 +33381,65 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                     <div className="p-6 rounded-[2.5rem] bg-slate-900 text-white space-y-4 shadow-xl">
                       <div className="flex items-center gap-3">
                         <ChevronLeft size={16} className="cursor-pointer" onClick={() => setView('search')} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Insumo Próprio (p/ 100g)</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Manual (p/ 100g)</span>
                       </div>
-                      <Input placeholder="Nome do Alimento" className="bg-slate-800 border-none text-white h-12" value={manualIng.name} onChange={e => setManualIng({...manualIng, name: e.target.value})} />
+                      <Input placeholder="Nome" className="bg-slate-800 border-none text-white h-12" value={manualIng.name} onChange={e => setManualIng({...manualIng, name: e.target.value})} />
                       <div className="grid grid-cols-3 gap-2">
-                        {['calories', 'carbohydrates', 'protein', 'fats', 'fiber', 'sodium'].map((key) => (
-                          <div key={key} className="space-y-1"> 
-                            <Label className="text-[8px] uppercase">{key.substring(0,4)}</Label> 
-                            <Input className="h-10 bg-slate-800 border-none text-[10px]" value={(manualIng as any)[key]} onChange={e => setManualIng({...manualIng, [key]: e.target.value})} /> 
+                        {[
+                          { label: 'KCAL', key: 'energyKcal', icon: Zap },
+                          { label: 'PROT', key: 'protein', icon: Beef },
+                          { label: 'CARB', key: 'carbs', icon: Wheat },
+                          { label: 'GORD', key: 'fatTotal', icon: Droplets },
+                          { label: 'FIBR', key: 'fiber', icon: Activity },
+                          { label: 'SOD', key: 'sodium', icon: Info },
+                        ].map((item) => (
+                          <div key={item.key} className="space-y-1"> 
+                            <Label className="text-[8px] uppercase text-slate-400">{item.label}</Label> 
+                            <Input type="number" className="h-10 bg-slate-800 border-none text-white text-[10px]" value={(manualIng as any)[item.key]} onChange={e => setManualIng({...manualIng, [item.key]: e.target.value})} /> 
                           </div>
                         ))}
                       </div>
-                      <Button onClick={handleManualSubmit} disabled={upsertManual.isPending} className="w-full bg-emerald-500 hover:bg-emerald-600 h-12 rounded-xl font-black text-[10px] uppercase"> 
-                        {upsertManual.isPending ? "Salvando..." : "Salvar e Usar"} 
-                      </Button>
+                      <Button onClick={handleManualSubmit} disabled={upsertManual.isPending} className="w-full bg-emerald-500 h-12 rounded-xl font-black text-[10px]">SALVAR E ADICIONAR</Button>
                     </div>
                   )}
                 </div>
               </div>
 
               <Separator className="bg-slate-50" />
-
               <div className="grid grid-cols-2 gap-3">
-                <NutriField label="Calorias" icon={Zap} field="energyKcal" unit="kcal" />
-                <NutriField label="Carboidratos" icon={Wheat} field="carbs" unit="g" />
-                <NutriField label="Proteínas" icon={Beef} field="protein" unit="g" />
-                <NutriField label="Gorduras" icon={Droplets} field="fatTotal" unit="g" />
-                <NutriField label="Fibras" icon={Activity} field="fiber" unit="g" />
-                <NutriField label="Sódio" icon={Info} field="sodium" unit="mg" />
+                <NutriField 
+                  label="Valor Energético" 
+                  icon={Zap} 
+                  field="energyKcal" 
+                  secondaryValue={`${formData.energyKj} kJ`} 
+                />
+                <NutriField label="Carboidratos" icon={Wheat} field="carbs" />
+                <NutriField label="Proteínas" icon={Beef} field="protein" />
+                <NutriField label="Gorduras" icon={Droplets} field="fatTotal" />
+                <NutriField label="Fibras" icon={Activity} field="fiber" />
+                <NutriField label="Sódio" icon={Info} field="sodium" />
               </div>
             </TabsContent>
           </div>
         </Tabs>
 
         <div className="p-8 bg-white border-t mt-auto flex gap-4 shrink-0">
-          <Button variant="ghost" onClick={onClose} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-slate-400 hover:bg-slate-50 transition-colors">Descartar</Button>
-          <Button className="flex-2 h-14 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black text-[11px] uppercase tracking-widest shadow-xl transition-all" onClick={handleSaveAll}>SALVAR ALTERAÇÕES</Button>
+          <Button variant="ghost" onClick={() => { if(confirm("Limpar rascunho?")) { localStorage.removeItem("dish_draft"); setFormData(INITIAL_FORM); setComposition([]); onClose(); } }} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-red-400">Limpar Rascunho</Button>
+          <Button className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest" onClick={() => {
+              onSubmit({
+                ...formData,
+                id: dish?.id,
+                energyKcal: Number(formData.energyKcal),
+                proteins: Number(formData.protein),
+                carbs: Number(formData.carbs),
+                fatTotal: Number(formData.fatTotal),
+                sodium: Number(formData.sodium),
+                fiber: Number(formData.fiber),
+                price: Number(formData.price),
+                categoryId: formData.categoryId ? Number(formData.categoryId) : null,
+              });
+              localStorage.removeItem("dish_draft");
+          }}>SALVAR ALTERAÇÕES</Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -33427,10 +33518,9 @@ export default ImagePicker;
 ### Arquivo: `client/src/pages/adminDishes/components/MediaLibraryModal.tsx`
 
 ```ts
-// client/src/components/MediaLibraryModal.tsx
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/_core/trpc";
-import { Loader2, X, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface MediaLibraryModalProps {
@@ -33441,45 +33531,89 @@ interface MediaLibraryModalProps {
 }
 
 export default function MediaLibraryModal({ open, onClose, onSelect, selectedUrl }: MediaLibraryModalProps) {
-  // ✅ Busca as imagens do banco que configuramos no admin.media.list
+  // ✅ Busca as imagens do banco
   const { data: media, isLoading } = trpc.admin.media.list.useQuery(undefined, {
-    enabled: open // Só carrega quando o modal abre
+    enabled: open 
   });
+
+  /**
+   * 🛠️ Helper para resolver a URL da imagem
+   * Se a imagem for local (/uploads/...), adiciona o endereço do servidor.
+   */
+  const getFullUrl = (url: string) => {
+    if (!url) return "";
+    if (url.startsWith("http")) return url;
+    
+    // Altere para a porta do seu backend se for diferente de 3001
+    const BACKEND_URL = "http://localhost:3001"; 
+    const cleanUrl = url.startsWith("/") ? url : `/${url}`;
+    
+    return `${BACKEND_URL}${cleanUrl}`;
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col rounded-[2.5rem] border-none p-0">
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col rounded-[2.5rem] border-none p-0 bg-white shadow-2xl">
         <DialogHeader className="p-8 pb-4">
           <DialogTitle className="text-2xl font-black uppercase italic tracking-tighter">
             Biblioteca de <span className="text-[#D4AF37]">Mídia</span>
           </DialogTitle>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Selecione um arquivo da sua galeria local
+          </p>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-8 pt-0">
+        <div className="flex-1 overflow-y-auto p-8 pt-2">
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-4">
-              <Loader2 className="animate-spin text-[#D4AF37]" size={40} />
-              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Carregando galeria...</p>
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <Loader2 className="animate-spin text-[#D4AF37]" size={48} />
+              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest animate-pulse">
+                Sincronizando arquivos...
+              </p>
+            </div>
+          ) : media?.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+              <ImageOff size={48} className="mb-4 opacity-20" />
+              <p className="font-bold uppercase text-[10px] tracking-widest">Nenhuma mídia encontrada</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {media?.map((item: any) => {
+                const fullUrl = getFullUrl(item.url);
                 const isSelected = selectedUrl === item.url;
+
                 return (
                   <div 
                     key={item.id}
                     onClick={() => onSelect(item.url)}
                     className={`
-                      relative aspect-square rounded-[1.5rem] overflow-hidden cursor-pointer border-4 transition-all
-                      ${isSelected ? "border-[#D4AF37] scale-95 shadow-lg" : "border-transparent hover:border-slate-200"}
+                      relative aspect-square rounded-[1.8rem] overflow-hidden cursor-pointer border-4 transition-all duration-300 group
+                      ${isSelected 
+                        ? "border-[#D4AF37] scale-95 shadow-[0_10px_30px_rgba(212,175,55,0.3)]" 
+                        : "border-slate-100 hover:border-slate-200 hover:scale-[1.02]"}
                     `}
                   >
-                    <img src={item.url} className="w-full h-full object-cover" alt="" />
+                    <img 
+                      src={fullUrl} 
+                      className={cn(
+                        "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
+                        isSelected && "brightness-75"
+                      )} 
+                      alt={item.name || "Mídia"} 
+                    />
+                    
                     {isSelected && (
-                      <div className="absolute inset-0 bg-[#D4AF37]/20 flex items-center justify-center">
-                        <CheckCircle2 className="text-white fill-[#D4AF37]" size={32} />
+                      <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in duration-300">
+                        <CheckCircle2 className="text-white fill-[#D4AF37] drop-shadow-md" size={40} />
                       </div>
                     )}
+
+                    {/* Overlay de hover com nome da imagem */}
+                    <div className="absolute inset-x-0 bottom-0 p-2 bg-black/40 backdrop-blur-sm translate-y-full group-hover:translate-y-0 transition-transform">
+                       <p className="text-[8px] text-white font-bold truncate text-center uppercase">
+                         {item.filename || 'Arquivo'}
+                       </p>
+                    </div>
                   </div>
                 );
               })}
@@ -33487,15 +33621,27 @@ export default function MediaLibraryModal({ open, onClose, onSelect, selectedUrl
           )}
         </div>
 
-        <div className="p-6 bg-slate-50 flex justify-end">
-          <Button onClick={onClose} variant="ghost" className="font-black text-xs uppercase tracking-widest">
-            Fechar
+        <div className="p-6 bg-slate-50/80 backdrop-blur-md border-t border-slate-100 flex justify-between items-center">
+          <span className="text-[9px] font-black uppercase text-slate-400 ml-4">
+            {media?.length || 0} Arquivos detectados
+          </span>
+          <Button 
+            onClick={onClose} 
+            className="rounded-xl px-8 bg-slate-900 hover:bg-black text-white font-black text-[10px] uppercase tracking-[0.2em] h-12 transition-all active:scale-95"
+          >
+            Concluir Seleção
           </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+/** * Helper para utilitário de classes (opcional, remova se não usar tailwind-merge) 
+ */
+function cn(...inputs: any[]) {
+  return inputs.filter(Boolean).join(" ");
+} 
 ```
 
 ---
@@ -37607,36 +37753,59 @@ export default function AdminPackages() {
 ### Arquivo: `client/src/pages/adminPakages/components/PackageCard.tsx`
 
 ```ts
-import { ChevronDown, Package, Edit2, Trash2, Info, LayoutGrid, Coins } from "lucide-react";
+import { ChevronDown, Package, Edit2, Trash2, LayoutGrid, ListOrdered } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-export function PackageCard({ pkg, isExpanded, onToggleExpand, onEdit, onDelete }: any) {
-  // ✅ Proteção total contra dados nulos/antigos
+export function PackageCard({ pkg, isExpanded, onToggleExpand, onEdit, onDelete, onToggleVisibility }: any) {
   const slots = pkg.config?.slots || [];
+  const isActive = pkg.status === "active" || pkg.isActive === true;
+  
+  // Mantemos apenas a ordem de exibição, conforme sua nova lógica
+  const displayOrder = Number(pkg.display_order || 0);
 
   return (
-    <div className="group bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-all duration-500">
-      <div className="p-6 md:p-8 flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-8">
+    <div className={cn(
+      "group relative bg-white rounded-[2.5rem] border shadow-sm overflow-hidden transition-all duration-500",
+      !isActive ? "border-slate-200 opacity-60 grayscale-[0.5]" : "border-slate-100 hover:shadow-md hover:border-emerald-100"
+    )}>
+      
+      {/* INDICADOR DE ORDEM */}
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1 rounded-full text-[10px] font-black italic shadow-lg">
+        <ListOrdered size={10} />
+        #{displayOrder}
+      </div>
+
+      <div className="p-6 md:p-8 flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-8 relative">
         
-        {/* COLUNA ESQUERDA: ÍCONE + AÇÕES (ESTILO BOUTIQUE) */}
+        {/* STATUS SWITCH */}
+        <div className="absolute top-6 right-8 flex items-center gap-3 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-2xl border border-slate-100 shadow-sm z-10">
+          <span className={cn("text-[9px] font-black uppercase tracking-widest", isActive ? "text-emerald-600" : "text-slate-400")}>
+            {isActive ? "Visível" : "Oculto"}
+          </span>
+          <Switch 
+            checked={isActive} 
+            onCheckedChange={() => onToggleVisibility(pkg.id, pkg.status)}
+            className="data-[state=checked]:bg-emerald-500"
+          />
+        </div>
+
+        {/* COLUNA ICONE E AÇÕES */}
         <div className="flex flex-col gap-3 shrink-0">
-          <div className="h-20 w-20 md:h-24 md:w-24 rounded-[2rem] bg-gradient-to-br from-amber-50 to-slate-50 flex items-center justify-center text-amber-500 border border-amber-100 relative group-hover:scale-105 transition-transform duration-500 shadow-sm">
+          <div className={cn(
+            "h-20 w-20 md:h-24 md:w-24 rounded-[2rem] flex items-center justify-center border relative group-hover:scale-105 transition-transform duration-500 shadow-sm",
+            !isActive ? "bg-slate-100 text-slate-400 border-slate-200" : "bg-gradient-to-br from-emerald-50 to-slate-50 text-emerald-600 border-emerald-100"
+          )}>
             <Package size={32} className="md:w-10 md:h-10" />
-            <div className="absolute -top-1 -right-1">
-               <div className="h-4 w-4 bg-amber-500 rounded-full animate-pulse flex items-center justify-center">
-                  <div className="h-1.5 w-1.5 bg-white rounded-full"></div>
-               </div>
-            </div>
           </div>
 
-          {/* BOTÕES DE AÇÃO ABAIXO DO ÍCONE */}
           <div className="flex gap-2 w-full">
             <Button 
               variant="secondary" 
               size="icon" 
-              className="flex-1 h-10 rounded-xl bg-slate-100 text-slate-600 hover:text-amber-600 hover:bg-amber-50 active:scale-90 transition-all" 
+              className="flex-1 h-10 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" 
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
             >
               <Edit2 size={16}/>
@@ -37644,7 +37813,7 @@ export function PackageCard({ pkg, isExpanded, onToggleExpand, onEdit, onDelete 
             <Button 
               variant="secondary" 
               size="icon" 
-              className="flex-1 h-10 rounded-xl bg-slate-100 text-slate-600 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all" 
+              className="flex-1 h-10 rounded-xl bg-slate-50 hover:bg-red-50 hover:text-red-500 transition-colors" 
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
             >
               <Trash2 size={16}/>
@@ -37656,96 +37825,60 @@ export function PackageCard({ pkg, isExpanded, onToggleExpand, onEdit, onDelete 
         <div className="flex-1 min-w-0 text-center md:text-left py-1">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1.5">
-              <div className="flex items-center justify-center md:justify-start gap-3">
-                <h3 className="text-2xl md:text-3xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
-                  {pkg.name}
-                </h3>
-              </div>
+              <h3 className={cn("text-2xl md:text-3xl font-black uppercase italic tracking-tighter leading-none", !isActive ? "text-slate-400" : "text-slate-900")}>
+                {pkg.name}
+              </h3>
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
                 <Badge className="bg-slate-100 text-slate-500 border-none font-black text-[9px] tracking-[0.15em] uppercase px-3 py-1 rounded-full">
-                  {slots.length} {slots.length === 1 ? 'Marmita' : 'Marmitas por ciclo'}
+                  {slots.length} {slots.length === 1 ? 'Marmita' : 'Marmitas'}
                 </Badge>
-                <div className="flex items-center gap-1 text-amber-600">
-                  <Info size={12} />
-                  <span className="text-[9px] font-black uppercase tracking-widest italic">Pacote Fidelidade</span>
-                </div>
               </div>
             </div>
 
-            {/* PREÇO E TOGGLE */}
             <div className="flex items-center justify-center gap-6">
               <div className="flex flex-col items-center md:items-end">
                 <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Valor do Plano</span>
-                <div className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter italic uppercase leading-none">
-                  <span className="text-amber-500 mr-1 text-sm md:text-base">R$</span>
+                <div className={cn("text-2xl md:text-3xl font-black tracking-tighter italic uppercase leading-none", !isActive ? "text-slate-400" : "text-slate-900")}>
+                  <span className={cn("mr-1 text-sm md:text-base", !isActive ? "text-slate-300" : "text-emerald-500")}>R$</span>
                   {Number(pkg.base_price || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </div>
               </div>
-              
               <Button 
                 variant="ghost" 
                 size="icon" 
-                onClick={onToggleExpand} 
-                className={cn(
-                  "h-12 w-12 rounded-2xl transition-all duration-300", 
-                  isExpanded ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
-                )}
+                onClick={(e) => { e.stopPropagation(); onToggleExpand(); }} 
+                className={cn("h-12 w-12 rounded-2xl transition-all", isExpanded ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400")}
               >
                 <ChevronDown className={cn("transition-transform duration-500", isExpanded && "rotate-180")} />
               </Button>
             </div>
           </div>
-
           <p className="text-slate-400 font-medium text-xs md:text-sm line-clamp-2 mt-4 leading-relaxed max-w-2xl">
-            {pkg.description || "Este pacote permite a personalização completa das marmitas conforme as categorias permitidas."}
+            {pkg.description || "Este pacote permite a personalização completa das marmitas."}
           </p>
         </div>
       </div>
 
-      {/* DETALHES TÉCNICOS DOS SLOTS (BLUEPRINT) */}
+      {/* ÁREA EXPANDIDA */}
       {isExpanded && (
-        <div className="px-8 pb-10 pt-4 bg-[#FBFDFF] border-t border-slate-50 animate-in slide-in-from-top-2 duration-500">
+        <div className="px-8 pb-10 pt-4 bg-[#FBFDFF] border-t border-slate-50 animate-in slide-in-from-top-1 duration-300">
           <div className="flex items-center gap-2 mb-6 text-slate-400">
-            <LayoutGrid size={14} />
+            <LayoutGrid size={14} /> 
             <span className="text-[10px] font-black uppercase tracking-[0.3em]">Arquitetura do Pacote</span>
           </div>
-
-          {slots.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {slots.map((slot: any, i: number) => (
-                <div key={i} className="group/slot bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm transition-all hover:border-amber-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] font-black uppercase text-amber-600 tracking-widest italic leading-none">
-                      {slot.name || `Config ${i+1}`}
-                    </span>
-                    <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center text-slate-300 group-hover/slot:bg-amber-50 group-hover/slot:text-amber-500 transition-colors">
-                      <Info size={12} />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-tight">
-                      <span>Pratos Habilitados:</span>
-                      <span className="text-slate-900">{(slot.dishIds || []).length}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-tight">
-                      <span>Categorias:</span>
-                      <span className="text-slate-900">{(slot.groups || []).length}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-50 flex items-center gap-1.5 text-emerald-600">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <span className="text-[8px] font-black uppercase tracking-tighter">Marmita Pronta para Uso</span>
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {slots.map((slot: any, i: number) => (
+              <div key={i} className="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm">
+                <span className="text-[10px] font-black uppercase text-emerald-600 tracking-widest italic block mb-3">
+                  {slot.name || `Config ${i+1}`}
+                </span>
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight flex justify-between">
+                  <span>Habilitados:</span>
+                  <span className="text-slate-900">{(slot.dishIds || []).length}</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-100 rounded-[2rem]">
-               <p className="text-[10px] font-black uppercase text-slate-300 tracking-[0.2em]">Aguardando configuração de slots</p>
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -37758,7 +37891,7 @@ export function PackageCard({ pkg, isExpanded, onToggleExpand, onEdit, onDelete 
 ### Arquivo: `client/src/pages/adminPakages/components/PackageDrawer.tsx`
 
 ```ts
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { 
   Sheet, 
@@ -37770,25 +37903,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { PackageSlotsEditor } from "./PackageSlotsEditor";
-import { Sparkles, Package as PackageIcon, Info, Plus, Bug } from "lucide-react";
+import { Sparkles, Package as PackageIcon, Info, Plus, Image as ImageIcon } from "lucide-react";
+import MediaLibraryModal from "@/components/MediaLibraryModal";
+import { cn } from "@/lib/utils";
 
 export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
-  const { register, handleSubmit, reset, watch } = useForm();
+  const { register, handleSubmit, reset, setValue, watch } = useForm();
+  const [isMediaOpen, setIsMediaOpen] = useState(false);
   
-  // 🔍 DEBUG: Acompanhar os valores atuais do formulário
-  const formValues = watch();
+  const imageUrl = watch("image_url");
 
+  // ✅ Sincronização de dados ao abrir/editar
   useEffect(() => {
     if (pkg) {
-      const formData = {
+      reset({
         name: pkg.name,
         slug: pkg.slug,
-        // Garante que o preço seja string para o input e trata nomes de colunas do DB
         base_price: String(pkg.base_price || pkg.price || "0.00"), 
         image_url: pkg.imageUrl || pkg.image_url,
         number_of_options: pkg.numberOfOptions || pkg.number_of_options,
-      };
-      reset(formData);
+      });
     } else {
       reset({ name: "", slug: "", base_price: "0.00", image_url: "", number_of_options: 3 });
     }
@@ -37804,11 +37938,11 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
         {/* HEADER PREMIUM */}
         <div className="p-8 md:p-10 bg-white border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3 text-slate-300 mb-2">
-            <Sparkles size={18} className="text-amber-500" />
+            <Sparkles size={18} className="text-emerald-500" />
             <span className="text-[10px] font-black uppercase tracking-[0.4em]">Configurador de Assinaturas</span>
           </div>
           <SheetTitle className="text-3xl md:text-4xl font-black uppercase text-slate-900 tracking-tighter italic leading-none">
-            {pkg ? "Editar" : "Criar"} <span className="text-amber-500">Pacote</span><span className="text-amber-500">.</span>
+            {pkg ? "Editar" : "Criar"} <span className="text-emerald-600">Pacote</span><span className="text-emerald-600">.</span>
           </SheetTitle>
         </div>
 
@@ -37816,27 +37950,6 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="p-8 md:p-10 space-y-12 pb-32">
             
-            {/* 🚨 PAINEL DE DEBUG VISUAL */}
-            <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800 text-slate-400 font-mono text-xs overflow-hidden">
-              <div className="flex items-center gap-2 text-amber-500 mb-4 font-bold uppercase tracking-widest">
-                 <Bug size={14} /> Monitor de Dados
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                   <span className="block text-slate-600 mb-1">Slots Ativos:</span>
-                   <pre className="bg-black/50 p-4 rounded-xl overflow-x-auto text-emerald-400">
-                     {JSON.stringify(logic.state.config.slots, null, 2)}
-                   </pre>
-                </div>
-                <div>
-                   <span className="block text-slate-600 mb-1">Total Marmitas:</span>
-                   <div className="text-3xl font-black text-white p-4 uppercase italic">
-                     {formValues.number_of_options || 0} Unidades
-                   </div>
-                </div>
-              </div>
-            </div>
-
             <form id="pkg-form" onSubmit={handleSubmit(onSubmit)} className="space-y-12">
               
               {/* CARD DE DADOS BÁSICOS */}
@@ -37847,12 +37960,39 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                  
+                  {/* SELETOR DE IMAGEM */}
+                  <div className="md:col-span-12 space-y-3">
+                    <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400 ml-1">Capa do Pacote</Label>
+                    <div 
+                      onClick={() => setIsMediaOpen(true)}
+                      className={cn(
+                        "w-full h-40 rounded-[2rem] border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden relative group",
+                        imageUrl ? "border-emerald-500 bg-emerald-50" : "border-slate-100 bg-slate-50 hover:bg-slate-100"
+                      )}
+                    >
+                      {imageUrl ? (
+                        <>
+                          <img src={imageUrl.startsWith('http') ? imageUrl : `http://localhost:3001${imageUrl}`} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span className="text-white font-black text-[10px] uppercase">Trocar Imagem</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <ImageIcon size={24} className="text-slate-300 mb-2" />
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Selecionar da Biblioteca</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="md:col-span-6 space-y-2">
                     <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400 ml-1">Nome Comercial</Label>
                     <Input 
                       {...register("name")} 
                       placeholder="Ex: Kit Fit 10 Marmitas" 
-                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg focus:ring-2 focus:ring-amber-500/10 transition-all" 
+                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg focus:ring-2 focus:ring-emerald-500/10 transition-all" 
                     />
                   </div>
                   
@@ -37860,7 +38000,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
                     <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400 ml-1">Preço Base (R$)</Label>
                     <Input 
                       {...register("base_price")} 
-                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg text-emerald-600 focus:ring-2 focus:ring-amber-500/10" 
+                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg text-emerald-600 focus:ring-2 focus:ring-emerald-500/10" 
                     />
                   </div>
 
@@ -37869,7 +38009,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
                     <Input 
                       {...register("number_of_options")} 
                       type="number" 
-                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg focus:ring-2 focus:ring-amber-500/10" 
+                      className="rounded-2xl h-14 bg-slate-50 border-none font-bold text-lg focus:ring-2 focus:ring-emerald-500/10" 
                     />
                   </div>
 
@@ -37887,7 +38027,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
                       <span className="text-[10px] font-black uppercase tracking-widest">Arquitetura de Slots</span>
                     </div>
                     <h3 className="font-black uppercase italic text-2xl text-slate-900 tracking-tighter">
-                      Configuração de <span className="text-amber-500">Marmitas</span>
+                      Configuração de <span className="text-emerald-600">Marmitas</span>
                     </h3>
                   </div>
 
@@ -37905,7 +38045,6 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
                     slots={logic.state.config.slots}
                     allDishes={logic.data.allDishes}
                     allGroups={logic.data.allGroups}
-                    // ✅ CORREÇÃO: Passando a função exigida pelo componente
                     onUpdateName={logic.actions.updateSlotName}
                     onUpdateDishes={logic.actions.updateSlotDishes}
                     onUpdateGroups={logic.actions.updateSlotGroups}
@@ -37936,13 +38075,24 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: any) {
             <Button 
               form="pkg-form" 
               type="submit" 
-              disabled={logic.mutations.createMutation.isLoading || logic.mutations.updateMutation.isLoading}
-              className="flex-2 md:flex-none h-14 px-14 rounded-2xl bg-slate-900 hover:bg-amber-500 text-white font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95"
+              disabled={logic.mutations.createMutation.isPending || logic.mutations.updateMutation.isPending}
+              className="flex-2 md:flex-none h-14 px-14 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95"
             >
-              {logic.mutations.createMutation.isLoading || logic.mutations.updateMutation.isLoading ? "Processando..." : "Finalizar Assinatura"}
+              {logic.mutations.createMutation.isPending || logic.mutations.updateMutation.isPending ? "Processando..." : "Finalizar Assinatura"}
             </Button>
           </div>
         </div>
+
+        {/* MODAL DE MÍDIA */}
+        <MediaLibraryModal 
+          open={isMediaOpen} 
+          onClose={() => setIsMediaOpen(false)} 
+          onSelect={(url) => {
+            setValue("image_url", url);
+            setIsMediaOpen(false);
+          }}
+          selectedUrl={imageUrl}
+        />
 
       </SheetContent>
     </Sheet>
@@ -38129,9 +38279,9 @@ import { toast } from "@/components/ui/use-toast";
 
 export interface PackageSlot {
   name: string;
-  dishIds: string[]; // ✅ UI prefere trabalhar com Strings
+  dishIds: string[];
   groups: {
-    id: string; // ✅ UI prefere trabalhar com Strings
+    id: string;
     customLabel?: string;
   }[];
 }
@@ -38140,8 +38290,6 @@ export function useAdminPackages() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [expandedPackageId, setExpandedPackageId] = useState<number | string | null>(null);
-
-  // Estado inicial
   const [config, setConfig] = useState<{ slots: PackageSlot[] }>({ slots: [] });
 
   const utils = trpc.useUtils();
@@ -38152,15 +38300,20 @@ export function useAdminPackages() {
   const { data: allGroups = [] } = trpc.admin.packages.getAccompanimentGroups.useQuery();
 
   // --- MUTATIONS ---
+  
+  const toggleStatusMutation = trpc.admin.packages.updateStatus.useMutation({
+    onSuccess: () => {
+      utils.admin.packages.list.invalidate();
+      toast.success("Visibilidade atualizada!");
+    },
+    onError: (err: any) => toast.error(`Falha ao alterar status: ${err.message}`)
+  });
+
   const createMutation = trpc.admin.packages.create.useMutation({
     onSuccess: () => {
       toast.success("Pacote criado com sucesso!");
       utils.admin.packages.list.invalidate();
       closeDialog();
-    },
-    onError: (err) => {
-      console.error("Erro ao criar:", err);
-      toast.error(`Erro: ${err.message}`);
     }
   });
 
@@ -38169,10 +38322,6 @@ export function useAdminPackages() {
       toast.success("Pacote atualizado!");
       utils.admin.packages.list.invalidate();
       closeDialog();
-    },
-    onError: (err) => {
-      console.error("Erro ao atualizar:", err);
-      toast.error(`Erro: ${err.message}`);
     }
   });
 
@@ -38183,26 +38332,18 @@ export function useAdminPackages() {
     }
   });
 
-  // --- 🛡️ AÇÕES DE ESTRUTURA ---
+  // --- AÇÕES DE ESTRUTURA ---
 
-  /**
-   * ✅ LOAD SLOTS: O Segredo está aqui
-   * Converte IDs numéricos do banco para Strings da UI
-   */
   const loadSlots = (configData: any) => {
     let loadedConfig = { slots: [] };
-    
     if (configData) {
       try {
         loadedConfig = typeof configData === 'string' ? JSON.parse(configData) : configData;
-      } catch (e) {
-        console.error("Erro ao parsear JSON:", e);
-      }
+      } catch (e) { /* silent */ }
     }
 
     const sanitizedSlots = (loadedConfig?.slots || []).map((s: any) => ({
       name: s.name || "Sem nome",
-      // 🔄 CONVERSÃO FORÇADA PARA STRING NA CARGA
       dishIds: Array.isArray(s.dishIds) ? s.dishIds.map((id: any) => String(id)) : [],
       groups: Array.isArray(s.groups) ? s.groups.map((g: any) => ({
         id: String(g.id),
@@ -38215,17 +38356,12 @@ export function useAdminPackages() {
 
   const addSlot = () => {
     setConfig(prev => ({
-      slots: [
-        ...(prev?.slots ?? []),
-        { name: `Marmita ${(prev?.slots?.length || 0) + 1}`, dishIds: [], groups: [] }
-      ]
+      slots: [...(prev?.slots ?? []), { name: `Marmita ${(prev?.slots?.length || 0) + 1}`, dishIds: [], groups: [] }]
     }));
   };
 
   const removeSlot = (index: number) => {
-    setConfig(prev => ({
-      slots: (prev?.slots ?? []).filter((_, i) => i !== index)
-    }));
+    setConfig(prev => ({ slots: (prev?.slots ?? []).filter((_, i) => i !== index) }));
   };
 
   const updateSlotName = (index: number, name: string) => {
@@ -38236,25 +38372,18 @@ export function useAdminPackages() {
     });
   };
 
-  // Atualiza Pratos (Recebe Strings da UI)
   const updateSlotDishes = (slotIndex: number, dishIds: string[]) => {
     setConfig(prev => {
       const newSlots = [...(prev.slots || [])];
-      if (newSlots[slotIndex]) {
-        // Já garantimos que vem como string do componente visual
-        newSlots[slotIndex] = { ...newSlots[slotIndex], dishIds: dishIds.map(String) };
-      }
+      if (newSlots[slotIndex]) newSlots[slotIndex] = { ...newSlots[slotIndex], dishIds: dishIds.map(String) };
       return { slots: newSlots };
     });
   };
 
-  // Atualiza Grupos
   const updateSlotGroups = (slotIndex: number, groups: { id: string; customLabel?: string }[]) => {
     setConfig(prev => {
       const newSlots = [...(prev.slots || [])];
-      if (newSlots[slotIndex]) {
-        newSlots[slotIndex] = { ...newSlots[slotIndex], groups };
-      }
+      if (newSlots[slotIndex]) newSlots[slotIndex] = { ...newSlots[slotIndex], groups };
       return { slots: newSlots };
     });
   };
@@ -38263,7 +38392,6 @@ export function useAdminPackages() {
 
   const handleEdit = (pkg: any) => {
     setEditingPackage(pkg);
-    // Chama a função de carga sanitizada
     loadSlots(pkg?.config);
     setIsDialogOpen(true);
   };
@@ -38274,22 +38402,27 @@ export function useAdminPackages() {
     setConfig({ slots: [] });
   };
 
+  const handleToggleStatus = (id: string | number, currentStatus: string) => {
+    const newStatus = currentStatus === "active" ? "hidden" : "active";
+    toggleStatusMutation.mutate({ id, status: newStatus });
+  };
+
   const handleSave = (formData: any) => {
     const payload = {
       name: formData.name,
-      slug: formData.slug,
+      slug: formData.slug || formData.name.toLowerCase().replace(/ /g, '-'),
       description: formData.description || null,
       image_url: formData.image_url || null,
-      month: formData.month || null,
-      isActive: formData.isActive ?? true,
+      isActive: formData.status === "active" || formData.isActive === true,
       number_of_options: Number(formData.number_of_options || 0),
-      base_price: String(formData.base_price || "0").replace(',', '.'), 
       
-      // ✅ SAVE: Converte de volta para NUMBER para o Banco
+      // ✅ Somente a ordem de exibição manual
+      display_order: Number(formData.display_order || 0),
+      
+      base_price: String(formData.base_price || "0").replace(',', '.'), 
       config: {
         slots: config.slots.map(s => ({
           name: s.name,
-          // Converte String -> Number
           dishIds: s.dishIds.map(id => Number(id)).filter(n => !isNaN(n)),
           groups: s.groups.map(g => ({
             id: Number(g.id),
@@ -38300,32 +38433,22 @@ export function useAdminPackages() {
     };
 
     if (editingPackage) {
-      updateMutation.mutate({ 
-        id: editingPackage.id, 
-        ...payload 
-      });
+      updateMutation.mutate({ id: editingPackage.id, ...payload });
     } else {
       createMutation.mutate(payload);
     }
   };
 
   return {
-    state: { 
-      isDialogOpen, 
-      editingPackage, 
-      config, 
-      expandedPackageId, 
-      isLoading: packagesQuery.isLoading 
-    },
+    state: { isDialogOpen, editingPackage, config, expandedPackageId, isLoading: packagesQuery.isLoading },
     actions: { 
       setIsDialogOpen, 
       setEditingPackage, 
       setExpandedPackageId, 
       handleEdit, 
+      handleToggleStatus,
       handleDelete: (id: number | string) => {
-        if (confirm("Deseja realmente excluir este pacote?")) {
-           deleteMutation.mutate({ id });
-        }
+        if (confirm("Deseja realmente excluir este pacote?")) deleteMutation.mutate({ id });
       },
       closeDialog, 
       handleSave, 
@@ -38334,14 +38457,10 @@ export function useAdminPackages() {
       updateSlotName, 
       updateSlotDishes, 
       updateSlotGroups,
-      loadSlots // Exportado para usar no useEffect do Drawer
+      loadSlots 
     },
-    data: { 
-      packages: packagesQuery.data ?? [], 
-      allDishes, 
-      allGroups 
-    },
-    mutations: { createMutation, updateMutation }
+    data: { packages: packagesQuery.data ?? [], allDishes, allGroups },
+    mutations: { createMutation, updateMutation, toggleStatusMutation }
   };
 }
 ```
@@ -38352,18 +38471,23 @@ export function useAdminPackages() {
 
 ```ts
 import { useAdminPackages } from "../logic/useAdminPackages";
-import { PackageDrawer } from "../components/PackageDrawer"; // ✅ Atualizado para Drawer
+import { PackageDrawer } from "../components/PackageDrawer";
 import { PackageCard } from "../components/PackageCard";
 import { Button } from "@/components/ui/button";
-import { Plus, Loader2, Sparkles, Box, LayoutGrid } from "lucide-react";
+import { Plus, Loader2, Box, LayoutGrid } from "lucide-react";
 
 export function AdminPackagesView() {
   const { state, actions, data, mutations } = useAdminPackages();
 
+  // ✅ Ordenação visual baseada no display_order (definido manualmente no formulário)
+  const sortedPackages = [...(data.packages || [])].sort((a: any, b: any) => {
+    return (Number(a.display_order) || 0) - (Number(b.display_order) || 0);
+  });
+
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
       
-      {/* HEADER PREMIUM - Cores Emerald/Slate */}
+      {/* HEADER PREMIUM */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-emerald-600">
@@ -38390,30 +38514,21 @@ export function AdminPackagesView() {
         </Button>
       </header>
 
-      {/* DIVISOR ESTILIZADO */}
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-          <div className="w-full border-t border-slate-100"></div>
-        </div>
-        <div className="relative flex justify-start">
-          <span className="bg-[#F8FAFC] pr-6 text-[9px] font-black uppercase tracking-[0.5em] text-slate-300">
-            Portfólio de Combos Ativos
-          </span>
-        </div>
-      </div>
-
       {/* LISTAGEM DE PACOTES */}
       {state.isLoading ? (
         <div className="flex flex-col items-center justify-center py-40 gap-4">
-          <Loader2 className="animate-spin text-emerald-600" size={40} />
+          <div className="relative">
+             <Loader2 className="animate-spin text-emerald-600" size={40} />
+             <div className="absolute inset-0 blur-xl bg-emerald-600/20 animate-pulse" />
+          </div>
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
             Sincronizando Catálogo...
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-8">
-          {data.packages.length > 0 ? (
-            data.packages.map((pkg: any) => (
+          {sortedPackages.length > 0 ? (
+            sortedPackages.map((pkg: any) => (
               <PackageCard 
                 key={pkg.id} 
                 pkg={pkg} 
@@ -38421,20 +38536,21 @@ export function AdminPackagesView() {
                 onToggleExpand={() => actions.setExpandedPackageId(state.expandedPackageId === pkg.id ? null : pkg.id)}
                 onEdit={() => actions.handleEdit(pkg)}
                 onDelete={() => actions.handleDelete(pkg.id)}
+                onToggleVisibility={(id: string, currentStatus: string) => actions.handleToggleStatus(id, currentStatus)}
               />
             ))
           ) : (
-            <div className="py-32 flex flex-col items-center justify-center bg-white rounded-[3.5rem] border-2 border-dashed border-slate-100 shadow-sm">
-               <Box className="text-slate-100 mb-4" size={64} />
-               <p className="text-slate-300 font-black uppercase text-[10px] tracking-[0.3em]">
-                 Nenhum pacote configurado no catálogo
-               </p>
+            <div className="py-32 flex flex-col items-center justify-center bg-white rounded-[3.5rem] border-2 border-dashed border-slate-100 shadow-sm transition-all hover:bg-slate-50/50 group">
+                <Box className="text-slate-100 mb-4 transition-colors group-hover:text-emerald-100" size={64} />
+                <p className="text-slate-300 font-black uppercase text-[10px] tracking-[0.3em] group-hover:text-slate-400">
+                  Nenhum pacote configurado no catálogo
+                </p>
             </div>
           )}
         </div>
       )}
 
-      {/* DRAWER LATERAL REVISADO */}
+      {/* DRAWER LATERAL */}
       <PackageDrawer 
         open={state.isDialogOpen} 
         onClose={actions.closeDialog}
@@ -39359,19 +39475,35 @@ export function GoogleAuthConfig() {
 ### Arquivo: `client/src/pages/adminSettings/components/InfrastructureCard.tsx`
 
 ```ts
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { trpc } from "@/_core/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Upload, Database, Download, Package } from "lucide-react";
+import { Loader2, Upload, Database, Download, Package, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/use-toast";
 
 export function InfrastructureCard() {
   const [updateFile, setUpdateFile] = useState<File | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // Ref para controlar o cancelamento da requisição
+  const abortControllerRef = useRef<AbortController | null>(null);
 
+  // 📈 QUERY DE STATUS: Busca o progresso do servidor a cada 1s
+  const statusQuery = trpc.admin.storeSettings.getExportStatus.useQuery(undefined, {
+    enabled: isExporting,
+    refetchInterval: isExporting ? 1000 : false,
+  });
+
+  // 📦 MUTATION: Exportar Kernel
   const exportMutation = trpc.admin.storeSettings.exportKernel.useMutation({
+    onMutate: () => {
+      setIsExporting(true);
+      // Inicializa o controller para permitir cancelamento
+      abortControllerRef.current = new AbortController();
+    },
     onSuccess: (data) => {
       const byteCharacters = atob(data.base64);
       const byteNumbers = new Array(byteCharacters.length);
@@ -39385,19 +39517,57 @@ export function InfrastructureCard() {
       a.href = url;
       a.download = data.filename;
       a.click();
-      toast.success("Pacote de exportação gerado!");
+      
+      toast.success("Kernel exportado com sucesso!");
+      setTimeout(() => {
+        setIsExporting(false);
+        abortControllerRef.current = null;
+      }, 2000);
+    },
+    onError: (err) => {
+      if (err.message.includes("aborted")) {
+        toast.info("Exportação cancelada pelo usuário.");
+      } else {
+        toast.error("Erro na exportação: " + err.message);
+      }
+      setIsExporting(false);
     }
   });
 
+  // Função para parar a operação
+  const handleStopOperation = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsExporting(false);
+      toast.warning("Operação interrompida.");
+    }
+  };
+
+  // 💾 MUTATION: Backup SQL
   const backupMutation = trpc.admin.storeSettings.downloadBackup.useMutation({
     onSuccess: (data) => {
-      const blob = new Blob([data.sql], { type: 'text/sql' });
+      const blob = new Blob([data.sql], { type: 'application/sql' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = data.filename;
       a.click();
+      window.URL.revokeObjectURL(url);
       toast.success("Backup SQL concluído!");
+    },
+    onError: (err) => toast.error("Erro no backup: " + err.message)
+  });
+
+  // 🚀 MUTATION: Upgrade System
+  const upgradeMutation = trpc.admin.storeSettings.upgradeSystem.useMutation({
+    onSuccess: () => {
+      setIsUpdating(false);
+      setUpdateFile(null);
+      toast.success("Deploy iniciado com sucesso!");
+    },
+    onError: (err) => {
+      setIsUpdating(false);
+      toast.error("Erro no deploy: " + err.message);
     }
   });
 
@@ -39405,44 +39575,118 @@ export function InfrastructureCard() {
     if (!updateFile) return toast.error("Selecione o pacote .zip");
     const confirmName = prompt("Digite 'ATUALIZAR' para confirmar:");
     if (confirmName !== "ATUALIZAR") return;
+
     setIsUpdating(true);
-    setTimeout(() => {
-      setIsUpdating(false);
-      toast.success("Sistema atualizado!");
-    }, 2000);
+    const reader = new FileReader();
+    reader.readAsDataURL(updateFile);
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      upgradeMutation.mutate({ fileBase64: base64 });
+    };
   };
 
+  const currentPercent = statusQuery.data?.percent || 0;
+  const currentStatus = statusQuery.data?.status || "Iniciando...";
+
   return (
-    <Card className="rounded-[2.5rem] border-none shadow-sm bg-slate-900 text-white overflow-hidden">
-      <CardHeader className="p-8 border-b border-white/5">
-        <div className="flex items-center gap-3 text-blue-400">
-          <Database size={24} />
-          <CardTitle className="text-xl font-black uppercase italic tracking-tighter">
-            Infra <span className="text-white/40">&</span> Kernel
-          </CardTitle>
+    <Card className="rounded-[2.5rem] border-none shadow-2xl bg-slate-900 text-white overflow-hidden border border-white/5">
+      <CardHeader className="p-8 border-b border-white/5 bg-slate-900/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 text-blue-400">
+            <Database size={24} />
+            <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-white">
+              Infra <span className="text-blue-500">/</span> Kernel
+            </CardTitle>
+          </div>
+          {isExporting && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleStopOperation}
+              className="text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-full h-8 px-3 text-[10px] font-bold uppercase tracking-tighter"
+            >
+              <XCircle size={14} className="mr-1" /> Parar Processo
+            </Button>
+          )}
         </div>
       </CardHeader>
+      
       <CardContent className="p-8 space-y-6">
-        <Button onClick={() => backupMutation.mutate()} className="w-full h-14 bg-blue-600 hover:bg-blue-700 rounded-2xl font-black text-[10px] tracking-widest uppercase">
-          <Download size={16} className="mr-2" /> Baixar Dump SQL
-        </Button>
+        
+        {/* BARRA DE PROGRESSO DINÂMICA */}
+        {isExporting && (
+          <div className="p-6 rounded-[2rem] bg-blue-600/5 border border-blue-500/20 space-y-4 animate-in fade-in zoom-in duration-300">
+            <div className="flex justify-between items-end">
+              <div className="space-y-1">
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400/60">Sistema de Build</span>
+                <p className="text-sm font-bold text-blue-100 flex items-center gap-2">
+                  {currentPercent === 100 ? <CheckCircle2 size={16} className="text-emerald-400" /> : <Loader2 size={16} className="animate-spin text-blue-500" />}
+                  {currentStatus}
+                </p>
+              </div>
+              <span className="text-3xl font-black italic text-blue-500">{currentPercent}%</span>
+            </div>
+            <div className="w-full h-4 bg-slate-800 rounded-full overflow-hidden p-1 border border-white/5">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 rounded-full transition-all duration-700 ease-out shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+                style={{ width: `${currentPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
 
-        <Button onClick={() => exportMutation.mutate()} className="w-full h-14 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-black text-[10px] tracking-widest uppercase">
-          <Package size={16} className="mr-2" /> Gerar Pacote de Envio
-        </Button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button 
+              onClick={() => backupMutation.mutate()} 
+              disabled={backupMutation.isPending || isExporting}
+              className="h-16 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black text-[11px] tracking-widest uppercase transition-all shadow-lg shadow-blue-900/20"
+            >
+              {backupMutation.isPending ? <Loader2 className="animate-spin" /> : <><Download size={18} className="mr-2" /> Dump SQL</>}
+            </Button>
 
-        <div className="pt-6 border-t border-white/5 space-y-4">
+            <Button 
+              onClick={() => exportMutation.mutate()} 
+              disabled={isExporting}
+              className={cn(
+                "h-16 rounded-2xl font-black text-[11px] tracking-widest uppercase transition-all border",
+                isExporting ? "bg-slate-800 border-white/5 text-white/20" : "bg-white/5 hover:bg-white/10 text-white border-white/10"
+              )}
+            >
+              {isExporting ? "Processando..." : <><Package size={18} className="mr-2" /> Exportar Kernel</>}
+            </Button>
+        </div>
+
+        <div className="pt-8 border-t border-white/5 space-y-4">
           <div className="relative group">
-            <input type="file" accept=".zip" onChange={(e) => setUpdateFile(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-            <div className={cn("p-6 border-2 border-dashed rounded-2xl flex flex-col items-center transition-all", updateFile ? "border-emerald-500 bg-emerald-500/10" : "border-white/10 bg-white/5")}>
-              <Upload size={24} className={cn("mb-2", updateFile ? "text-emerald-500" : "text-slate-500")} />
-              <span className="text-[9px] font-black uppercase text-slate-400 truncate w-full text-center px-4">
-                {updateFile ? updateFile.name : "Selecionar Pacote .zip"}
+            <input 
+              type="file" 
+              accept=".zip" 
+              onChange={(e) => setUpdateFile(e.target.files?.[0] || null)} 
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+              disabled={isUpdating || isExporting}
+            />
+            <div className={cn(
+              "p-8 border-2 border-dashed rounded-[2rem] flex flex-col items-center transition-all duration-500", 
+              updateFile ? "border-emerald-500 bg-emerald-500/5" : "border-white/10 bg-white/5"
+            )}>
+              <Upload size={32} className={cn("mb-3 transition-colors", updateFile ? "text-emerald-500" : "text-slate-600")} />
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">
+                {updateFile ? updateFile.name : "Solte o pacote .zip aqui"}
               </span>
             </div>
           </div>
-          <Button disabled={!updateFile || isUpdating} onClick={handleSystemUpgrade} className={cn("w-full h-14 rounded-2xl font-black uppercase text-[11px] tracking-widest transition-all", updateFile ? "bg-emerald-600 text-white shadow-xl" : "bg-white/5 text-white/20")}>
-             {isUpdating ? <Loader2 className="animate-spin" /> : "Implantar Atualização"}
+
+          <Button 
+            disabled={!updateFile || isUpdating || isExporting} 
+            onClick={handleSystemUpgrade} 
+            className={cn(
+              "w-full h-16 rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.3em] transition-all duration-500", 
+              updateFile 
+                ? "bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 hover:bg-emerald-500 hover:-translate-y-1" 
+                : "bg-white/5 text-white/10"
+            )}
+          >
+             {isUpdating ? <Loader2 className="animate-spin mr-2" /> : "Implantar Kernel na VPS"}
           </Button>
         </div>
       </CardContent>
@@ -41009,20 +41253,36 @@ export default function AdminShowcasesView() {
 
 ```ts
 import { trpc } from "@/_core/trpc";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, GripVertical, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { useMemo, useState, useEffect } from "react";
 
 export function GroupOptionsList({ groupId }: { groupId: number }) {
   const utils = trpc.useUtils();
-
-  // 🔍 Busca TODOS os acompanhamentos cadastrados no sistema
+  
+  // 1. Buscamos os dados
   const { data: allOptions, isLoading } = trpc.admin.accompaniments.options.listAll.useQuery();
+  const { data: groups } = trpc.admin.accompaniments.groups.list.useQuery();
+  const currentGroup = groups?.find(g => g.id === groupId);
+
+  // 2. Estado local para a ordem (evita o "pulo" do item ao arrastar)
+  const [localOrderedItems, setLocalOrderedItems] = useState<any[]>([]);
+
+  const updateGroup = trpc.admin.accompaniments.groups.update.useMutation({
+    onSuccess: () => {
+      utils.admin.accompaniments.groups.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Erro ao salvar ordem");
+      utils.admin.accompaniments.groups.list.invalidate(); // Reverte se der erro
+    }
+  });
 
   const upsertOption = trpc.admin.accompaniments.options.upsert.useMutation({
     onSuccess: () => {
       utils.admin.accompaniments.options.listAll.invalidate();
-      toast.success("Vínculo atualizado!");
     }
   });
 
@@ -41030,6 +41290,41 @@ export function GroupOptionsList({ groupId }: { groupId: number }) {
     if (!config) return [];
     if (Array.isArray(config)) return config;
     try { return typeof config === 'string' ? JSON.parse(config) : []; } catch { return []; }
+  };
+
+  // 3. Sincroniza o banco com o estado local
+  const linkedOptions = useMemo(() => {
+    if (!allOptions) return [];
+    const linked = allOptions.filter(opt => 
+      getSafeGroups(opt.groupsConfig).some((g: any) => Number(g.group_id) === groupId)
+    );
+    const orderIds = currentGroup?.itemsOrder || [];
+    return [...linked].sort((a, b) => {
+      const indexA = orderIds.indexOf(Number(a.id));
+      const indexB = orderIds.indexOf(Number(b.id));
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+    });
+  }, [allOptions, currentGroup, groupId]);
+
+  useEffect(() => {
+    setLocalOrderedItems(linkedOptions);
+  }, [linkedOptions]);
+
+  // 4. Handler de Drag and Drop
+  const onDragEnd = (result: DropResult) => {
+    const { destination, source } = result;
+    if (!destination || destination.index === source.index) return;
+
+    const items = Array.from(localOrderedItems);
+    const [reorderedItem] = items.splice(source.index, 1);
+    items.splice(destination.index, 0, reorderedItem);
+
+    // Atualiza a tela NA HORA
+    setLocalOrderedItems(items);
+
+    // Salva no banco silenciosamente
+    const newOrderIds = items.map(i => Number(i.id));
+    updateGroup.mutate({ id: groupId, itemsOrder: newOrderIds });
   };
 
   const toggleLink = (opt: any) => {
@@ -41049,40 +41344,74 @@ export function GroupOptionsList({ groupId }: { groupId: number }) {
     });
   };
 
-  if (isLoading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-slate-300" /></div>;
+  if (isLoading) return <Loader2 className="animate-spin text-emerald-500" />;
+
+  const availableOptions = allOptions?.filter(opt => 
+    !getSafeGroups(opt.groupsConfig).some((g: any) => Number(g.group_id) === groupId)
+  ) || [];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {allOptions?.map((opt) => {
-        const configs = getSafeGroups(opt.groupsConfig);
-        const isLinked = configs.some((g: any) => Number(g.group_id) === groupId);
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h4 className="text-[10px] font-black uppercase text-emerald-600 tracking-widest flex items-center gap-2">
+          <GripVertical size={14} /> Arraste para Ordenar
+        </h4>
 
-        return (
-          <button
-            key={opt.id}
-            onClick={() => toggleLink(opt)}
-            className={cn(
-              "flex items-center justify-between p-4 rounded-[1.8rem] border-2 transition-all text-left",
-              isLinked 
-                ? "border-emerald-500 bg-white shadow-sm" 
-                : "border-slate-100 bg-slate-50/50 opacity-60 hover:opacity-100 hover:border-slate-200"
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId={`drop-${groupId}`} direction="vertical">
+            {(provided) => (
+              <div 
+                {...provided.droppableProps} 
+                ref={provided.innerRef}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-h-[50px]"
+              >
+                {localOrderedItems.map((opt, index) => (
+                  <Draggable key={`id-${opt.id}`} draggableId={`drag-${opt.id}`} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        style={{ ...provided.draggableProps.style }}
+                        className={cn(
+                          "flex items-center justify-between p-4 rounded-2xl border-2 transition-all bg-white shadow-sm",
+                          snapshot.isDragging ? "border-emerald-500 scale-105 z-50 shadow-xl" : "border-emerald-50 border-emerald-100"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <GripVertical size={16} className="text-slate-300" />
+                          <CheckCircle2 size={18} className="text-emerald-500" />
+                          <span className="text-[11px] font-black uppercase italic text-slate-700">{opt.name}</span>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); toggleLink(opt); }} className="p-2 hover:bg-red-50 rounded-full text-red-300 hover:text-red-500 transition-colors">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
             )}
-          >
-            <div className="flex items-center gap-3">
-              {isLinked 
-                ? <CheckCircle2 size={20} className="text-emerald-500 animate-in zoom-in" /> 
-                : <Circle size={20} className="text-slate-200" />
-              }
-              <span className={cn(
-                "text-[11px] font-black uppercase italic tracking-tight",
-                isLinked ? "text-slate-800" : "text-slate-400"
-              )}>
-                {opt.name}
-              </span>
-            </div>
-          </button>
-        );
-      })}
+          </Droppable>
+        </DragDropContext>
+      </div>
+
+      <div className="pt-6 border-t border-dashed border-slate-200">
+        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4">Adicionar ao Grupo</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {availableOptions.map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => toggleLink(opt)}
+              className="flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-slate-50 bg-slate-50/50 hover:border-slate-200 transition-all text-left"
+            >
+              <Circle size={18} className="text-slate-200" />
+              <span className="text-[11px] font-black uppercase italic text-slate-400">{opt.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -41096,7 +41425,7 @@ export function GroupOptionsList({ groupId }: { groupId: number }) {
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
-import { Apple, Plus, Loader2, Tag, Activity } from "lucide-react";
+import { Apple, Plus, Loader2, Tag, Activity, Database } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { AccDrawer } from "@/components/AccDrawer"; 
 import { cn } from "@/lib/utils";
@@ -41110,7 +41439,6 @@ export function MasterAccompanimentsList() {
   const { data: items, isLoading } = trpc.admin.accompaniments.options.listAll.useQuery();
   const { data: categories } = trpc.admin.accompaniments.categories.list.useQuery();
 
-  // ✅ Melhora a segurança na conversão do config
   const getSafeGroups = (config: any): any[] => {
     if (!config) return [];
     if (Array.isArray(config)) return config;
@@ -41169,7 +41497,8 @@ export function MasterAccompanimentsList() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {items?.map(item => {
-          const hasNutrition = !!item.nutritionalInfo;
+          // ✅ CORREÇÃO: Verifica se qualquer coluna nutricional existe em vez de uma coluna JSON inexistente
+          const hasNutrition = !!(item.energyKcal || item.proteins || item.carbs);
           
           return (
             <div key={item.id} className="group p-6 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm hover:shadow-xl hover:border-emerald-100 transition-all flex flex-col gap-4">
@@ -41200,15 +41529,13 @@ export function MasterAccompanimentsList() {
                 <select 
                   value={item.accompanimentCategoryId || ""}
                   onChange={(e) => {
-                    // ✅ LIMPEZA DO OBJETO: Evita passar createdAt/updatedAt e garante tipos do Zod
                     upsert.mutate({ 
                       id: item.id,
                       name: item.name,
                       isActive: item.isActive,
                       displayOrder: item.displayOrder,
                       showNutrition: item.showNutrition,
-                      // Converte explicitamente unknown -> string | undefined
-                      nutritionalInfo: item.nutritionalInfo ? String(item.nutritionalInfo) : undefined,
+                      // ✅ REMOVIDO: nutritionalInfo (pois o banco usa colunas planas)
                       groupsConfig: getSafeGroups(item.groupsConfig),
                       accompanimentCategoryId: Number(e.target.value) || null 
                     });
@@ -41238,7 +41565,7 @@ export function MasterAccompanimentsList() {
         onClose={() => setIsDrawerOpen(false)}
         acc={selectedItem}
         onSubmit={(nutritionData: any) => {
-          // ✅ LIMPEZA DO OBJETO NO SUBMIT DO DRAWER
+          // ✅ CORREÇÃO: Mapeia o objeto do Drawer para as colunas planas do seu Schema
           upsert.mutate({ 
             id: selectedItem.id,
             name: selectedItem.name,
@@ -41246,7 +41573,12 @@ export function MasterAccompanimentsList() {
             displayOrder: selectedItem.displayOrder,
             accompanimentCategoryId: selectedItem.accompanimentCategoryId,
             groupsConfig: getSafeGroups(selectedItem.groupsConfig),
-            nutritionalInfo: JSON.stringify(nutritionData),
+            
+            // Colunas Planas
+            energyKcal: Number(nutritionData.energyKcal),
+            proteins: String(nutritionData.proteins),
+            carbs: String(nutritionData.carbs),
+            fatTotal: String(nutritionData.fatTotal),
             showNutrition: true
           });
         }}
@@ -41261,161 +41593,203 @@ export function MasterAccompanimentsList() {
 ### Arquivo: `client/src/pages/adminSizes/components/SizeCard.tsx`
 
 ```ts
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { 
-  ChevronDown, 
-  ChevronUp, 
-  Trash2, 
-  Link as LinkIcon, 
-  Unlink, 
-  Layers, 
-  Check
+  Trash2, Link as LinkIcon, 
+  Unlink, Layers, Plus, Tag,
+  GripVertical, Weight, MessageCircle, Info
 } from "lucide-react";
-// Importamos os ícones da Phosphor para a seleção
 import { Cube, Package, GridFour } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+// ✅ Importação necessária para o arrasto interno
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 
 export function SizeCard({ 
   size, 
-  groups, 
-  linkedIds, 
+  groups = [], 
+  linkedIds = [], 
   isExpanded, 
   onToggleExpand, 
   onToggleLink, 
   onDelete,
-  onUpdateIcon // ✅ Adicione esta prop para salvar a escolha
+  onUpdate,
+  dragHandleProps 
 }: any) {
 
-  // Mapeamento de ícones disponíveis
+  const [localDesc, setLocalDesc] = useState(size.description || "");
+
+  useEffect(() => {
+    setLocalDesc(size.description || "");
+  }, [size.description]);
+
   const iconOptions = [
-    { key: "Cube", icon: Cube, label: "Pequena" },
-    { key: "Package", icon: Package, label: "Média" },
-    { key: "GridFour", icon: GridFour, label: "Bento" },
+    { key: "Cube", icon: Cube, label: "Sem divisória" },
+    { key: "Package", icon: Package, label: "Sem divisória" },
+    { key: "GridFour", icon: GridFour, label: "Com divisória" },
   ];
 
+  const priceModifier = Number(size.priceModifier || 0);
+
+  // ✅ Organiza os grupos: primeiro os vinculados (na ordem certa), depois os disponíveis
+  const sortedGroups = [
+    ...groups.filter((g: any) => linkedIds.includes(Number(g.id))),
+    ...groups.filter((g: any) => !linkedIds.includes(Number(g.id)))
+  ];
+
+  // ✅ Handler para reordenar os grupos vinculados a ESTE tamanho
+  const onDragEndInternal = (result: DropResult) => {
+    if (!result.destination) return;
+    
+    // Aqui você dispararia uma atualização de displayOrder para a tabela de ligação 
+    // ou apenas para a visualização. Como a tabela size_accompaniment_groups 
+    // geralmente não tem display_order, o ideal é salvar no campo JSON do Tamanho (se existir)
+    // ou apenas mover visualmente.
+    console.log("Reordenando grupos do tamanho:", size.id, result);
+  };
+
   return (
-    <div className="group border border-slate-100 rounded-[2.5rem] bg-white shadow-sm overflow-hidden transition-all hover:shadow-md">
-      {/* CABEÇALHO DO CARD */}
-      <div className="p-6 md:p-8 flex items-center justify-between">
-        <div className="flex items-center gap-5">
-          
-          {/* SELETOR DE ÍCONE DINÂMICO */}
-          <div className="flex gap-2 p-1.5 bg-slate-50 rounded-[1.8rem] border border-slate-100">
-            {iconOptions.map((opt) => {
-              const IconComp = opt.icon;
-              const isSelected = size.iconKey === opt.key;
-              
-              return (
-                <button
-                  key={opt.key}
-                  onClick={() => onUpdateIcon(size.id, opt.key)}
-                  className={cn(
-                    "relative h-12 w-12 flex flex-col items-center justify-center rounded-2xl transition-all",
-                    isSelected 
-                      ? "bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200" 
-                      : "text-slate-400 hover:text-slate-600 hover:bg-white/50"
-                  )}
-                  title={opt.label}
-                >
-                  <IconComp size={20} weight={isSelected ? "fill" : "bold"} />
-                  <span className="text-[6px] font-black uppercase mt-1 tracking-tighter">
-                    {opt.label}
-                  </span>
-                  
-                  {isSelected && (
-                    <div className="absolute -top-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm">
-                      <Check size={8} strokeWidth={4} />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+    <div className={cn(
+      "group relative border rounded-[2.5rem] bg-white transition-all duration-300",
+      isExpanded ? "border-emerald-200 shadow-xl" : "border-slate-100 shadow-sm hover:border-emerald-100"
+    )}>
+      
+      {/* ALÇA DE ARRASTE DO CARD (TAMANHO) */}
+      <div 
+        {...dragHandleProps} 
+        className="absolute left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-slate-300 hover:text-emerald-500 p-2 z-30"
+      >
+        <GripVertical size={20} />
+      </div>
+
+      {/* CABEÇALHO */}
+      <div className="p-5 md:p-8 flex flex-col md:flex-row gap-6 md:items-center justify-between pl-10 md:pl-14">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+          <div className="flex gap-2 p-1.5 bg-slate-50 rounded-[1.8rem] border border-slate-100 shadow-inner">
+            {iconOptions.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onUpdate(size.id, { iconKey: opt.key })}
+                className={cn(
+                  "relative h-12 w-12 flex flex-col items-center justify-center rounded-2xl transition-all",
+                  size.iconKey === opt.key ? "bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200" : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                <opt.icon size={20} weight={size.iconKey === opt.key ? "fill" : "bold"} />
+                <span className="text-[6px] font-black uppercase mt-1 tracking-tighter">{opt.label}</span>
+              </button>
+            ))}
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-1.5 min-w-0">
             <div className="flex items-center gap-3">
-              <h3 className="font-black text-xl md:text-2xl text-slate-900 uppercase tracking-tighter italic leading-none">
-                {size.name}
-              </h3>
-              <div className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[10px] font-black italic border border-emerald-100">
-                {size.weight}g
+              <h3 className="font-black text-xl md:text-2xl text-slate-900 uppercase tracking-tighter italic leading-none truncate">{size.name}</h3>
+              <div className="flex items-center gap-2">
+                <Badge className="bg-emerald-50 text-emerald-600 border-none font-black text-[9px] uppercase px-3 py-1 rounded-full">{size.weight}g</Badge>
+                <Badge className="bg-slate-900 text-white border-none font-black text-[9px] uppercase px-3 py-1 rounded-full">R$ {priceModifier.toFixed(2)}</Badge>
               </div>
             </div>
-            <p className="text-slate-400 font-medium text-[10px] uppercase tracking-widest">
-               Personalização de Ícone e Peso
-            </p>
+            <p className="text-slate-400 font-bold text-[9px] uppercase tracking-widest leading-none">#ORDEM {size.displayOrder || 0} • Configuração de Engenharia</p>
           </div>
         </div>
 
-        {/* AÇÕES DE CABEÇALHO */}
-        <div className="flex gap-3">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className={cn(
-              "h-12 w-12 rounded-xl transition-all active:scale-90",
-              isExpanded ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
-            )} 
-            onClick={onToggleExpand}
-          >
-            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" className={cn("h-12 px-6 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all", isExpanded ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400")} onClick={onToggleExpand}>
+            {isExpanded ? "Fechar" : "Gerenciar"}
           </Button>
-          
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-12 w-12 rounded-xl bg-slate-50 text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all active:scale-90" 
-            onClick={onDelete}
-          >
-            <Trash2 size={20} />
+          <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-slate-50 text-slate-300 hover:text-red-500" onClick={() => confirm(`Excluir "${size.name}"?`) && onDelete()}>
+            <Trash2 size={18} />
           </Button>
         </div>
       </div>
 
-      {/* ÁREA DE VÍNCULO (Mantida igual) */}
+      {/* ÁREA EXPANDIDA (ONDE ESTÃO OS GRUPOS) */}
       {isExpanded && (
-        <div className="p-6 md:p-8 bg-[#FBFDFF] border-t border-slate-50 animate-in slide-in-from-top-2 duration-300">
-           {/* ... resto do seu código de grupos ... */}
-           <div className="flex items-center gap-2 mb-6 text-slate-400">
-            <Layers size={14} />
-            <span className="text-[10px] font-black uppercase tracking-[0.3em]">Acompanhamentos Habilitados</span>
+        <div className="bg-[#FBFDFF] border-t border-slate-50 animate-in slide-in-from-top-2 duration-300">
+          
+          <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 border-b border-slate-100">
+             {/* Inputs de Peso e Preço aqui... */}
+             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-2"><Weight size={12}/> Peso (G)</Label>
+                    <Input type="number" defaultValue={size.weight} onBlur={(e) => onUpdate(size.id, { weight: e.target.value })} className="bg-slate-50 border-none h-12 font-black text-lg rounded-2xl" />
+                </div>
+                <div className="space-y-2">
+                    <Label className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-2"><Tag size={12}/> Preço Extra (R$)</Label>
+                    <Input type="number" step="0.01" defaultValue={priceModifier} onBlur={(e) => onUpdate(size.id, { priceModifier: e.target.value })} className="bg-slate-50 border-none h-12 font-black text-lg rounded-2xl" />
+                </div>
+             </div>
+             <div className="space-y-2">
+                <Label className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-2"><MessageCircle size={12}/> Informativo</Label>
+                <textarea value={localDesc} onChange={(e) => setLocalDesc(e.target.value)} onBlur={() => onUpdate(size.id, { description: localDesc })} className="w-full h-24 bg-white border border-slate-100 rounded-3xl p-4 text-sm outline-none focus:ring-2 focus:ring-emerald-500/10" placeholder="Ex: Ideal para refeições leves..." />
+             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-4">
-            {groups.map((group: any) => {
-              const isLinked = linkedIds?.includes(Number(group.id));
-              return (
-                <button 
-                  key={group.id}
-                  onClick={() => onToggleLink(size.id, group.id)}
-                  className={cn(
-                    "flex items-center justify-between p-5 rounded-3xl border transition-all text-left",
-                    isLinked 
-                      ? "bg-white border-emerald-500 shadow-sm ring-4 ring-emerald-500/5" 
-                      : "bg-white border-slate-100 hover:border-slate-300 opacity-60 hover:opacity-100"
-                  )}
-                >
-                  <div className="space-y-1">
-                    <p className={cn(
-                      "text-[11px] font-black uppercase tracking-tight",
-                      isLinked ? "text-emerald-700" : "text-slate-600"
-                    )}>
-                      {group.name}
-                    </p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase">
-                        Limite: {group.maxSelections}
-                    </p>
-                  </div>
+          <div className="p-6 md:p-8">
+            <div className="flex items-center gap-2 mb-6 text-slate-400">
+              <Layers size={14} />
+              <span className="text-[10px] font-black uppercase tracking-[0.3em]">Vincular Grupos de Escolha</span>
+            </div>
 
-                  <div className={cn(
-                    "p-2 rounded-lg transition-colors",
-                    isLinked ? "bg-emerald-500 text-white" : "bg-slate-50 text-slate-300"
-                  )}>
-                    {isLinked ? <Unlink size={14}/> : <LinkIcon size={14}/>}
+            {/* 🟢 DRAG AND DROP PARA OS GRUPOS DESTE TAMANHO */}
+            <DragDropContext onDragEnd={onDragEndInternal}>
+              <Droppable droppableId={`groups-for-size-${size.id}`} direction="horizontal">
+                {(provided) => (
+                  <div 
+                    {...provided.droppableProps} 
+                    ref={provided.innerRef} 
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+                  >
+                    {sortedGroups.map((group: any, index: number) => {
+                      const isLinked = linkedIds?.includes(Number(group.id));
+                      return (
+                        <Draggable key={group.id} draggableId={String(group.id)} index={index} isDragDisabled={!isLinked}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              className={cn(
+                                "relative flex items-center justify-between p-4 rounded-2xl border transition-all text-left bg-white",
+                                isLinked ? "border-emerald-500 shadow-sm" : "border-slate-100 opacity-60 hover:opacity-100",
+                                snapshot.isDragging && "z-50 scale-105 border-emerald-600 shadow-xl"
+                              )}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 pr-2">
+                                {isLinked && (
+                                  <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-emerald-500">
+                                    <GripVertical size={16} />
+                                  </div>
+                                )}
+                                <p className={cn("text-[10px] font-black uppercase truncate", isLinked ? "text-emerald-700" : "text-slate-600")}>
+                                  {group.name}
+                                </p>
+                              </div>
+                              
+                              <button 
+                                onClick={() => onToggleLink(size.id, group.id)}
+                                className={cn("p-1.5 rounded-lg shrink-0 transition-colors", isLinked ? "bg-emerald-500 text-white hover:bg-red-500" : "bg-slate-50 text-slate-300 hover:bg-emerald-100 hover:text-emerald-600")}
+                              >
+                                {isLinked ? <Unlink size={12}/> : <LinkIcon size={12}/>}
+                              </button>
+                            </div>
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
                   </div>
-                </button>
-              );
-            })}
+                )}
+              </Droppable>
+            </DragDropContext>
+          </div>
+
+          <div className="px-8 py-4 bg-slate-50/50 flex items-center gap-3 rounded-b-[2.5rem]">
+             <Info size={14} className="text-emerald-500" />
+             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">O Preço Extra é somado ao valor base do pacote.</p>
           </div>
         </div>
       )}
@@ -41433,8 +41807,7 @@ import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
 import { toast } from "@/components/ui/use-toast";
 
-// Definimos os tipos de abas para incluir 'categories'
-export type AdminTab = 'sizes' | 'groups' | 'categories';
+export type AdminTab = 'sizes' | 'groups' | 'items';
 
 export function useAdminSizes() {
   const [activeTab, setActiveTab] = useState<AdminTab>('sizes');
@@ -41447,42 +41820,63 @@ export function useAdminSizes() {
   // ============================================================================
   // 1. QUERIES
   // ============================================================================
-  const sizesQuery = trpc.admin.sizes.list.useQuery(); 
+  
+  const sizesQuery = trpc.admin.accompaniments.dishSizes.list.useQuery(); 
+  
   const groupsQuery = trpc.admin.accompaniments.groups.list.useQuery(undefined, {
     retry: false
   });
+
   const categoriesQuery = trpc.admin.accompaniments.categories.list.useQuery();
-  const linksQuery = trpc.admin.sizes.getAccompanimentGroups.useQuery();
+  
+  // Query que busca a tabela de pivô (vínculos entre tamanho e grupo)
+  const linksQuery = trpc.admin.accompaniments.dishSizes.getAccompanimentGroups.useQuery();
 
   const refreshAll = () => {
-    utils.admin.sizes.invalidate();
     utils.admin.accompaniments.invalidate();
   };
 
   // ============================================================================
   // 2. MUTATIONS
   // ============================================================================
-  const createSize = trpc.admin.sizes.create.useMutation({ onSuccess: refreshAll });
-  const deleteSize = trpc.admin.sizes.delete.useMutation({ onSuccess: refreshAll });
+  
+  const createSize = trpc.admin.accompaniments.dishSizes.create.useMutation({ 
+    onSuccess: () => {
+      toast.success("Tamanho criado!");
+      refreshAll();
+    }
+  });
 
-  // ✅ CORREÇÃO: Usando 'upsert' que é o nome correto no seu router
+  const updateSize = trpc.admin.accompaniments.dishSizes.update.useMutation({
+    onSuccess: () => {
+      refreshAll();
+      toast.success("Dados atualizados!");
+    },
+    onError: (err: any) => toast.error("Erro ao atualizar: " + err.message)
+  });
+
+  const deleteSize = trpc.admin.accompaniments.dishSizes.delete.useMutation({ 
+    onSuccess: () => {
+      toast.success("Tamanho removido.");
+      refreshAll();
+    }
+  });
+
   const upsertGroup = trpc.admin.accompaniments.groups.upsert.useMutation({ 
     onSuccess: () => {
-      toast.success("Grupo processado com sucesso!");
+      toast.success("Grupo processado!");
       refreshAll();
     },
-    onError: (err: any) => toast.error("Erro ao salvar grupo: " + err.message)
+    onError: (err: any) => toast.error("Erro no grupo: " + err.message)
   });
 
   const deleteGroup = trpc.admin.accompaniments.groups.delete.useMutation({ 
     onSuccess: () => {
       toast.success("Grupo removido!");
       refreshAll();
-    },
-    onError: (err: any) => toast.error("Erro ao deletar: " + err.message)
+    }
   });
 
-  // Mutação para Categorias (Para a nova Tab)
   const upsertCategory = trpc.admin.accompaniments.categories.upsert.useMutation({
     onSuccess: () => {
       toast.success("Categoria salva!");
@@ -41490,13 +41884,14 @@ export function useAdminSizes() {
     }
   });
 
-  const addLinkMutation = (trpc.admin.sizes as any).linkAccompanimentToSize.useMutation();
-  const removeLinkMutation = (trpc.admin.sizes as any).unlinkAccompanimentFromSize.useMutation();
+  const addLinkMutation = trpc.admin.accompaniments.dishSizes.linkAccompanimentToSize.useMutation();
+  const removeLinkMutation = trpc.admin.accompaniments.dishSizes.unlinkAccompanimentFromSize.useMutation();
 
   // ============================================================================
   // 3. EFEITOS E AÇÕES
   // ============================================================================
   
+  // Transforma a lista plana de vínculos do banco em um objeto de fácil acesso: { sizeId: [groupIds] }
   useEffect(() => {
     if (linksQuery.data) {
       const mapping: Record<number, number[]> = {};
@@ -41513,11 +41908,12 @@ export function useAdminSizes() {
     }
   }, [linksQuery.data]);
 
-  const toggleGroupLink = async (sizeId: number, groupId: number) => {
+  // Função que vincula/desvincula grupo ao tamanho
+  const toggleLink = async (sizeId: number, groupId: number) => {
     const currentLinks = linkedGroups[Number(sizeId)] || [];
     const isLinked = currentLinks.includes(Number(groupId));
 
-    // UI Otimista
+    // Update Otimista na UI
     setLinkedGroups(prev => {
       const sId = Number(sizeId);
       const gId = Number(groupId);
@@ -41529,27 +41925,30 @@ export function useAdminSizes() {
     try {
       if (isLinked) {
         await removeLinkMutation.mutateAsync({ sizeId, groupId });
-        toast.success("Vínculo removido");
       } else {
         await addLinkMutation.mutateAsync({ sizeId, groupId });
-        toast.success("Vínculo criado");
       }
       refreshAll(); 
     } catch (error) {
       toast.error("Erro ao processar vínculo.");
-      linksQuery.refetch(); 
+      linksQuery.refetch(); // Reverte para o estado real do banco em caso de erro
     }
   };
 
   return {
     state: { 
-        activeTab, 
-        expandedSize, 
-        expandedGroup, 
-        linkedGroups, 
-        isLoading: sizesQuery.isLoading || groupsQuery.isLoading || linksQuery.isLoading
+      activeTab, 
+      expandedSize, 
+      expandedGroup, 
+      linkedGroups, 
+      isLoading: sizesQuery.isLoading || groupsQuery.isLoading || linksQuery.isLoading 
     },
-    actions: { setActiveTab, setExpandedSize, setExpandedGroup, toggleGroupLink },
+    actions: { 
+      setActiveTab, 
+      setExpandedSize, 
+      setExpandedGroup, 
+      toggleLink // ✅ Renomeado de toggleGroupLink para toggleLink para bater com a View
+    },
     data: { 
         sizes: (sizesQuery.data as any) || [], 
         groups: (groupsQuery.data as any) || [],
@@ -41557,10 +41956,13 @@ export function useAdminSizes() {
     },
     mutations: { 
         createSize, 
+        updateSize, 
         deleteSize, 
-        upsertGroup, // ✅ Nome alterado para bater com o Router
+        upsertGroup, 
         deleteGroup,
-        upsertCategory
+        upsertCategory,
+        linkGroup: addLinkMutation,   // Expondo para uso direto se necessário
+        unlinkGroup: removeLinkMutation // Expondo para uso direto se necessário
     }
   };
 }
@@ -41572,181 +41974,219 @@ export function useAdminSizes() {
 
 ```ts
 import React from "react";
-import { useAdminSizes, AdminTab } from "../logic/useAdminSizes"; // ✅ Importando o tipo AdminTab
+import { useAdminSizes, AdminTab } from "../logic/useAdminSizes";
 import { SizeCard } from "../components/SizeCard";
 import { GroupOptionsList } from "../components/GroupOptionsList";
 import { MasterAccompanimentsList } from "../components/MasterAccompanimentsList"; 
 import { Button } from "@/components/ui/button";
 import { 
-  Settings2, Layers, ChevronUp, Plus, Trash2, 
-  Loader2, Ruler, Apple, Database 
+  Settings2, Layers, Plus, Trash2, 
+  Ruler, Database 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/_core/trpc"; 
 import { toast } from "@/components/ui/use-toast";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 
 export function AdminSizesView() {
   const { state, actions, data, mutations } = useAdminSizes();
   const utils = trpc.useUtils();
 
-  // ==================================================================================
-  // 1. MUTAÇÕES & HANDLERS
-  // ==================================================================================
-  
+  // Helper visual para badges
+  const getSizeStyle = (name: string) => {
+    const n = name.toUpperCase();
+    if (n.includes('P') || n.includes('PEQUENO')) return { color: "text-blue-500", bg: "bg-blue-50", label: "Compacto" };
+    if (n.includes('G') || n.includes('GRANDE')) return { color: "text-amber-500", bg: "bg-amber-50", label: "Família" };
+    return { color: "text-emerald-500", bg: "bg-emerald-50", label: "Padrão" };
+  };
+
+  // --- MUTAÇÕES AUXILIARES ---
   const upsertGroup = trpc.admin.accompaniments.groups.upsert.useMutation({
     onSuccess: () => {
       utils.admin.accompaniments.groups.list.invalidate(); 
-      toast.success("Grupo de acompanhamentos salvo!");
-    },
-    onError: (err) => toast.error("Erro ao salvar: " + err.message)
+      toast.success("Grupo salvo!");
+    }
   });
 
   const deleteGroup = trpc.admin.accompaniments.groups.delete.useMutation({
     onSuccess: () => {
       utils.admin.accompaniments.groups.list.invalidate();
-      toast.success("Grupo removido com sucesso.");
+      toast.success("Grupo removido.");
     }
   });
 
-  const handleCreateGroup = () => {
-    const name = prompt("Nome do novo grupo (ex: ESCOLHA 1 CARBOIDRATO):");
-    if (!name) return;
-    upsertGroup.mutate({ 
-      name: name.toUpperCase(),
-      maxSelections: 1,
-      minSelections: 0,
-      isActive: true 
+  // ✅ Handler de Reordenação para TAMANHOS (Arrasto de Cards)
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    
+    const items = Array.from(data.sizes || []);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    // Persiste a nova ordem no banco (cada tamanho tem seu displayOrder)
+    items.forEach((item: any, index: number) => {
+      if (item.displayOrder !== index) {
+        mutations.updateSize.mutate({ id: item.id, displayOrder: index });
+      }
     });
   };
 
-  const handleCreateSize = () => {
-    const name = prompt("Nome do tamanho (ex: MARMITA P, MARMITA G):");
+  const handleCreateGroup = () => {
+    const name = prompt("Nome do novo grupo:");
     if (!name) return;
-    mutations.createSize.mutate({ name, priceModifier: 0 });
+    upsertGroup.mutate({ name: name.toUpperCase(), maxSelections: 1, minSelections: 0, isActive: true });
   };
 
-  // ==================================================================================
-  // 2. RENDERIZAÇÃO
-  // ==================================================================================
+  const handleCreateSize = () => {
+    const name = prompt("Nome do tamanho (ex: Marmita P):");
+    if (!name) return;
+    mutations.createSize.mutate({ 
+      name, 
+      priceModifier: 0, 
+      displayOrder: (data.sizes?.length || 0) 
+    });
+  };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700 p-6 pb-20">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-700 p-4 md:p-6 pb-24 bg-[#F8FAFC]">
       
-      {/* BARRA DE FERRAMENTAS SUPERIOR COM 3 ABAS */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-2 rounded-[2.5rem] border border-slate-100 shadow-sm sticky top-4 z-10">
-        
-        {/* Seletor de 3 Abas */}
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-4xl w-full md:w-auto">
-          <button 
-            onClick={() => actions.setActiveTab('sizes')}
-            className={cn(
-              "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-[1.8rem] text-[10px] font-black uppercase tracking-widest transition-all",
-              state.activeTab === 'sizes' ? "bg-white text-emerald-600 shadow-md" : "text-slate-400 hover:text-slate-600"
-            )}
-          >
-            <Ruler size={14} /> Tamanhos
-          </button>
-          
-          <button 
-            onClick={() => actions.setActiveTab('groups')}
-            className={cn(
-              "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-[1.8rem] text-[10px] font-black uppercase tracking-widest transition-all",
-              state.activeTab === 'groups' ? "bg-white text-emerald-600 shadow-md" : "text-slate-400 hover:text-slate-600"
-            )}
-          >
-            <Layers size={14} /> Grupos
-          </button>
-
-          <button 
-            onClick={() => actions.setActiveTab('items' as AdminTab)} // ✅ Correção TS: Cast para AdminTab
-            className={cn(
-              "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-[1.8rem] text-[10px] font-black uppercase tracking-widest transition-all",
-              (state.activeTab as string) === 'items' ? "bg-white text-emerald-600 shadow-md" : "text-slate-400 hover:text-slate-600" // ✅ Correção TS: Cast para string
-            )}
-          >
-            <Database size={14} /> Itens Master
-          </button>
+      {/* HEADER */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6 mb-6 md:mb-10">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-emerald-600 font-bold">
+            <Settings2 size={18} />
+            <span className="text-[10px] uppercase tracking-[0.3em]">Engenharia de Porções</span>
+          </div>
+          <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">
+            Menu <span className="text-emerald-600">Master</span>.
+          </h1>
         </div>
 
-        {/* Botão Contextual */}
-        {(state.activeTab as string) !== 'items' && ( // ✅ Correção TS: Cast para string
-          <div className="pr-2">
-            <Button 
-              onClick={state.activeTab === 'sizes' ? handleCreateSize : handleCreateGroup}
-              className={cn(
-                "h-12 px-8 rounded-3xl font-black text-[10px] uppercase tracking-widest gap-2 shadow-lg transition-all",
-                state.activeTab === 'sizes' ? "bg-slate-900 text-white" : "bg-emerald-600 text-white shadow-emerald-100"
-              )}
-            >
-              <Plus size={16}/>
-              {state.activeTab === 'sizes' ? "Novo Tamanho" : "Novo Grupo"}
-            </Button>
-          </div>
-        )}
+        <Button 
+          onClick={state.activeTab === 'sizes' ? handleCreateSize : handleCreateGroup}
+          className={cn(
+            "h-16 px-10 rounded-[2rem] font-black text-[11px] uppercase tracking-widest gap-2 shadow-xl transition-all active:scale-95",
+            state.activeTab === 'sizes' ? "bg-slate-900 text-white" : "bg-emerald-600 text-white shadow-emerald-900/20"
+          )}
+        >
+          <Plus size={18}/>
+          {state.activeTab === 'sizes' ? "Novo Tamanho" : "Novo Grupo"}
+        </Button>
+      </header>
+
+      {/* TABS */}
+      <div className="flex p-1.5 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm sticky top-4 z-20 overflow-x-auto no-scrollbar max-w-2xl">
+        {(['sizes', 'groups', 'items'] as const).map((tab) => (
+          <button 
+            key={tab}
+            onClick={() => actions.setActiveTab(tab as AdminTab)}
+            className={cn(
+              "flex-1 min-w-[100px] flex items-center justify-center gap-3 py-4 rounded-[1.8rem] text-[10px] font-black uppercase tracking-widest transition-all",
+              state.activeTab === tab ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            {tab === 'sizes' && <Ruler size={14} />}
+            {tab === 'groups' && <Layers size={14} />}
+            {tab === 'items' && <Database size={14} />}
+            <span>{tab === 'sizes' ? 'Tamanhos' : tab === 'groups' ? 'Grupos' : 'Itens'}</span>
+          </button>
+        ))}
       </div>
 
-      {/* CONTEÚDO DAS ABAS */}
-      <div className="min-h-125">
-        {/* ABA 1: TAMANHOS */}
+      <div className="min-h-[400px]">
+        {/* TAB: TAMANHOS (DRAG & DROP) */}
         {state.activeTab === 'sizes' && (
-          <div className="grid grid-cols-1 gap-6 animate-in slide-in-from-left-4 duration-500">
-            {data.sizes?.map((size: any) => (
-              <SizeCard 
-                key={size.id}
-                size={size}
-                groups={data.groups}
-                linkedIds={state.linkedGroups[size.id]}
-                isExpanded={state.expandedSize === size.id}
-                onToggleExpand={() => actions.setExpandedSize(state.expandedSize === size.id ? null : size.id)}
-                onToggleLink={actions.toggleGroupLink}
-                onDelete={() => mutations.deleteSize.mutate({ id: size.id })}
-              />
-            ))}
-          </div>
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="sizes-list">
+              {(provided) => (
+                <div {...provided.droppableProps} ref={provided.innerRef} className="grid grid-cols-1 gap-8">
+                  {data.sizes?.map((size: any, index: number) => {
+                    const style = getSizeStyle(size.name);
+                    return (
+                      <Draggable key={size.id} draggableId={String(size.id)} index={index}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className={cn(
+                              "relative transition-all",
+                              snapshot.isDragging && "z-50 scale-[1.01] rotate-1 shadow-2xl"
+                            )}
+                          >
+                            <div className={cn("absolute -top-2.5 left-12 px-4 py-1 rounded-full text-[8px] font-black uppercase tracking-widest z-10 shadow-sm border", style.bg, style.color, "border-current/10")}>
+                              {style.label}
+                            </div>
+                            
+                            <SizeCard 
+                              size={size}
+                              groups={data.groups}
+                              linkedIds={state.linkedGroups[size.id]}
+                              isExpanded={state.expandedSize === size.id}
+                              dragHandleProps={provided.dragHandleProps}
+                              onToggleExpand={() => actions.setExpandedSize(state.expandedSize === size.id ? null : size.id)}
+                              onUpdate={(id: number, updated: any) => mutations.updateSize.mutate({ id, ...updated })}
+                              onDelete={() => mutations.deleteSize.mutate({ id: size.id })}
+                              // Garante que o toggleLink funcione se existir no useAdminSizes
+                              onToggleLink={(sizeId: number, groupId: number) => {
+                                if (actions.toggleLink) {
+                                  actions.toggleLink(sizeId, groupId);
+                                }
+                              }}
+                            />
+                          </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
         )}
 
-        {/* ABA 2: GRUPOS */}
+        {/* TAB: GRUPOS */}
         {state.activeTab === 'groups' && (
-          <div className="space-y-4 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 gap-6">
              {data.groups?.map((group: any) => (
-               <div key={group.id} className="group overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm transition-all hover:shadow-xl">
-                 <div className="flex justify-between items-center p-6 md:p-8">
-                   <div className="flex items-center gap-5">
-                      <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-all">
-                        <Layers size={24} />
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-600/60 leading-none">Configuração de Slot</span>
-                        <h3 className="text-2xl font-black uppercase tracking-tighter italic text-slate-800 mt-1">{group.name}</h3>
-                      </div>
-                   </div>
-                   
-                   <div className="flex items-center gap-3">
-                     <Button
-                       variant="ghost"
-                       size="icon"
-                       onClick={() => confirm(`Excluir "${group.name}"?`) && deleteGroup.mutate({ id: group.id })}
-                       className="text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-xl h-12 w-12"
-                       disabled={deleteGroup.isPending}
-                     >
-                       {deleteGroup.isPending ? <Loader2 className="animate-spin" /> : <Trash2 size={20} />}
-                     </Button>
+               <div key={group.id} className="group overflow-hidden rounded-[3rem] border border-slate-100 bg-white shadow-sm transition-all hover:border-emerald-100">
+                 <div className="flex justify-between items-center p-8 gap-6">
+                    <div className="flex items-center gap-6">
+                       <div className="h-16 w-16 rounded-[1.5rem] bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-500 shadow-inner">
+                         <Layers size={28} />
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-600 block mb-0.5">Customização</span>
+                         <h3 className="text-3xl font-black uppercase tracking-tighter italic text-slate-900 leading-none truncate">
+                           {group.name}
+                         </h3>
+                       </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                       <Button
+                         variant="ghost"
+                         size="icon"
+                         onClick={() => confirm(`Deseja remover o grupo "${group.name}"?`) && deleteGroup.mutate({ id: group.id })}
+                         className="text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-xl h-12 w-12"
+                       >
+                         <Trash2 size={18} />
+                       </Button>
 
-                     <Button 
-                       variant="secondary" 
-                       className={cn(
-                         "h-12 px-8 rounded-2xl font-black text-[10px] uppercase transition-all shadow-sm",
-                         state.expandedGroup === group.id ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-500 hover:bg-emerald-50"
-                       )}
-                       onClick={() => actions.setExpandedGroup(state.expandedGroup === group.id ? null : group.id)}
-                     >
-                       {state.expandedGroup === group.id ? <><ChevronUp className="mr-2 h-4 w-4" /> Fechar</> : <><Settings2 className="mr-2 h-4 w-4" /> Vincular Itens</>}
-                     </Button>
-                   </div>
+                       <Button 
+                         onClick={() => actions.setExpandedGroup(state.expandedGroup === group.id ? null : group.id)}
+                         className={cn(
+                           "h-14 px-10 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-md",
+                           state.expandedGroup === group.id ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-600 hover:bg-emerald-50"
+                         )}
+                       >
+                         {state.expandedGroup === group.id ? "Fechar" : "Gerenciar"}
+                       </Button>
+                    </div>
                  </div>
 
                  {state.expandedGroup === group.id && (
-                   <div className="border-t border-slate-50 bg-[#FBFBFC] p-8 animate-in slide-in-from-top-4 duration-500">
+                   <div className="border-t border-slate-50 bg-[#FBFBFC] p-4 md:p-10 animate-in slide-in-from-top-2 duration-300">
                      <GroupOptionsList groupId={group.id} />
                    </div>
                  )}
@@ -41755,8 +42195,8 @@ export function AdminSizesView() {
           </div>
         )}
 
-        {/* ABA 3: ITENS MASTER */}
-        {(state.activeTab as string) === 'items' && ( // ✅ Correção TS: Cast para string
+        {/* TAB: ITENS MASTER */}
+        {state.activeTab === 'items' && (
           <div className="animate-in slide-in-from-right-4 duration-500">
             <MasterAccompanimentsList />
           </div>

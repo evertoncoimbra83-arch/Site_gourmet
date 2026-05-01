@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Check, Info } from "lucide-react"; 
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,12 @@ import {
 
 export function SizeSelector({ sizes, selectedId, onSelect }: any) {
   if (!sizes?.length) return null;
+
+  // ✅ ORDENAÇÃO POR DISPLAY_ORDER
+  // Isso garante que a ordem definida no Drag and Drop do Admin seja respeitada aqui.
+  const sortedSizes = useMemo(() => {
+    return [...sizes].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  }, [sizes]);
 
   const renderSizeIcon = (iconKey: string, isSelected: boolean) => {
     const iconProps = {
@@ -33,7 +40,7 @@ export function SizeSelector({ sizes, selectedId, onSelect }: any) {
       </Label>
 
       <div className="grid gap-2">
-        {sizes.map((size: any) => {
+        {sortedSizes.map((size: any) => { // ✅ Mapeando a lista ordenada
           const isSelected = selectedId === size.id;
 
           return (
@@ -71,12 +78,11 @@ export function SizeSelector({ sizes, selectedId, onSelect }: any) {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* ✅ BOTÃO DE INFORMAÇÃO (FAQ) */}
                   {size.description && (
                     <Popover>
                       <PopoverTrigger asChild>
                         <button 
-                          onClick={(e) => e.stopPropagation()} // Impede de selecionar o tamanho ao clicar no Info
+                          onClick={(e) => e.stopPropagation()} 
                           className={cn(
                             "p-2 rounded-full transition-colors",
                             isSelected ? "hover:bg-white/10 text-white" : "hover:bg-slate-100 text-slate-300"
@@ -91,7 +97,7 @@ export function SizeSelector({ sizes, selectedId, onSelect }: any) {
                       >
                         <div className="space-y-2">
                           <p className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">
-                            Dica do Chef
+                            Informações do Prato
                           </p>
                           <p className="text-xs font-medium text-slate-600 leading-relaxed">
                             {size.description}

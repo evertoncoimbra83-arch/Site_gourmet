@@ -13,10 +13,9 @@ export function useAdminSizes() {
   const utils = trpc.useUtils();
 
   // ============================================================================
-  // 1. QUERIES (Caminho fixo para dishSizes)
+  // 1. QUERIES
   // ============================================================================
   
-  // ✅ Agora apontamos diretamente para o caminho correto
   const sizesQuery = trpc.admin.accompaniments.dishSizes.list.useQuery(); 
   
   const groupsQuery = trpc.admin.accompaniments.groups.list.useQuery(undefined, {
@@ -44,8 +43,8 @@ export function useAdminSizes() {
 
   const updateSize = trpc.admin.accompaniments.dishSizes.update.useMutation({
     onSuccess: () => {
-      refreshAll();
-      toast.success("Dados atualizados!");
+      // Invalida a lista para refletir mudanças no groupsOrder ou displayOrder
+      utils.admin.accompaniments.dishSizes.list.invalidate();
     },
     onError: (err: any) => toast.error("Erro ao atualizar: " + err.message)
   });
@@ -86,6 +85,7 @@ export function useAdminSizes() {
   // 3. EFEITOS E AÇÕES
   // ============================================================================
   
+  // Mapeia a tabela pivot para um objeto { sizeId: [groupIds] }
   useEffect(() => {
     if (linksQuery.data) {
       const mapping: Record<number, number[]> = {};
@@ -102,10 +102,11 @@ export function useAdminSizes() {
     }
   }, [linksQuery.data]);
 
-  const toggleGroupLink = async (sizeId: number, groupId: number) => {
+  const toggleLink = async (sizeId: number, groupId: number) => {
     const currentLinks = linkedGroups[Number(sizeId)] || [];
     const isLinked = currentLinks.includes(Number(groupId));
 
+    // UI Optimística: Atualiza o mapeamento de vínculos imediatamente
     setLinkedGroups(prev => {
       const sId = Number(sizeId);
       const gId = Number(groupId);
@@ -116,20 +117,52 @@ export function useAdminSizes() {
 
     try {
       if (isLinked) {
+        // 1. Remove da tabela pivot
         await removeLinkMutation.mutateAsync({ sizeId, groupId });
+        
+        // 2. Remove do array de ordem JSON do tamanho
+        const size = (sizesQuery.data as any[])?.find(s => s.id === sizeId);
+        if (size && Array.isArray(size.groupsOrder)) {
+            const newOrder = size.groupsOrder.filter((id: number) => id !== groupId);
+            await updateSize.mutateAsync({ id: sizeId, groupsOrder: newOrder });
+        }
       } else {
+        // 1. Adiciona na tabela pivot
         await addLinkMutation.mutateAsync({ sizeId, groupId });
+        
+        // 2. Adiciona ao final do array de ordem JSON do tamanho
+        const size = (sizesQuery.data as any[])?.find(s => s.id === sizeId);
+        const currentOrder = Array.isArray(size?.groupsOrder) ? size.groupsOrder : [];
+        if (!currentOrder.includes(groupId)) {
+            await updateSize.mutateAsync({ id: sizeId, groupsOrder: [...currentOrder, groupId] });
+        }
       }
+      
+      // Sincroniza tudo com o servidor
       refreshAll(); 
+      toast.success(isLinked ? "Vínculo removido" : "Grupo vinculado!");
     } catch (error) {
       toast.error("Erro ao processar vínculo.");
-      linksQuery.refetch(); 
+      linksQuery.refetch(); // Reverte para o estado real em caso de falha
     }
   };
 
   return {
-    state: { activeTab, expandedSize, expandedGroup, linkedGroups, isLoading: sizesQuery.isLoading || groupsQuery.isLoading || linksQuery.isLoading },
-    actions: { setActiveTab, setExpandedSize, setExpandedGroup, toggleGroupLink },
+    state: { 
+      activeTab, 
+      expandedSize, 
+      expandedGroup, 
+      linkedGroups, 
+      isLoading: sizesQuery.isLoading || groupsQuery.isLoading || linksQuery.isLoading 
+    },
+    actions: { 
+      setActiveTab, 
+      setExpandedSize, 
+      setExpandedGroup, 
+      toggleLink,
+      // Facilitador para salvar a nova ordem vinda do Drag and Drop da View
+      updateSize: (id: number, data: any) => updateSize.mutate({ id, ...data })
+    },
     data: { 
         sizes: (sizesQuery.data as any) || [], 
         groups: (groupsQuery.data as any) || [],

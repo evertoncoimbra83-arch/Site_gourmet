@@ -7,10 +7,10 @@ export function useProducts() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
 
-  // 1. ✅ Rota pública para categorias (resolve o erro 403 Forbidden)
+  // 1. Rota pública para categorias
   const { data: categoriesData } = trpc.products.categories.useQuery();
   
-  // 2. ✅ Rota pública para listagem
+  // 2. Rota pública para listagem
   const { data: productData, isLoading, error } = trpc.products.list.useQuery(
     {
       page: 1,
@@ -24,16 +24,33 @@ export function useProducts() {
     }
   );
 
-  // 3. ✅ CORREÇÃO DO VS CODE: 
-  // O seu servidor retorna 'data', não 'dishes'. Ajustamos aqui:
+  // 3. ✅ REVISÃO: Ordenação de Engenharia (Tamanhos e DisplayOrder)
   const products = useMemo(() => {
-    if (!productData) return [];
-    // O erro do VS Code confirmou que a propriedade correta é 'data'
-    return productData.data || []; 
+    if (!productData?.data) return [];
+    
+    // Mapeamos os produtos garantindo que os tamanhos internos 
+    // venham na ordem correta para o Drawer não bugar
+    return productData.data.map((dish: any) => {
+      if (!dish.sizes) return dish;
+
+      return {
+        ...dish,
+        // ✅ Ordena os tamanhos pelo displayOrder (P antes de G, etc)
+        sizes: [...dish.sizes].sort((a: any, b: any) => 
+          (a.displayOrder || 0) - (b.displayOrder || 0)
+        )
+      };
+    });
   }, [productData]);
 
+  // 4. ✅ REVISÃO: Ordenação das Categorias
   const catList = useMemo(() => {
-    return Array.isArray(categoriesData) ? categoriesData : [];
+    if (!Array.isArray(categoriesData)) return [];
+    
+    // Ordena as categorias pelo displayOrder configurado no Admin
+    return [...categoriesData].sort((a: any, b: any) => 
+      (a.displayOrder || 0) - (b.displayOrder || 0)
+    );
   }, [categoriesData]);
 
   return {

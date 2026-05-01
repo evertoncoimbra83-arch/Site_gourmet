@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
-import { Apple, Plus, Loader2, Tag, Activity } from "lucide-react";
+import { Apple, Plus, Loader2, Tag, Activity, Database } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { AccDrawer } from "@/components/AccDrawer"; 
 import { cn } from "@/lib/utils";
@@ -15,7 +15,6 @@ export function MasterAccompanimentsList() {
   const { data: items, isLoading } = trpc.admin.accompaniments.options.listAll.useQuery();
   const { data: categories } = trpc.admin.accompaniments.categories.list.useQuery();
 
-  // ✅ Melhora a segurança na conversão do config
   const getSafeGroups = (config: any): any[] => {
     if (!config) return [];
     if (Array.isArray(config)) return config;
@@ -74,7 +73,8 @@ export function MasterAccompanimentsList() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {items?.map(item => {
-          const hasNutrition = !!item.nutritionalInfo;
+          // ✅ CORREÇÃO: Verifica se qualquer coluna nutricional existe em vez de uma coluna JSON inexistente
+          const hasNutrition = !!(item.energyKcal || item.proteins || item.carbs);
           
           return (
             <div key={item.id} className="group p-6 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm hover:shadow-xl hover:border-emerald-100 transition-all flex flex-col gap-4">
@@ -105,15 +105,13 @@ export function MasterAccompanimentsList() {
                 <select 
                   value={item.accompanimentCategoryId || ""}
                   onChange={(e) => {
-                    // ✅ LIMPEZA DO OBJETO: Evita passar createdAt/updatedAt e garante tipos do Zod
                     upsert.mutate({ 
                       id: item.id,
                       name: item.name,
                       isActive: item.isActive,
                       displayOrder: item.displayOrder,
                       showNutrition: item.showNutrition,
-                      // Converte explicitamente unknown -> string | undefined
-                      nutritionalInfo: item.nutritionalInfo ? String(item.nutritionalInfo) : undefined,
+                      // ✅ REMOVIDO: nutritionalInfo (pois o banco usa colunas planas)
                       groupsConfig: getSafeGroups(item.groupsConfig),
                       accompanimentCategoryId: Number(e.target.value) || null 
                     });
@@ -143,7 +141,7 @@ export function MasterAccompanimentsList() {
         onClose={() => setIsDrawerOpen(false)}
         acc={selectedItem}
         onSubmit={(nutritionData: any) => {
-          // ✅ LIMPEZA DO OBJETO NO SUBMIT DO DRAWER
+          // ✅ CORREÇÃO: Mapeia o objeto do Drawer para as colunas planas do seu Schema
           upsert.mutate({ 
             id: selectedItem.id,
             name: selectedItem.name,
@@ -151,7 +149,12 @@ export function MasterAccompanimentsList() {
             displayOrder: selectedItem.displayOrder,
             accompanimentCategoryId: selectedItem.accompanimentCategoryId,
             groupsConfig: getSafeGroups(selectedItem.groupsConfig),
-            nutritionalInfo: JSON.stringify(nutritionData),
+            
+            // Colunas Planas
+            energyKcal: Number(nutritionData.energyKcal),
+            proteins: String(nutritionData.proteins),
+            carbs: String(nutritionData.carbs),
+            fatTotal: String(nutritionData.fatTotal),
             showNutrition: true
           });
         }}

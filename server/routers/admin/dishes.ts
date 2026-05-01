@@ -10,10 +10,6 @@ const normalizeIdToNumber = (id: any) => {
   return num;
 };
 
-/**
- * 🥘 ADMIN DISHES ROUTER
- * Este roteador cuida apenas do catálogo de pratos/marmitas.
- */
 export const adminDishesRouter = router({
   // LISTAGEM COM PAGINAÇÃO E FILTRO
   list: adminProcedure
@@ -86,7 +82,6 @@ export const adminDishesRouter = router({
       }
     }),
   
-  // LISTAR CATEGORIAS PARA SELECTS
   listCategories: adminProcedure.query(async () => {
     try {
       return await AdminDishes.getLocalCategories();
@@ -103,6 +98,7 @@ export const adminDishesRouter = router({
       ingredients: z.string().optional().nullable(),
       description: z.string().optional().nullable(),
       price: z.any().optional(),
+      salePrice: z.any().optional().nullable(), // ✅ CAMPO ADICIONADO
       categoryId: z.any().optional(),
       isActive: z.boolean().default(true),
       imageUrl: z.string().optional().nullable(),
@@ -112,7 +108,7 @@ export const adminDishesRouter = router({
         const result = await AdminDishes.createDish(input);
         await logAction(ctx, "CREATE_DISH", "dishes", {
           entityId: (result as any)?.insertId || input.name,
-          new: { nome: input.name, preco: input.price }
+          new: { nome: input.name, preco: input.price, preco_promo: input.salePrice }
         });
         return result;
       } catch (error: any) {
@@ -126,6 +122,8 @@ export const adminDishesRouter = router({
     .input(z.object({
       id: z.any(),
       name: z.string().optional(),
+      price: z.any().optional(),
+      salePrice: z.any().optional().nullable(), // ✅ CAMPO ADICIONADO
       ingredients: z.string().optional().nullable(),
     }).passthrough())
     .mutation(async ({ ctx, input }) => {
@@ -137,8 +135,8 @@ export const adminDishesRouter = router({
 
         await logAction(ctx, "UPDATE_DISH", "dishes", {
           entityId: idNum,
-          old: { nome: oldDish?.name, preco: oldDish?.price },
-          new: { nome: data.name || oldDish?.name, preco: data.price }
+          old: { nome: oldDish?.name, preco: oldDish?.price, preco_promo: (oldDish as any)?.salePrice },
+          new: { nome: data.name || oldDish?.name, preco: data.price, preco_promo: data.salePrice }
         });
 
         return result;

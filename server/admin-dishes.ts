@@ -17,6 +17,7 @@ export type AdminDish = {
     id: number; 
     name: string;
     price: number; 
+    salePrice: number | null; // ✅ ADICIONADO
     categoryId: number | null; 
     isActive: boolean;
     categoryName?: string | null;
@@ -43,17 +44,17 @@ export type AdminDish = {
 };
 
 /**
- * ✅ Helper para garantir tipagem correta no retorno para o Frontend
+ * ✅ Helper revisado para garantir tipagem de Preço Promocional
  */
 function mapDishRowToAdmin(row: any): AdminDish {
   return {
     ...row,
     id: Number(row.id),
     price: Number(row.price || 0),
+    salePrice: row.salePrice ? Number(row.salePrice) : null, // ✅ ADICIONADO
     categoryId: row.categoryId ? Number(row.categoryId) : null,
     isActive: Boolean(row.isActive),
     categoryName: row.categoryName ?? "Sem Categoria",
-    // Conversão de decimais/strings do banco para Numbers reais
     energyKcal: row.energyKcal ? Number(row.energyKcal) : 0,
     energyKj: row.energyKj ? Number(row.energyKj) : 0,
     carbs: row.carbs ? Number(row.carbs) : 0,
@@ -70,8 +71,8 @@ function mapDishRowToAdmin(row: any): AdminDish {
   };
 }
 
-function toPriceString(price: any): string {
-    if (price === undefined || price === null) return "0.00";
+function toPriceString(price: any): string | null {
+    if (price === undefined || price === null || price === "") return null;
     if (typeof price === "string") price = parseFloat(price.replace(',', '.'));
     const num = Number(price);
     return isNaN(num) ? "0.00" : num.toFixed(2);
@@ -102,7 +103,8 @@ export async function createDish(data: any) {
       slug: slug,
       description: data.description || null,
       imageUrl: data.imageUrl || null,
-      price: toPriceString(data.price),
+      price: toPriceString(data.price) || "0.00",
+      salePrice: toPriceString(data.salePrice), // ✅ ADICIONADO
       categoryId: data.categoryId ? Number(data.categoryId) : null,
       isActive: data.isActive ?? true,
       ingredients: data.ingredients || null,
@@ -138,6 +140,7 @@ export async function updateDish(id: string | number, data: any) {
     description: data.description,
     imageUrl: data.imageUrl,
     price: toPriceString(data.price),
+    salePrice: toPriceString(data.salePrice), // ✅ ADICIONADO
     categoryId: data.categoryId ? Number(data.categoryId) : null,
     isActive: data.isActive,
     ingredients: data.ingredients,
@@ -202,6 +205,7 @@ export async function getPaginatedDishes(params: any) {
             id: dishes.id,
             name: dishes.name,
             price: dishes.price, 
+            salePrice: dishes.salePrice, // ✅ ADICIONADO
             categoryId: dishes.categoryId,
             isActive: dishes.isActive,
             description: dishes.description,
@@ -225,9 +229,6 @@ export async function getPaginatedDishes(params: any) {
     return { data: rows.map(mapDishRowToAdmin), total: Number(totalResult[0]?.value ?? 0) };
 }
 
-/**
- * ✅ BUSCA COMPLETA: Inclui tipagem explícita para resolver erros de compilação
- */
 export async function getDishById(id: string | number) {
   const db = await getDb();
   const dishId = Number(id);
@@ -241,6 +242,7 @@ export async function getDishById(id: string | number) {
         description: dishes.description,
         imageUrl: dishes.imageUrl,
         price: dishes.price,
+        salePrice: dishes.salePrice, // ✅ ADICIONADO
         categoryId: dishes.categoryId,
         isActive: dishes.isActive,
         ingredients: dishes.ingredients,
@@ -267,7 +269,6 @@ export async function getDishById(id: string | number) {
 
     if (!row) return null;
 
-    // ✅ Tipagem explícita para evitar Erro 7034/7005
     let sizes: any[] = []; 
 
     if (row.allowAccompaniments) {

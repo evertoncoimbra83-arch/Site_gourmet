@@ -9,13 +9,13 @@ import { Separator } from "@/components/ui/separator";
 import { 
   Zap, Beef, Wheat, Droplets, Activity, Info, 
   Calculator, Settings, Apple, PlusCircle, X, ChevronLeft,
-  Plus, Trash2, RefreshCw, Leaf, WheatOff, MilkOff
+  Plus, Trash2, RefreshCw, Leaf, WheatOff, MilkOff, Tag
 } from "lucide-react"; 
 import ImagePicker from "./ImagePicker"; 
 import { trpc } from "@/_core/trpc";
 
 const INITIAL_FORM = {
-  name: "", description: "", price: "", categoryId: "", imageUrl: "",
+  name: "", description: "", price: "", salePrice: "", categoryId: "", imageUrl: "",
   ingredients: "", isVegetarian: false, isGlutenFree: false, isLactoseFree: false,
   showNutrition: true,
   energyKcal: "0", energyKj: "0", protein: "0", carbs: "0", fatTotal: "0", sodium: "0", fiber: "0",
@@ -55,6 +55,7 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
           setFormData({
             ...dish,
             price: String(dish.price || ""),
+            salePrice: String(dish.salePrice || ""), // ✅ Campo Promocional
             categoryId: String(dish.categoryId || ""),
             energyKcal: String(dish.energyKcal || "0"),
             energyKj: String(Math.round((dish.energyKcal || 0) * 4.2)),
@@ -183,11 +184,22 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                     <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Título do Prato</Label>
                     <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preço (R$)</Label>
-                      <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-emerald-700" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preço Base (R$)</Label>
+                      <Input className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg text-slate-600" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
                     </div>
+                    
+                    {/* ✅ NOVO CAMPO: PREÇO PROMOCIONAL */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Preço Promo (R$)</Label>
+                        <Tag size={10} className="text-emerald-500" />
+                      </div>
+                      <Input className="h-14 rounded-2xl bg-emerald-50 border border-emerald-100 font-bold text-lg text-emerald-700 placeholder:text-emerald-200" placeholder="0.00" value={formData.salePrice} onChange={e => setFormData({...formData, salePrice: e.target.value})} />
+                    </div>
+
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoria</Label>
                       <select className="w-full h-14 bg-slate-50 border-none rounded-2xl px-4 font-bold text-sm outline-none cursor-pointer" value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
@@ -197,7 +209,6 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                     </div>
                   </div>
 
-                  {/* ✅ TAGS DE SAÚDE RECUPERADAS */}
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tags de Saúde</Label>
                     <div className="flex gap-2 flex-wrap">
@@ -212,7 +223,6 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                     <Textarea className="rounded-3xl bg-slate-50 border-none font-medium text-sm min-h-25 p-5 resize-none leading-relaxed" placeholder="Destaque o sabor e ingredientes..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
                   </div>
 
-                  {/* ✅ CAMPO DE INGREDIENTES PARA ETIQUETA RECUPERADO */}
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ingredientes (Para Etiqueta)</Label>
                     <Textarea className="rounded-3xl bg-amber-50 border border-amber-100 font-medium text-xs min-h-20 p-5 resize-none leading-relaxed text-amber-900" placeholder="Ex: Arroz integral, feijão preto..." value={formData.ingredients} onChange={e => setFormData({...formData, ingredients: e.target.value})} />
@@ -330,6 +340,7 @@ export function DishDrawer({ open, onClose, dish, onSubmit, categories }: any) {
                 sodium: Number(formData.sodium),
                 fiber: Number(formData.fiber),
                 price: Number(formData.price),
+                salePrice: formData.salePrice ? Number(formData.salePrice) : null, // ✅ Enviando Preço Promo
                 categoryId: formData.categoryId ? Number(formData.categoryId) : null,
               });
               localStorage.removeItem("dish_draft");

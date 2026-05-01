@@ -8,8 +8,6 @@ export function useAdminDishes() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  
-  // Guardamos apenas o ID do prato sendo editado
   const [editingDishId, setEditingDishId] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
@@ -37,7 +35,6 @@ export function useAdminDishes() {
     { placeholderData: (previousData) => previousData }
   );
 
-  // ✅ NOVIDADE: Query para buscar o prato COMPLETO (com todas as macros) ao editar
   const { data: fullDishData, isLoading: isLoadingDish } = trpc.admin.dishes.getById.useQuery(
     editingDishId as number,
     { enabled: !!editingDishId }
@@ -84,7 +81,6 @@ export function useAdminDishes() {
       search, 
       selectedCategory, 
       isDialogOpen, 
-      // Retornamos o prato completo se estiver carregado, senão null
       editingDish: fullDishData || null, 
       isLoading: isLoading || upsertMutation.isPending || deleteMutation.isPending || isLoadingDish
     },
@@ -94,15 +90,24 @@ export function useAdminDishes() {
       setSelectedCategory, 
       setIsDialogOpen: (open: boolean) => {
         setIsDialogOpen(open);
-        if (!open) setEditingDishId(null); // Limpa o ID ao fechar
+        if (!open) setEditingDishId(null);
       }, 
       handleEdit: (dish: any) => {
-        setEditingDishId(dish.id); // Seta o ID para a query getById disparar
+        setEditingDishId(dish.id);
         setIsDialogOpen(true);
       },
       handleCreate: () => {
         setEditingDishId(null);
         setIsDialogOpen(true);
+      },
+      // ✅ FUNÇÃO DE SALVAR REVISADA PARA INCLUIR SALEPRICE
+      handleSave: (formData: any) => {
+        upsertMutation.mutate({
+          ...formData,
+          // Garante que o salePrice seja enviado ou como número ou null
+          salePrice: formData.salePrice ? Number(formData.salePrice) : null,
+          price: Number(formData.price)
+        });
       }
     },
     data: { 

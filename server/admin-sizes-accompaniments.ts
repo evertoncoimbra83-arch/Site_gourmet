@@ -12,7 +12,8 @@ import {
 // ===================================================================
 // HELPERS
 // ===================================================================
-function toPriceString(price: any): string {
+
+function toPriceString(price: string | number | null | undefined): string {
   if (price === undefined || price === null || price === "") return "0.00";
   const num = typeof price === "string" ? parseFloat(price.replace(',', '.')) : price;
   return isNaN(num) ? "0.00" : num.toFixed(2);
@@ -25,6 +26,14 @@ function generateSlug(name: string): string {
     .replace(/[^\w\s-]/g, '') 
     .replace(/\s+/g, '-');    
   return `${clean}-${Math.random().toString(36).substring(2, 7)}`; 
+}
+
+function ensureValidJson(data: any): any[] {
+  if (!data) return [];
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return []; }
+  }
+  return data;
 }
 
 // ===================================================================
@@ -50,56 +59,60 @@ export async function getAllLinks() {
 export async function getAllDishSizes() {
   const db = await getDb();
   const result = await db.select().from(dishSizes).orderBy(asc(dishSizes.displayOrder));
-  return result.map((size: any) => ({
+  
+  return result.map((size) => ({
     ...size,
     id: Number(size.id),
     priceModifier: Number(size.priceModifier || 0),
+    displayOrder: Number(size.displayOrder || 0),
     description: size.description || "", 
-    isActive: Boolean(size.isActive)
+    isActive: Boolean(size.isActive),
+    groupsOrder: ensureValidJson(size.groupsOrder)
   }));
 }
 
-export async function getSizeById(id: number | string) {
-  const db = await getDb();
-  const rows = await db.select().from(dishSizes).where(eq(dishSizes.id, Number(id))).limit(1);
-  if (!rows[0]) return null;
-  return { 
-    ...rows[0], 
-    id: Number(rows[0].id),
-    description: rows[0].description || "" 
-  };
-}
-
-export async function createDishSize(data: any) {
+export async function createDishSize(data: {
+  name: string;
+  weight?: string | number | null;
+  description?: string | null;
+  iconKey?: string | null;
+  priceModifier?: string | number;
+  displayOrder?: number;
+  isActive?: boolean;
+  groupsOrder?: number[];
+}) {
   const db = await getDb();
   const [result]: any = await db.insert(dishSizes).values({
     name: data.name,
-    weight: data.weight ?? null,
+    weight: data.weight ? String(data.weight) : null,
     description: data.description ?? null,
     iconKey: data.iconKey ?? "Cube",
     priceModifier: toPriceString(data.priceModifier),
     displayOrder: Number(data.displayOrder ?? 0),
     isActive: data.isActive ?? true,
+    groupsOrder: data.groupsOrder || [],
   });
   return { success: true, id: result.insertId };
 }
 
 export async function updateDishSize(id: number | string, data: any) {
   const db = await getDb();
+  const { id: _, ...rest } = data;
+
+  const payload: any = {
+    ...rest,
+    updatedAt: new Date()
+  };
+
+  if (rest.priceModifier !== undefined) payload.priceModifier = toPriceString(rest.priceModifier);
+  if (rest.displayOrder !== undefined) payload.displayOrder = Number(rest.displayOrder);
   
-  // Remove campos que não devem ser atualizados no SET
-  const { id: _, ...updateData } = data;
-
-  if (Object.keys(updateData).length === 0) {
-    return { success: true, message: "Sem alterações" };
-  }
-
-  if (updateData.priceModifier !== undefined) {
-    updateData.priceModifier = toPriceString(updateData.priceModifier);
+  if (rest.groupsOrder !== undefined) {
+    payload.groupsOrder = Array.isArray(rest.groupsOrder) ? rest.groupsOrder : [];
   }
 
   await db.update(dishSizes)
-    .set(updateData)
+    .set(payload)
     .where(eq(dishSizes.id, Number(id)));
 
   return { success: true };
@@ -119,23 +132,32 @@ export async function deleteDishSize(id: number | string) {
 export async function getAllAccompanimentGroups() {
   const db = await getDb();
   const result = await db.select().from(accompanimentGroups).orderBy(asc(accompanimentGroups.name));
-  return result.map((g: any) => ({ 
+  return result.map((g) => ({ 
     ...g, 
     id: Number(g.id),
-    maxSelections: Number(g.maxSelections || 1)
+    maxSelections: Number(g.maxSelections || 1),
+    itemsOrder: ensureValidJson(g.itemsOrder)
   }));
 }
 
-export async function createAccompanimentGroup(data: any) {
+export async function updateAccompanimentGroup(id: number | string, data: any) {
   const db = await getDb();
-  const [result]: any = await db.insert(accompanimentGroups).values({
-    name: data.name,
-    slug: generateSlug(data.name),
-    description: data.description || null,
-    maxSelections: data.maxSelections ?? 1,
-    isActive: true,
-  });
-  return { success: true, id: result.insertId };
+  const { id: _, ...rest } = data;
+
+  const payload: any = {
+    ...rest,
+    updatedAt: new Date()
+  };
+
+  if (rest.itemsOrder !== undefined) {
+    payload.itemsOrder = Array.isArray(rest.itemsOrder) ? rest.itemsOrder : [];
+  }
+
+  await db.update(accompanimentGroups)
+    .set(payload)
+    .where(eq(accompanimentGroups.id, Number(id)));
+
+  return { success: true };
 }
 
 // ===================================================================
@@ -144,28 +166,45 @@ export async function createAccompanimentGroup(data: any) {
 
 export async function getAccompanimentOptionsByGroup(groupId: number | string) {
   const db = await getDb();
-  return await db.select()
+  
+  const [group]: any = await db.select().from(accompanimentGroups).where(eq(accompanimentGroups.id, Number(groupId))).limit(1);
+  const orderArray = ensureValidJson(group?.itemsOrder);
+
+  const items = await db.select()
     .from(accompanimentOptions)
     .where(sql`JSON_CONTAINS(${accompanimentOptions.groupsConfig}, JSON_OBJECT('group_id', ${Number(groupId)}))`);
+
+  if (orderArray && orderArray.length > 0) {
+    return items.sort((a: any, b: any) => {
+      const posA = orderArray.indexOf(Number(a.id));
+      const posB = orderArray.indexOf(Number(b.id));
+      const indexA = posA === -1 ? 999 : posA;
+      const indexB = posB === -1 ? 999 : posB;
+      return indexA - indexB;
+    });
+  }
+
+  return items;
 }
 
 export async function updateAccompanimentOption(id: number | string, data: any) {
   const db = await getDb();
   const { id: _, ...updateData } = data;
-  
-  if (Object.keys(updateData).length === 0) return { success: true };
 
-  if (updateData.priceModifier !== undefined) {
-    updateData.priceModifier = toPriceString(updateData.priceModifier);
-  }
-  
+  const payload: any = { ...updateData, updatedAt: new Date() };
+
+  if (updateData.priceModifier !== undefined) payload.priceModifier = toPriceString(updateData.priceModifier);
+  if (updateData.proteins !== undefined) payload.proteins = String(updateData.proteins);
+  if (updateData.carbs !== undefined) payload.carbs = String(updateData.carbs);
+  if (updateData.fatTotal !== undefined) payload.fatTotal = String(updateData.fatTotal);
+
   return await db.update(accompanimentOptions)
-    .set(updateData)
+    .set(payload)
     .where(eq(accompanimentOptions.id, Number(id)));
 }
 
 // ===================================================================
-// 4) VÍNCULOS (TAMANHO <-> GRUPO)
+// 4) VÍNCULOS
 // ===================================================================
 
 export async function linkAccompanimentToSize(data: { sizeId: number | string, groupId: number | string }) {
@@ -186,10 +225,6 @@ export async function unlinkAccompanimentFromSize(sizeId: number | string, group
   `);
   return { success: true };
 }
-
-// ===================================================================
-// 5) AUXILIARES
-// ===================================================================
 
 export async function getPaginatedDishes() {
   const db = await getDb();
