@@ -24,9 +24,15 @@ vi.mock("../../../auth/oauth/google.js", () => ({
 }));
 
 import { authRouter } from "./index.js";
-import { exchangeCodeForTokens, verifyGoogleIdToken } from "../../../auth/oauth/google.js";
+import {
+  exchangeCodeForTokens,
+  verifyGoogleIdToken,
+} from "../../../auth/oauth/google.js";
 import { AuditLogService } from "../../../services/AuditLogService.js";
-import { generateCodeChallenge, generateCodeVerifier } from "../../../auth/oauth/pkce.js";
+import {
+  generateCodeChallenge,
+  generateCodeVerifier,
+} from "../../../auth/oauth/pkce.js";
 import { generateState } from "../../../auth/oauth/state.js";
 import { generateNonce } from "../../../auth/oauth/nonce.js";
 
@@ -167,6 +173,7 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
     it("deve bloquear vínculo se emailVerified for false", async () => {
       const ctx = {
         user: { id: "user-local-1", role: "user" },
+        session: { id: "session-1" },
         req: { ip: "127.0.0.1", headers: {} },
         db: dbMock,
       } as any;
@@ -194,11 +201,14 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
       dbMock.select.mockReturnValue({
         from: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ id: "link-1", userId: "user-local-2" }]),
+        limit: vi
+          .fn()
+          .mockResolvedValue([{ id: "link-1", userId: "user-local-2" }]),
       });
 
       const ctx = {
         user: { id: "user-local-1", role: "user" },
+        session: { id: "session-1" },
         req: { ip: "127.0.0.1", headers: {} },
         db: dbMock,
       } as any;
@@ -212,12 +222,16 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
           emailVerified: true,
           forceConfirm: true,
         })
-      ).rejects.toThrow("Esta conta do Google já está vinculada a outro usuário");
+      ).rejects.toThrow(
+        "Esta conta do Google já está vinculada a outro usuário"
+      );
 
       expect(AuditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           action: "OAUTH_LINK_DENIED",
-          newValues: expect.objectContaining({ reason: "social_account_already_linked_to_other_user" }),
+          newValues: expect.objectContaining({
+            reason: "social_account_already_linked_to_other_user",
+          }),
         })
       );
     });
@@ -234,11 +248,16 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
         .mockReturnValueOnce({
           from: vi.fn().mockReturnThis(),
           where: vi.fn().mockReturnThis(),
-          limit: vi.fn().mockResolvedValue([{ id: "user-local-1", email: "user@domain.com" }]),
+          limit: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "user-local-1", email: "user@domain.com" },
+            ]),
         });
 
       const ctx = {
         user: { id: "user-local-1", role: "user" },
+        session: { id: "session-1" },
         req: { ip: "127.0.0.1", headers: {} },
         db: dbMock,
       } as any;
@@ -257,7 +276,9 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
       expect(AuditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           action: "OAUTH_LINK_ATTEMPT",
-          newValues: expect.objectContaining({ reason: "needs_explicit_confirmation" }),
+          newValues: expect.objectContaining({
+            reason: "needs_explicit_confirmation",
+          }),
         })
       );
     });
@@ -272,11 +293,16 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
         .mockReturnValueOnce({
           from: vi.fn().mockReturnThis(),
           where: vi.fn().mockReturnThis(),
-          limit: vi.fn().mockResolvedValue([{ id: "user-local-2", email: "user@domain.com" }]),
+          limit: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "user-local-2", email: "user@domain.com" },
+            ]),
         });
 
       const ctx = {
         user: { id: "user-local-1", role: "user" },
+        session: { id: "session-1" },
         req: { ip: "127.0.0.1", headers: {} },
         db: dbMock,
       } as any;
@@ -290,12 +316,16 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
           emailVerified: true,
           forceConfirm: true,
         })
-      ).rejects.toThrow("O e-mail dessa conta Google é utilizado por outro perfil");
+      ).rejects.toThrow(
+        "O e-mail dessa conta Google é utilizado por outro perfil"
+      );
 
       expect(AuditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           action: "OAUTH_LINK_DENIED",
-          newValues: expect.objectContaining({ reason: "email_belongs_to_other_user" }),
+          newValues: expect.objectContaining({
+            reason: "email_belongs_to_other_user",
+          }),
         })
       );
     });
@@ -310,7 +340,11 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
         .mockReturnValueOnce({
           from: vi.fn().mockReturnThis(),
           where: vi.fn().mockReturnThis(),
-          limit: vi.fn().mockResolvedValue([{ id: "user-local-1", email: "user@domain.com" }]),
+          limit: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "user-local-1", email: "user@domain.com" },
+            ]),
         });
 
       dbMock.insert.mockReturnValue({
@@ -319,6 +353,7 @@ describe("Sprint OAuth P1 — Google Login Foundation Layer Tests", () => {
 
       const ctx = {
         user: { id: "user-local-1", role: "user" },
+        session: { id: "session-1" },
         req: { ip: "127.0.0.1", headers: {} },
         db: dbMock,
       } as any;
