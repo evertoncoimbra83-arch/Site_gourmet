@@ -4,6 +4,8 @@ import { trpc } from "@/_core/trpc";
 import { useProducts } from "./useProducts"; 
 import { usePrescriptionCart } from "@/_core/hooks/usePrescriptionCart";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { safeNumber } from "@/lib/safe-parse";
+import { isAdminRole } from "@shared/security/rbac";
 
 // --- INTERFACES DE TIPAGEM ---
 interface AiScanData {
@@ -46,7 +48,8 @@ export function useProductsLogic() {
 
   const isDietMode = searchParams.get("modo") === "dieta";
   const pratoQuery = searchParams.get("prato");
-  const isAdmin = user?.role === 'admin';
+  const categoryQuery = searchParams.get("category");
+  const isAdmin = isAdminRole(user?.role);
 
   const { data: plans } = trpc.nutri.getMyPrescription.useQuery();
   const { data: dashboardScans } = trpc.nutri.getDashboard.useQuery();
@@ -99,13 +102,45 @@ export function useProductsLogic() {
         const bHasPromo = (b.salePrice && Number(b.salePrice) > 0) ? 1 : 0;
         if (aHasPromo !== bHasPromo) return bHasPromo - aHasPromo;
 
-        const orderA = Number(a.categoryDisplayOrder) || 999;
-        const orderB = Number(b.categoryDisplayOrder) || 999;
+        const orderA = safeNumber(a.categoryDisplayOrder, 999);
+        const orderB = safeNumber(b.categoryDisplayOrder, 999);
         if (orderA !== orderB) return orderA - orderB;
 
-        return (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0);
+        return safeNumber(a.displayOrder) - safeNumber(b.displayOrder);
       });
   }, [state.products, state.selectedCategory, state.search, isDietMode, recommendedDishIds]);
+
+  useEffect(() => {
+    const categories = (state.catList as Array<{ id: number | string }> | undefined) || [];
+
+    if (!categoryQuery) {
+      if (state.selectedCategory !== null) {
+        actions.setSelectedCategory(null);
+      }
+      return;
+    }
+
+    if (categories.length === 0) {
+      return;
+    }
+
+    const matchedCategory = categories.find((cat) => String(cat.id) === categoryQuery);
+    if (!matchedCategory) {
+      if (state.selectedCategory !== null) {
+        actions.setSelectedCategory(null);
+      }
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("category");
+        return p;
+      }, { replace: true });
+      return;
+    }
+
+    if (Number(state.selectedCategory) !== Number(matchedCategory.id)) {
+      actions.setSelectedCategory(Number(matchedCategory.id));
+    }
+  }, [categoryQuery, state.catList, state.selectedCategory, actions, setSearchParams]);
 
   // 4. Sincronização URL
   useEffect(() => {
@@ -150,6 +185,19 @@ export function useProductsLogic() {
     }, { replace: true });
   };
 
+  const handleSelectCategory = (categoryId: number | string | null) => {
+    actions.setSelectedCategory(categoryId === null ? null : Number(categoryId));
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      if (categoryId === null) {
+        p.delete("category");
+      } else {
+        p.set("category", String(categoryId));
+      }
+      return p;
+    }, { replace: true });
+  };
+
   return {
     state,
     actions,
@@ -160,6 +208,7 @@ export function useProductsLogic() {
     filteredProducts: filteredAndSortedProducts,
     handleOpenDish,
     handleCloseDish,
+    handleSelectCategory,
     handleClearDietMode,
     handleAddDietToCart
   };

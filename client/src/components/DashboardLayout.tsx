@@ -1,6 +1,7 @@
 import React, { CSSProperties, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { safeInteger } from "@/lib/safe-parse";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,7 +61,7 @@ export default function DashboardLayout({
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
+    return saved ? safeInteger(saved) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
 

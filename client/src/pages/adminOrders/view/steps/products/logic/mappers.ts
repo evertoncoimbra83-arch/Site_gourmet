@@ -1,3 +1,5 @@
+import { safeNumber } from "@/lib/safe-parse";
+
 /**
  * --- INTERFACES DE DADOS BRUTOS (DB) ---
  */
@@ -112,7 +114,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
   // Helper para extrair número com fallback seguro
   const num = (val: string | number | undefined | null): number => {
     if (val === undefined || val === null || val === "") return 0;
-    const n = typeof val === "number" ? val : parseFloat(String(val).replace(",", "."));
+    const n = typeof val === "number" ? val : safeNumber(String(val).replace(",", "."));
     return isNaN(n) ? 0 : n;
   };
 

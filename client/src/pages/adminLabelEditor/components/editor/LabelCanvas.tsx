@@ -25,7 +25,12 @@ interface LabelCanvasProps {
   isDesignMode: boolean;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  parseContent: (content: string, index?: number) => unknown;
+  hasOverride?: (elementId: string) => boolean;
+  parseContent: (
+    content: string,
+    element?: LabelElement,
+    index?: number,
+  ) => unknown;
   labelRef?: React.RefObject<HTMLDivElement>;
   zoom?: number;
   isPrintMode?: boolean;
@@ -37,6 +42,7 @@ export function LabelCanvas({
   isDesignMode,
   selectedId,
   setSelectedId,
+  hasOverride,
   parseContent,
   labelRef,
   zoom = 1,
@@ -84,7 +90,8 @@ export function LabelCanvas({
 
       {elements.map((el) => {
         const isSelected = selectedId === el.id;
-        const displayContent = parseContent(el.content);
+        const isOverridden = hasOverride?.(el.id) ?? false;
+        const displayContent = parseContent(el.content, el);
         const isGraphicTable = typeof displayContent === "object" && displayContent !== null;
         const isMultiLineText =
           typeof el.content === "string" && el.content.includes("TABELA_NUTRI_TEXTO");
@@ -127,7 +134,7 @@ export function LabelCanvas({
                 backgroundColor: el.backgroundColor || "transparent",
                 textAlign: el.textAlign || "left",
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 justifyContent:
                   el.textAlign === "center"
                     ? "center"
@@ -140,6 +147,8 @@ export function LabelCanvas({
                 whiteSpace: "pre-wrap",
                 fontFamily: isMultiLineText ? "monospace" : "inherit",
                 padding: el.type === "box" ? 0 : "0 2px",
+                overflow: "hidden",
+                wordBreak: "break-word",
               }}
             >
               {el.type !== "box" && String(displayContent || "")}
@@ -147,9 +156,37 @@ export function LabelCanvas({
           );
         };
 
-        if (isViewOnly) {
+        if (isPrintMode) {
           return (
             <div key={el.id} style={boxStyle} className="pointer-events-none">
+              {renderContent()}
+            </div>
+          );
+        }
+
+        if (!isDesignMode) {
+          return (
+            <div
+              key={el.id}
+              style={boxStyle}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedId(el.id);
+              }}
+              className={cn(
+                "relative cursor-pointer transition-all",
+                isSelected
+                  ? "ring-2 ring-emerald-500 bg-emerald-50/10 shadow-lg z-[999]"
+                  : isOverridden
+                    ? "ring-1 ring-amber-400 bg-amber-50/30"
+                    : "hover:ring-1 hover:ring-slate-300",
+              )}
+            >
+              {isOverridden && (
+                <span className="pointer-events-none absolute -right-1 -top-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[7px] font-black uppercase text-white shadow-sm">
+                  Ajuste
+                </span>
+              )}
               {renderContent()}
             </div>
           );
@@ -163,6 +200,11 @@ export function LabelCanvas({
             scale={zoom}
             bounds="parent"
             enableResizing={isSelected ? { bottom: true, bottomRight: true, right: true } : false}
+            resizeHandleClasses={isSelected ? {
+              bottom: "absolute bg-slate-300/40 hover:bg-emerald-500/80 h-1 w-full cursor-ns-resize bottom-0 left-0 transition-colors",
+              right: "absolute bg-slate-300/40 hover:bg-emerald-500/80 w-1 h-full cursor-ew-resize right-0 top-0 transition-colors",
+              bottomRight: "absolute bg-emerald-500 hover:bg-emerald-600 w-2.5 h-2.5 cursor-nwse-resize bottom-0 right-0 rounded-full border border-white shadow z-50 translate-x-1 translate-y-1 transition-transform"
+            } : undefined}
             className={cn(
               "flex items-center overflow-hidden transition-all",
               isSelected

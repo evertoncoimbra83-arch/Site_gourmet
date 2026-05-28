@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Ticket, Star, X, Check, Loader2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // Tipagem correta
@@ -55,7 +56,7 @@ export const OrderPaymentSection = ({
   const [loyaltyInput, setLoyaltyInput] = useState("");
 
   const handleApplyLoyaltyManual = () => {
-    const valueCash = parseFloat(loyaltyInput.replace(',', '.'));
+    const valueCash = safeNumber(loyaltyInput.replace(',', '.'));
     if (isNaN(valueCash) || valueCash <= 0) return;
 
     const pointsToUse = calculatePointsForValue(valueCash);

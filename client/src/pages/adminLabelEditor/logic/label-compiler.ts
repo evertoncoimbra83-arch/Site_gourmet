@@ -1,4 +1,5 @@
 // client/src/pages/adminLabelEditor/logic/label-compiler.ts
+import { safeJsonParse } from "@/lib/safe-parse";
 import { generateZplText } from "./generators/zplText";
 import { generateZplBarcode } from "./generators/zplBarcode";
 import { generateZplNutritionTable } from "./generators/zplNutritionTable";
@@ -83,7 +84,7 @@ export function compileToZPL(
   data: LabelData,
   config: LabelConfig = { width: 100, height: 60, dpi: 203 }
 ): string {
-  const elements: LabelElement[] = JSON.parse(elementsJson);
+  const elements = safeJsonParse<LabelElement[]>(elementsJson, []);
   const { width, height, dpi } = config;
 
   const pw = mmToDots(width, dpi);   // ^PW — largura em dots

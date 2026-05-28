@@ -239,6 +239,7 @@ export function useCartPageLogic() {
     loyaltyPoints: toNumber(loyaltyPoints),
     loyaltyMoneyValue: loyaltyValidation.discount, 
     loyaltySettings,
+    loyaltyValidation,
     money,
     allTiers: tiers,
     totalQuantity,

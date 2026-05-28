@@ -2,14 +2,20 @@
 // server/routers/admin/users.ts
 
 import { z } from "zod";
-import { eq, sql, sum, or, like, asc, and, desc } from 'drizzle-orm'; 
+import { eq, sql, sum, or, like, asc, and, desc, isNull } from 'drizzle-orm'; 
 import { router, adminProcedure } from "../../_core/trpc.js"; 
 import { getDb } from "../../db.js"; 
 import { decrypt, encrypt, piiHash, normalizeDigits } from "../../encryption.js"; 
 import { TRPCError } from "@trpc/server";
 import { logAction } from "../../db/lib/audit.js"; 
+import { AuditLogService } from "../../services/AuditLogService.js";
 import { v4 as uuidv4 } from "uuid";
 import { hash } from "@node-rs/argon2"; 
+import { lucia } from "../../auth.js";
+import {
+    assertPasswordPolicy,
+    recordAuthEvent,
+} from "../storefront/auth/auth-security.js";
 import crypto from "node:crypto";
 
 import { 
@@ -81,7 +87,7 @@ export const usersAdminRouter = router({
             const { page, limit, search } = input;
             const offset = (page - 1) * limit;
             
-            let searchCondition = undefined;
+            let searchCondition: any = isNull(users.deletedAt);
 
             if (search && search.trim().length >= 2) {
                 const term = search.trim();
@@ -89,12 +95,20 @@ export const usersAdminRouter = router({
                 const cleanDigits = normalizeDigits(term);
                 const digitHash = cleanDigits.length >= 3 ? piiHash(cleanDigits) : null;
 
-                searchCondition = or(
+                const orConditions: any[] = [
                     like(users.email, `%${term.toLowerCase()}%`),
                     like(users.nameIndex, `%${termNorm}%`),
-                    eq(users.id, term), 
-                    digitHash ? eq(users.documentIndex, digitHash) : undefined,
-                    digitHash ? eq(users.phoneIndex, digitHash) : undefined
+                    eq(users.id, term)
+                ];
+
+                if (digitHash) {
+                    orConditions.push(eq(users.documentIndex, digitHash));
+                    orConditions.push(eq(users.phoneIndex, digitHash));
+                }
+
+                searchCondition = and(
+                    isNull(users.deletedAt),
+                    or(...orConditions)
                 );
             }
 
@@ -335,23 +349,67 @@ export const usersAdminRouter = router({
         .input(z.object({ id: z.string().min(1) }))
         .mutation(async ({ ctx, input }) => {
             const db = await getDb();
+            
             await db.transaction(async (tx) => {
+                // Cascata manual de tabelas contendo apenas PII e sem FKs com orders/loyalty
                 await tx.delete(customer_addresses).where(eq(customer_addresses.userId, input.id));
-                await tx.delete(loyaltyHistory).where(eq(loyaltyHistory.userId, input.id));
                 await tx.delete(user_profiles).where(eq(user_profiles.userId, input.id));
-                const result = await tx.delete(users).where(eq(users.id, input.id));
+                
+                // Soft Delete e Anonimização LGPD da tabela principal users (preserva FKs de orders e loyalty)
+                const result = await tx.update(users)
+                    .set({
+                        deletedAt: new Date(),
+                        email: `deleted-${input.id}@gourmetsaudavel.local`,
+                        password: null,
+                        name: encrypt("Usuário Excluído"),
+                        nameIndex: normalizeForSearch("usuario excluido"),
+                        customerDocument: null,
+                        documentIndex: null,
+                        phone: null,
+                        phoneIndex: null,
+                        availablePoints: 0,
+                        updatedAt: new Date()
+                    })
+                    .where(eq(users.id, input.id));
                 
                 // @ts-ignore
                 if (result[0]?.affectedRows === 0) throw new TRPCError({ code: "NOT_FOUND" });
             });
+
+            // Auditoria crítica
+            const actor = {
+                userId: ctx.user?.id,
+                ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                requestId: (ctx.req as any)?.requestId
+            };
+
+            void AuditLogService.record({
+                actor,
+                module: "users",
+                action: "SOFT_DELETE_USER",
+                severity: "critical",
+                entityType: "users",
+                entityId: input.id,
+                entityLabel: "Exclusão de Usuário (Soft Delete)",
+                oldValues: null,
+                newValues: { email: `deleted-${input.id}@gourmetsaudavel.local`, deletedAt: new Date() }
+            });
+
             await logAction(ctx, "DELETE_USER", "users", { entityId: input.id });
             return { success: true, message: "Usuário removido permanentemente!" };
         }),
 
     setPassword: adminProcedure
-        .input(z.object({ userId: z.string().min(1), password: z.string().min(6) }))
+        .input(z.object({ userId: z.string().min(1), password: z.string().min(8) }))
         .mutation(async ({ ctx, input }) => {
             const db = await getDb();
+            const [targetUser] = await db
+                .select({ email: users.email })
+                .from(users)
+                .where(eq(users.id, input.userId))
+                .limit(1);
+            assertPasswordPolicy(input.password, targetUser?.email);
             const hashedPassword = await hash(input.password);
             const result = await db.update(users).set({ 
                 password: hashedPassword,
@@ -361,7 +419,16 @@ export const usersAdminRouter = router({
             // @ts-ignore
             if (result[0]?.affectedRows === 0) throw new TRPCError({ code: "NOT_FOUND" });
 
+            await lucia.invalidateUserSessions(input.userId);
             await logAction(ctx, "SET_PASSWORD", "users", { entityId: input.userId });
+            recordAuthEvent({
+                ctx,
+                action: "PASSWORD_CHANGED",
+                severity: "warning",
+                userId: input.userId,
+                identifier: targetUser?.email,
+                reason: "admin_set_password",
+            });
             return { success: true, message: "Senha atualizada pelo administrador." };
         }),
 });

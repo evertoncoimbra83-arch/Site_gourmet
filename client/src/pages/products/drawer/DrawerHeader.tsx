@@ -23,7 +23,7 @@ export function DrawerHeader({ dish, selectedSize, onClose }: DrawerHeaderProps)
         {dish?.imageUrl ? (
           <img src={dish.imageUrl} className="w-full h-full object-cover" alt={dish.name} />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-300"><ShoppingBag size={40} /></div>
+          <div className="w-full h-full flex items-center justify-center text-slate-500"><ShoppingBag size={40} /></div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#FBFBFC] via-transparent to-transparent" />
       </div>

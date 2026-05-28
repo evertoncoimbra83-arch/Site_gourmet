@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast"; 
+import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
+import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 
 // ✅ Interface robusta para a regra vindo da API (Suporta string/number para evitar conflitos)
 interface DiscountRule {
@@ -44,7 +47,8 @@ export function useAdminDiscountRules() {
       utils.admin.discountRules.list.invalidate();
       resetForm();
       toast.success("Regra de desconto criada!");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao criar regra de desconto.")),
   });
 
   const updateMutation = trpc.admin.discountRules.update.useMutation({
@@ -52,14 +56,16 @@ export function useAdminDiscountRules() {
       utils.admin.discountRules.list.invalidate();
       resetForm();
       toast.success("Regra atualizada com sucesso!");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao atualizar regra de desconto.")),
   });
 
   const deleteMutation = trpc.admin.discountRules.delete.useMutation({
     onSuccess: () => {
       utils.admin.discountRules.list.invalidate();
       toast.info("Regra removida.");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao excluir regra de desconto.")),
   });
 
   // --- ACTIONS ---
@@ -94,10 +100,10 @@ export function useAdminDiscountRules() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const numValue = parseFloat(String(formState.value || 0));
-    const numMin = parseInt(String(formState.minQuantity || 1));
-    const numMax = formState.maxQuantity ? parseInt(String(formState.maxQuantity)) : null;
-    const numPriority = parseInt(String(formState.priority || 0));
+    const numValue = safeNumber(String(formState.value || 0));
+    const numMin = safeInteger(String(formState.minQuantity || 1));
+    const numMax = formState.maxQuantity ? safeInteger(String(formState.maxQuantity)) : null;
+    const numPriority = safeInteger(String(formState.priority || 0));
 
     if (isNaN(numValue)) {
       return toast.error("O valor do desconto deve ser um número.");
@@ -114,10 +120,20 @@ export function useAdminDiscountRules() {
       isActive: true,
     };
 
+    const isHighImpact =
+      (payload.type === "percentage" && payload.value > 40) ||
+      (payload.type === "fixed" && payload.value > 300);
+    const confirmation = isHighImpact
+      ? requestStrongConfirmation("Regra de desconto de alto impacto financeiro.")
+      : null;
+    if (isHighImpact && !confirmation) {
+      return toast.warning("Confirmacao forte cancelada.");
+    }
+
     if (editingId) {
-      updateMutation.mutate({ id: Number(editingId), ...payload });
+      updateMutation.mutate({ id: Number(editingId), ...payload, ...confirmation });
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate({ ...payload, ...confirmation });
     }
   };
 
@@ -128,7 +144,11 @@ export function useAdminDiscountRules() {
       resetForm, 
       handleEdit, 
       handleSubmit, 
-      deleteRule: (id: string | number) => deleteMutation.mutate({ id: Number(id) }) 
+      deleteRule: (id: string | number) => {
+        const confirmation = requestStrongConfirmation("Excluir regra de desconto.");
+        if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+        deleteMutation.mutate({ id: Number(id), ...confirmation });
+      }
     },
     // ✅ CORREÇÃO TS2352: Bridge segura via unknown para evitar conflito de tipos da API
     data: { rules: (rules as unknown as DiscountRule[]) || [] }, 

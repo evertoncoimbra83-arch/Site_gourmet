@@ -32,6 +32,13 @@ export function useShippingMesh() {
   };
 
   // ⚡ Mutation: SINCRONIZAÇÃO GERAL
+  const bindOperativeCityMutation = trpc.admin.shippingMesh.bindOperativeCity.useMutation({
+    onSuccess: async () => {
+      await invalidateMesh();
+    },
+    onError: (err) => console.error("Erro interno de importacao:", err.message)
+  });
+
   const syncMeshMutation = trpc.admin.shippingMesh.syncMeshWithRules.useMutation({
     onSuccess: async () => {
       await invalidateMesh();
@@ -42,8 +49,8 @@ export function useShippingMesh() {
   return {
     state: {
       isLoading: isLoadingMesh,
-      isSaving: syncMeshMutation.isPending,
-      isImporting: syncMeshMutation.isPending,
+      isSaving: syncMeshMutation.isPending || bindOperativeCityMutation.isPending,
+      isImporting: bindOperativeCityMutation.isPending,
       isSyncing: syncMeshMutation.isPending,
     },
     data: {
@@ -72,13 +79,24 @@ export function useShippingMesh() {
       /**
        * ✅ Parâmetro removido fisicamente dos parênteses
        */
-      handleImportMesh: async () => {
-        await syncMeshMutation.mutateAsync();
+      handleImportMesh: async (rows: Array<{ cep: string; cidade: string; bairro?: string; lat: string | number; lng: string | number }>) => {
+        const promise = (async () => {
+          const bindResult = await bindOperativeCityMutation.mutateAsync({ rows });
+          await syncMeshMutation.mutateAsync();
+          return bindResult;
+        })();
+
+        toast.promise(promise, {
+          loading: 'Processando arquivo de CEPs... Isto pode levar alguns instantes.',
+          success: (data) => {
+            return `${data.count} rotas foram importadas e sincronizadas com sucesso!`;
+          },
+          error: (err: unknown) =>
+            `A importação falhou: ${err instanceof Error ? err.message : "tente novamente."}`,
+        });
       },
 
       handleSyncMesh: async () => {
-        console.log("🔄 Iniciando processamento da malha no backend...");
-        
         const promise = syncMeshMutation.mutateAsync();
 
         toast.promise(promise, {

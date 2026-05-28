@@ -4,16 +4,65 @@ import superjson from "superjson";
 import { eq } from "drizzle-orm";
 import { appConfigs } from "../../drizzle/schema/index.js";
 import { type TrpcContext } from "./context";
-import { logAction } from "../db/lib/audit";
 import { logger } from "../logger";
-import { redactSensitiveData } from "../lib/redact";
 import { decrypt } from "../encryption.js";
-
-type AppRole = "admin" | "user" | "nutri";
+import { AuditLogService } from "../services/AuditLogService.js";
+import crypto from "crypto";
+import {
+  type AdminRole,
+  type AppRole,
+  normalizeRole,
+} from "../../shared/security/rbac.js";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape, error, ctx }) {
+    try {
+      const procedure = shape.data.path || "unknown";
+      const { module } = getTrpcModuleAndEntity(procedure);
+      
+      const originalError = error.cause instanceof Error ? error.cause : error;
+      const isCritical = error.code === "INTERNAL_SERVER_ERROR";
+      const severity = isCritical ? "critical" : "warning";
+
+      const actor: any = { userId: "system" };
+      let requestId: string | undefined = undefined;
+      let route: string | undefined = undefined;
+
+      if (ctx) {
+        if (ctx.user) {
+          actor.userId = ctx.user.id;
+        }
+        if (ctx.req) {
+          requestId = (ctx.req as any).requestId || 
+                      ctx.req.headers?.["x-request-id"] || 
+                      ctx.req.headers?.["x-correlation-id"];
+          route = ctx.req.originalUrl || ctx.req.url;
+          actor.ipAddress = ctx.req.ip || 
+                            (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+                            "127.0.0.1";
+          actor.userAgent = ctx.req.headers?.["user-agent"] || "unknown";
+        }
+      }
+
+      void AuditLogService.recordError({
+        module,
+        source: "trpc",
+        error: originalError,
+        actor,
+        requestId,
+        route,
+        procedure,
+        severity,
+        metadata: {
+          trpcCode: error.code,
+          zodError: error.cause instanceof ZodError ? error.cause.flatten() : null,
+        }
+      });
+    } catch (e) {
+      logger.error(e instanceof Error ? e : new Error(String(e)), "Erro ao registrar falha do tRPC no AuditLogService");
+    }
+
     return {
       ...shape,
       data: {
@@ -68,7 +117,7 @@ const isInternal = t.middleware(async ({ ctx, next }) => {
   return next({
     ctx: {
       ...ctx,
-      user: { id: "system-ai", role: "admin" as const },
+      user: { id: "system-ai", role: "super_admin" as const },
       isInternal: true,
     },
   });
@@ -100,16 +149,32 @@ function requireRoles(allowedRoles: AppRole[]) {
       });
     }
 
-    if (!allowedRoles.includes(ctx.user.role)) {
+    const role = normalizeRole(ctx.user.role);
+
+    if (!allowedRoles.includes(role)) {
       logger.warn(
         {
           path,
           userId: ctx.user.id,
-          role: ctx.user.role,
+          role,
           allowedRoles,
         },
         "Tentativa de acesso negado por role",
       );
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId,
+        },
+        module: "security",
+        action: "RBAC_DENIED",
+        severity: "critical",
+        entityType: "trpc_procedure",
+        entityId: path,
+        newValues: { role, allowedRoles },
+      });
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Você não tem permissão para acessar este recurso.",
@@ -119,9 +184,9 @@ function requireRoles(allowedRoles: AppRole[]) {
     return next({
       ctx: {
         ...ctx,
-        user: ctx.user,
+        user: { ...ctx.user, role },
         session: ctx.session,
-        isAdmin: ctx.user.role === "admin",
+        isAdmin: ["super_admin", "admin", "operator"].includes(role),
       },
     });
   });
@@ -131,6 +196,7 @@ type RateLimitConfig = {
   keyPrefix: string;
   limit: number;
   windowMs: number;
+  getInputKey?: (input: unknown) => string | null | undefined;
 };
 
 function getRateLimitActorKey(ctx: TrpcContext): string {
@@ -145,10 +211,12 @@ function getRateLimitActorKey(ctx: TrpcContext): string {
 }
 
 export function createRateLimitMiddleware(config: RateLimitConfig) {
-  return t.middleware(({ ctx, next, path }) => {
+  return t.middleware((opts) => {
+    const { ctx, next, path } = opts;
     const actorKey = getRateLimitActorKey(ctx);
+    const inputKey = config.getInputKey?.((opts as Record<string, unknown>).rawInput);
     const now = Date.now();
-    const key = `${config.keyPrefix}:${path}:${actorKey}`;
+    const key = `${config.keyPrefix}:${path}:${actorKey}:${inputKey || "global"}`;
     const existing = procedureRateLimitStore.get(key);
 
     if (!existing || existing.resetAt <= now) {
@@ -164,6 +232,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
         {
           path,
           actorKey,
+          inputKey,
           limit: config.limit,
           windowMs: config.windowMs,
         },
@@ -178,18 +247,116 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     existing.count += 1;
     procedureRateLimitStore.set(key, existing);
     return next();
-  });
+  }) as any;
+}
+
+function getTrpcModuleAndEntity(path: string): { module: string; entity: string } {
+  const parts = path.toLowerCase().split(".");
+  const routerName = parts[1] || "system";
+  
+  const moduleMap: Record<string, string> = {
+    settings: "settings",
+    storesettings: "settings",
+    admintheme: "theme",
+    paymentmethods: "payments",
+    shippingrules: "shipping",
+    shippingmesh: "shipping",
+    loyalty: "loyalty",
+    loyaltysettings: "loyalty",
+    coupons: "marketing",
+    marketing: "marketing",
+    backups: "backup",
+    security: "security",
+    labels: "zebra",
+    orders: "orders",
+    ordersadmin: "orders",
+    users: "security",
+    usersadmin: "security",
+    api: "integrations",
+    media: "media",
+  };
+
+  const module = moduleMap[routerName] || "system";
+  return { module, entity: routerName };
+}
+
+function getTrpcSeverity(path: string): "info" | "warning" | "critical" {
+  const p = path.toUpperCase();
+  if (
+    p.includes("BACKUP") ||
+    p.includes("SECURITY") ||
+    p.includes("GENERATE") ||
+    p.includes("EMERGENCY") ||
+    p.includes("TOKEN") ||
+    p.includes("PASSWORD") ||
+    p.includes("DELETE")
+  ) {
+    return "critical";
+  }
+  if (
+    p.includes("UPDATE") ||
+    p.includes("SAVE") ||
+    p.includes("EDIT") ||
+    p.includes("BATCH") ||
+    p.includes("ADJUST")
+  ) {
+    return "warning";
+  }
+  return "info";
 }
 
 const auditMiddleware = t.middleware(async (opts) => {
   const { ctx, path, type, next } = opts;
   const rawInput = (opts as Record<string, unknown>).rawInput;
+  let requestId = (ctx.req as any)?.requestId;
+  if (!requestId && ctx.req) {
+    requestId =
+      ctx.req.headers?.["x-request-id"] ||
+      ctx.req.headers?.["x-correlation-id"] ||
+      crypto.randomUUID();
+    (ctx.req as any).requestId = requestId;
+  }
+
   const result = await next();
 
   if (type === "mutation" && result.ok && ctx.user) {
-    const silentPaths = ["admin.logs.list", "admin.auth.session"];
+    const silentPaths = new Set([
+      "admin.logs.list",
+      "admin.auth.session",
+      "admin.orders.updateStatus",
+      "admin.orders.editOrder",
+      "admin.orders.deleteOrder",
+      "admin.orders.updateStatusBatch",
+      "admin.orders.commitAdministrativeEdit",
+      "admin.ordersAdmin.updateStatus",
+      "admin.ordersAdmin.editOrder",
+      "admin.ordersAdmin.deleteOrder",
+      "admin.ordersAdmin.updateStatusBatch",
+      "admin.ordersAdmin.commitAdministrativeEdit",
+      "admin.coupons.create",
+      "admin.coupons.update",
+      "admin.coupons.delete",
+      "admin.paymentMethods.update",
+      "admin.paymentMethods.delete",
+      "admin.shipping.rules.updateSettings",
+      "admin.shipping.rules.createRule",
+      "admin.shipping.rules.deleteRule",
+      "admin.shippingRules.updateSettings",
+      "admin.shippingRules.createRule",
+      "admin.shippingRules.deleteRule",
+      "admin.loyaltySettings.addManualPoints",
+      "admin.loyaltySettings.update",
+      "admin.loyaltySettings.deleteTransactions",
+      "admin.storeSettings.upsert",
+      "admin.storeSettings.update",
+      "admin.storeSettings.saveCompanyInfo",
+      "admin.settings.upsert",
+      "admin.settings.update",
+      "admin.settings.saveCompanyInfo",
+      "admin.marketing.updateRules",
+    ]);
 
-    if (!silentPaths.includes(path)) {
+    if (!silentPaths.has(path)) {
       let safeInput: unknown = null;
 
       if (rawInput && typeof rawInput === "object") {
@@ -205,32 +372,37 @@ const auditMiddleware = t.middleware(async (opts) => {
         for (const key of sensitiveKeys) {
           if (key in inputObj) delete inputObj[key];
         }
-
-        safeInput = redactSensitiveData(inputObj);
+        safeInput = inputObj;
       } else {
-        safeInput = redactSensitiveData(rawInput);
+        safeInput = rawInput;
       }
 
-      const entity = path.split(".")[1] || "system";
+      const { module, entity } = getTrpcModuleAndEntity(path);
+      const severity = getTrpcSeverity(path);
       const actionName = `AUTO_${path.toUpperCase().replace(/\./g, "_")}`;
       const responseMessage =
         result.data && typeof result.data === "object"
           ? (result.data as Record<string, unknown>).message || "Sucesso"
           : "Sucesso";
 
-      void logAction(
-        { ...ctx, user: { id: ctx.user.id } },
-        actionName,
-        entity,
-        {
-          new: {
-            input: safeInput,
-            response: responseMessage,
-          },
+      const actor = {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId,
+      };
+
+      void AuditLogService.record({
+        actor,
+        module,
+        action: actionName,
+        entityType: entity,
+        entityId: (rawInput as any)?.id || (rawInput as any)?.orderId || null,
+        newValues: {
+          input: safeInput,
+          response: responseMessage,
         },
-      ).catch((err) => {
-        const msg = err instanceof Error ? err.message : "Erro desconhecido";
-        logger.error({ err: msg, path }, "Erro ao salvar auditoria automática");
+        severity,
       });
     }
   }
@@ -239,10 +411,18 @@ const auditMiddleware = t.middleware(async (opts) => {
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
+export const operatorProcedure = t.procedure
+  .use(auditMiddleware)
+  .use(requireRoles(["super_admin", "admin", "operator"]));
 export const adminProcedure = t.procedure
-  .use(requireRoles(["admin"]))
-  .use(auditMiddleware);
+  .use(auditMiddleware)
+  .use(requireRoles(["super_admin", "admin"]));
+export const superAdminProcedure = t.procedure
+  .use(auditMiddleware)
+  .use(requireRoles(["super_admin"]));
 export const nutriProcedure = t.procedure
-  .use(requireRoles(["admin", "nutri"]))
-  .use(auditMiddleware);
+  .use(auditMiddleware)
+  .use(requireRoles(["super_admin", "admin", "nutri"]));
 export const internalProcedure = t.procedure.use(isInternal);
+
+export type { AdminRole, AppRole };

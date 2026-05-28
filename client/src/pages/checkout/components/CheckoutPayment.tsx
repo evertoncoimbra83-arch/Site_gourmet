@@ -9,8 +9,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCheckout } from "../context/CheckoutContext";
 import { categorizePaymentMethods } from "../logic/checkout-helpers";
-
-const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
+import { normalizeImageUrl } from "@shared/utils/assets";
 
 const IconMap: Record<string, React.ElementType> = {
   "credit-card": CreditCard,
@@ -30,17 +29,10 @@ interface PaymentMethodUI {
   discountLabel?: string;
 }
 
-const getImageUrl = (url: string | null | undefined): string => {
-  if (!url) return "";
-  if (url.startsWith('http') || url.startsWith('data:')) return url;
-  const cleanUrl = url.replace(/^\/+/, '').replace(/^uploads\//, '');
-  return `${API_BASE_URL}/uploads/${cleanUrl}`;
-};
-
 // ==================== CARD SELECIONADO ====================
 const SelectedPaymentCard = ({ m, onChange, disabled }: { m: PaymentMethodUI; onChange: () => void; disabled?: boolean }) => {
   const IconComponent = IconMap[m.icon || ""] || IconMap.default;
-  const brandLogo = getImageUrl(m.brand_logo_url || m.brandLogoUrl);
+  const brandLogo = normalizeImageUrl(m.brand_logo_url || m.brandLogoUrl) || "";
 
   return (
     <div className={cn(
@@ -79,7 +71,7 @@ const SelectedPaymentCard = ({ m, onChange, disabled }: { m: PaymentMethodUI; on
 // ==================== LINHA DE PAGAMENTO ====================
 const PaymentRow = ({ m, isSelected, onSelect, disabled }: { m: PaymentMethodUI; isSelected: boolean; onSelect: (id: string) => void; disabled?: boolean }) => {
   const IconComponent = IconMap[m.icon || ""] || IconMap.default;
-  const brandLogo = getImageUrl(m.brand_logo_url || m.brandLogoUrl);
+  const brandLogo = normalizeImageUrl(m.brand_logo_url || m.brandLogoUrl) || "";
 
   return (
     <button
@@ -175,7 +167,6 @@ export default function CheckoutPayment() {
             methods={standard as PaymentMethodUI[]} 
             selectedId={payment.selectedId} 
             onSelect={(id) => { 
-              console.log("[CheckoutPayment] Metodo selecionado:", id);
               actions.setPayment(id); 
               setViewMode("compact"); 
             }} 
@@ -188,7 +179,6 @@ export default function CheckoutPayment() {
             methods={benefits as PaymentMethodUI[]} 
             selectedId={payment.selectedId} 
             onSelect={(id) => { 
-              console.log("[CheckoutPayment] Metodo selecionado:", id);
               actions.setPayment(id); 
               setViewMode("compact"); 
             }} 

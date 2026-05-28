@@ -50,6 +50,9 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     const { currentState } = machine;
+    const customerReady = Guards.isCustomerReady(viewModel);
+    const logisticsReady = Guards.isLogisticsReady(viewModel);
+    const paymentReady = Guards.isPaymentReady(viewModel);
 
     // A. Sincronização de Carregamento Inicial
     if (viewModel.isLoading && currentState === 'idle') {
@@ -77,60 +80,66 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
       'payment_editing', 'review_ready', 'submitting'
     ];
     if (statesAfterCustomer.includes(currentState as CheckoutState)) {
-      if (!Guards.isCustomerReady(viewModel)) {
+      if (!customerReady) {
         dispatch({ type: 'RESET' });
         return;
       }
     }
 
     // C. Transições Automáticas de Logística (Endereço/Frete)
-    if (currentState === 'customer_ready') {
-      if (viewModel.logistics.selectedAddressId || viewModel.logistics.type === 'pickup') {
+    if (currentState === 'customer_ready' || currentState === 'address_editing') {
+      if (customerReady && (viewModel.logistics.selectedAddressId || viewModel.logistics.type === 'pickup')) {
         dispatch({
           type: 'ADDRESS_UPDATED',
           payload: { addressId: viewModel.logistics.selectedAddressId }
         });
+        return;
       }
     }
 
     if (currentState === 'shipping_validating') {
-      if (Guards.isLogisticsReady(viewModel)) {
+      if (logisticsReady) {
         dispatch({
           type: 'SHIPPING_VALIDATE_SUCCESS',
           payload: { cost: viewModel.logistics.shippingCost }
         });
+        return;
       } else if (viewModel.logistics.errorMessage) {
         dispatch({
           type: 'SHIPPING_VALIDATE_FAILURE',
           payload: { message: viewModel.logistics.errorMessage }
         });
+        return;
       }
       // ✅ FIX C: Se canContinue ficou false sem errorMessage (estado intermediário),
       // não trava — aguarda próximo ciclo. Sem reset aqui.
     }
 
     // D. Transição Automática para Revisão
-    if (currentState === 'shipping_ready' && Guards.isPaymentReady(viewModel)) {
+    if (currentState === 'shipping_ready' && paymentReady) {
       dispatch({
         type: 'PAYMENT_SELECTED',
         payload: { methodId: viewModel.payment.selectedId! }
       });
-      dispatch({ type: 'REVIEW_CONFIRMED' });
       return;
     }
 
     // ✅ FIX D2: Pagamento selecionado enquanto em payment_editing — avança para review_ready
-    // Cobre: mudança de método de pagamento + volta de outras telas com pagamento já selecionado
-    if (currentState === 'payment_editing' && Guards.isPaymentReady(viewModel)) {
+    // NÃO verifica logisticsReady aqui — a máquina já validou logística ao passar por
+    // shipping_validating. Re-verificar pode travar se canContinue piscar false.
+    if (currentState === 'payment_editing' && customerReady && paymentReady) {
       dispatch({ type: 'REVIEW_CONFIRMED' });
       return;
     }
 
   }, [
     viewModel.isLoading,
-    viewModel.customer,
+    viewModel.customer.name,
+    viewModel.customer.isCPFValid,
+    viewModel.customer.phone,
     viewModel.logistics.selectedAddressId,
     viewModel.logistics.canContinue,
+    viewModel.logistics.shippingCost,
     viewModel.logistics.type,        // ✅ FIX B2: escuta mudança pickup ↔ delivery
     viewModel.logistics.errorMessage, // ✅ garante que erro de frete dispara efeito
     viewModel.payment.selectedId,

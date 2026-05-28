@@ -99,6 +99,14 @@ export function AccompanimentList({ groups, selectedAccs, onAdd, onRemove }: Acc
         const min = Number(group.minSelections || 0);
         const isFull = selections.length >= max;
         const isComplete = selections.length >= min;
+        const selectionHint =
+          min > 0 && max > 0 && min === max
+            ? `Obrigatório escolher ${min} ${min === 1 ? "opção" : "opções"}`
+            : min > 0
+              ? `Escolha entre ${min} e ${max} opções`
+              : max === 1
+                ? "Escolha até 1 opção"
+                : `Escolha até ${max} opções`;
 
         return (
           <div key={`group-${groupId}`} className="space-y-4">
@@ -120,9 +128,12 @@ export function AccompanimentList({ groups, selectedAccs, onAdd, onRemove }: Acc
                     : <span className="text-emerald-500 italic">Pronto!</span>
                   }
                 </span>
+                <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-400 mt-1">
+                  {selectionHint}
+                </span>
               </div>
               <div className="text-right">
-                <span className="text-[9px] font-black text-slate-400 block uppercase">
+                <span className="text-[9px] font-black text-slate-500 block uppercase">
                   {selections.length} / {max}
                 </span>
               </div>
@@ -152,12 +163,19 @@ export function AccompanimentList({ groups, selectedAccs, onAdd, onRemove }: Acc
                         <div className="flex items-center gap-3">
                           <CategoryIcon iconKey={opt.iconKey} color={opt.categoryColor} size={16} />
                           <div className="flex flex-col">
-                            <span className={cn("text-[10px] font-bold", isSel ? "text-slate-300" : "text-slate-700")}>
+                            <span className={cn("text-[10px] font-bold", isSel ? "text-slate-500" : "text-slate-700")}>
                               {opt.name}
                             </span>
-                            {price > 0 && (
-                              <span className="text-[9px] text-emerald-600 font-black">+ R$ {price.toFixed(2)}</span>
-                            )}
+                            <span
+                              className={cn(
+                                "text-[9px] font-black uppercase",
+                                price > 0 ? "text-emerald-600" : "text-slate-400",
+                              )}
+                            >
+                              {price > 0
+                                ? `Adicional +R$ ${price.toFixed(2)}`
+                                : "Incluso"}
+                            </span>
                           </div>
                         </div>
                       </div>

@@ -1,7 +1,8 @@
-import React, { useState } from "react"; // ✅ Adicionado React para corrigir escopo JSX
+import React, { useState, useMemo } from "react"; // ✅ Adicionado React e useMemo para escopo JSX e cashback dinâmico
 import { trpc } from "@/_core/trpc";
 import { Card } from "@/components/ui/card";
 import { Gift, TrendingUp, History } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 
@@ -14,10 +15,20 @@ interface LoyaltyTransaction {
 }
 
 export default function LoyaltyPoints() {
-  const { data: points, isLoading } = trpc.loyalty.getPoints.useQuery();
+  const { data: points, isLoading: pointsLoading } = trpc.loyalty.getPoints.useQuery();
+  const { data: settings, isLoading: settingsLoading } = trpc.loyalty.getSettings.useQuery();
   // ✅ Tipagem da query para garantir consistência no map
   const { data: history } = trpc.loyalty.getHistory.useQuery({ limit: 5 });
   const [showHistory, setShowHistory] = useState(false);
+
+  const isLoading = pointsLoading || settingsLoading;
+
+  const cashbackValue = useMemo(() => {
+    if (!points || !settings || !settings.enabled) return null;
+    const redemptionRatePoints = Math.max(1, Number(settings.redemptionRatePoints) || 100);
+    const redemptionRateMoney = Math.max(0, Number(settings.redemptionRateMoney) || 1);
+    return ((points.loyaltyPoints ?? 0) / redemptionRatePoints) * redemptionRateMoney;
+  }, [points, settings]);
 
   if (isLoading) {
     return (
@@ -45,9 +56,11 @@ export default function LoyaltyPoints() {
             <p className="text-4xl font-black text-emerald-700 italic tracking-tighter leading-none">
               {points.loyaltyPoints ?? 0}
             </p>
-            <p className="text-[10px] font-bold text-emerald-800/40 uppercase mt-2">
-              Equivalente a R$ {((points.loyaltyPoints ?? 0) * 0.01).toFixed(2)} em desconto
-            </p>
+            {cashbackValue !== null && (
+              <p className="text-[10px] font-bold text-emerald-800/40 uppercase mt-2">
+                Equivalente a R$ {cashbackValue.toFixed(2).replace(".", ",")} em desconto
+              </p>
+            )}
           </div>
 
           <div className="text-right">
@@ -56,7 +69,7 @@ export default function LoyaltyPoints() {
               <span className="text-[10px] font-black uppercase tracking-widest">Total Gasto</span>
             </div>
             <p className="text-2xl font-black text-slate-900 italic tracking-tighter">
-              R$ {parseFloat(String(points.totalSpent || "0")).toFixed(2)}
+              R$ {safeNumber(String(points.totalSpent || "0")).toFixed(2)}
             </p>
           </div>
         </div>

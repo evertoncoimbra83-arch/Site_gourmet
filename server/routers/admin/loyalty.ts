@@ -2,7 +2,13 @@ import { z } from "zod";
 import { router, adminProcedure } from "../../_core/trpc.js";
 import * as AdminLoyalty from "../../admin-loyalty.js";
 import { createDecipheriv, scryptSync } from "crypto";
-import { logAction } from "../../db/lib/audit.js";
+import { AuditLogService } from "../../services/AuditLogService.js";
+import {
+  assertConfirmationReason,
+  assertStrongConfirmation,
+  assertSuperAdmin,
+  operationalLimits,
+} from "./operational-hardening.js";
 
 // 🔐 LÓGICA DE SEGURANÇA (PII)
 const ENCRYPTION_KEY_RAW = process.env.DB_ENCRYPTION_KEY || "fallback-key-de-seguranca";
@@ -105,14 +111,44 @@ export const adminLoyaltySettingsRouter = router({
       userId: z.string(), 
       points: z.coerce.number(), 
       reason: z.string().min(1, "O motivo é obrigatório"),
-      customerName: z.string().optional()
+      customerName: z.string().optional(),
+      confirmationToken: z.string().optional(),
+      confirmationReason: z.string().optional()
     }))
     .mutation(async ({ ctx, input }) => {
+      const absolutePoints = Math.abs(input.points);
+      if (absolutePoints >= operationalLimits.loyaltyCriticalPoints) {
+        assertStrongConfirmation(input, "Ajuste manual de fidelidade");
+        assertConfirmationReason(input, "Ajuste manual de fidelidade");
+      }
+      if (absolutePoints >= operationalLimits.loyaltySuperAdminPoints) {
+        assertSuperAdmin(ctx.user?.role, "Ajuste manual acima do limite operacional");
+      }
+
       const result = await AdminLoyalty.addManualPoints(input.userId, input.points, input.reason);
       
-      await logAction(ctx, "LOYALTY_MANUAL_ADJUST", "loyalty", {
+      const severity = absolutePoints >= operationalLimits.loyaltyCriticalPoints ? "critical" : "warning";
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "loyalty",
+        action: "LOYALTY_MANUAL_ADJUST",
+        severity,
+        entityType: "loyalty",
         entityId: input.userId,
-        new: { pontos: input.points, motivo: input.reason }
+        entityLabel: input.customerName || `Cliente ${input.userId}`,
+        oldValues: null,
+        newValues: {
+          pontos: input.points,
+          motivo: input.reason,
+          confirmationReason: input.confirmationReason?.trim() || null,
+        }
       });
 
       const actionText = input.points >= 0 ? "Adicionados" : "Removidos";
@@ -139,13 +175,37 @@ export const adminLoyaltySettingsRouter = router({
   update: adminProcedure
     .input(z.record(z.unknown()))
     .mutation(async ({ ctx, input }) => {
-      const oldConfigs = await AdminLoyalty.getLoyaltyConfigs();
-      const result = await AdminLoyalty.updateLoyaltyConfigs(input);
+      const confirmationInput = {
+        confirmationToken: input.confirmationToken as string | undefined,
+        confirmationReason: input.confirmationReason as string | undefined,
+      };
+      assertStrongConfirmation(confirmationInput, "Alteracao de regras de fidelidade");
+      assertConfirmationReason(confirmationInput, "Alteracao de regras de fidelidade");
 
-      await logAction(ctx, "UPDATE_LOYALTY_RULES", "loyalty", {
+      const sanitizedInput = { ...input };
+      delete sanitizedInput.confirmationToken;
+      delete sanitizedInput.confirmationReason;
+
+      const oldConfigs = await AdminLoyalty.getLoyaltyConfigs();
+      const result = await AdminLoyalty.updateLoyaltyConfigs(sanitizedInput);
+
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "loyalty",
+        action: "UPDATE_LOYALTY_RULES",
+        severity: "warning",
+        entityType: "loyalty",
         entityId: "global_configs",
-        old: oldConfigs || {},
-        new: input
+        entityLabel: "Regras de Fidelidade",
+        oldValues: oldConfigs || {},
+        newValues: sanitizedInput
       });
 
       return {
@@ -158,14 +218,38 @@ export const adminLoyaltySettingsRouter = router({
   deleteTransactions: adminProcedure
     .input(z.object({
       userId: z.string(),
-      transactionIds: z.array(z.string())
+      transactionIds: z.array(z.string()),
+      confirmationToken: z.string().optional(),
+      confirmationReason: z.string().optional()
     }))
     .mutation(async ({ ctx, input }) => {
+      assertStrongConfirmation(input, "Exclusao de transacoes de fidelidade");
+      assertConfirmationReason(input, "Exclusao de transacoes de fidelidade");
+      assertSuperAdmin(ctx.user?.role, "Exclusao de transacoes de fidelidade");
+
       const result = await AdminLoyalty.deleteTransactions(input.userId, input.transactionIds);
 
-      await logAction(ctx, "LOYALTY_BULK_DELETE", "loyalty", {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "loyalty",
+        action: "LOYALTY_BULK_DELETE",
+        severity: "critical",
+        entityType: "loyalty",
         entityId: input.userId,
-        new: { count: input.transactionIds.length, transactionIds: input.transactionIds }
+        entityLabel: `Transações estornadas do usuário ${input.userId}`,
+        oldValues: null,
+        newValues: {
+          count: input.transactionIds.length,
+          transactionIds: input.transactionIds,
+          confirmationReason: input.confirmationReason?.trim(),
+        }
       });
 
       return {

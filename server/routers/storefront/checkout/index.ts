@@ -83,10 +83,6 @@ export const checkoutRouter = router({
         customerName: z.string().min(1, "Nome é obrigatório"),
         customerPhone: z.string().min(10, "Telefone inválido"),
         useLoyaltyPoints: z.boolean().default(false),
-        loyaltyDiscount: z.number().optional(),
-        discountAmount: z.number().optional(),
-        shippingCost: z.number().optional(),
-        totalAmount: z.number().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -182,8 +178,6 @@ export const checkoutRouter = router({
             } as AddressSnap,
             payMethod,
             verifiedItems: checkout.items,
-            pointsUsed: checkout.pointsUsed,
-            pointsEarned: checkout.pointsEarned,
             finalNet: checkout.total,
           });
 

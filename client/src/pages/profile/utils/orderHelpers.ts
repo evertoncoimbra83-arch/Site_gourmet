@@ -1,4 +1,5 @@
 import { Order, OrderItem } from "../types/orderTypes";
+import { safeNumber } from "@/lib/safe-parse";
 
 export interface OrderDiscounts {
   subtotal: number;
@@ -68,7 +69,7 @@ export function safeJsonParse(value: unknown): Record<string, unknown> {
 
 export function safeNum(val: unknown): number {
   if (typeof val === "number") return val;
-  const parsed = parseFloat(String(val ?? "0").replace(",", "."));
+  const parsed = safeNumber(String(val ?? "0").replace(",", "."));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 

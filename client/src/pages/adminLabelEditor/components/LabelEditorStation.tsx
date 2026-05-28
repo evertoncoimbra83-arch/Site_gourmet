@@ -4,6 +4,7 @@ import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeJsonParse } from "@/lib/safe-parse";
 import {
   ChevronLeft,
   ChevronRight,
@@ -37,6 +38,7 @@ export interface LabelTemplate {
   width?: number;
   height?: number;
   source?: "admin.labels" | "legacy";
+  isDefault?: boolean;
 }
 
 interface LabelEditorStationProps {
@@ -85,9 +87,12 @@ export function LabelEditorStation({
   );
 
   const upsertTemplate = trpc.admin.labels.upsertTemplate.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       await utils.admin.labels.getTemplates.invalidate();
       toast.success("Design atualizado!");
+      if (data && data.id) {
+        setTemplateId(`new:${data.id}`);
+      }
     },
     onError: (error) => toast.error(`Falha ao salvar: ${error.message}`),
   });
@@ -96,6 +101,17 @@ export function LabelEditorStation({
     onSuccess: async () => {
       await utils.admin.labels.getTemplates.invalidate();
       toast.success("Template excluído.");
+      // Seleciona o primeiro template restante na lista ou limpa a seleção
+      if (templates.length > 1) {
+        const remaining = templates.filter((t) => t.id !== templateId);
+        if (remaining.length > 0) {
+          loadTemplate(remaining[0]);
+          return;
+        }
+      }
+      setTemplateId(null);
+      setTemplateName("Novo Layout");
+      setElements([]);
     },
     onError: (error) => toast.error(`Falha ao excluir: ${error.message}`),
   });
@@ -111,6 +127,7 @@ export function LabelEditorStation({
         elements: template.elements,
         config: { width: template.width, height: template.height },
         source: template.source,
+        isDefault: template.isDefault,
       })),
     [legacyRaw, templatesRaw],
   );
@@ -125,7 +142,7 @@ export function LabelEditorStation({
 
     const rawElements =
       typeof template.elements === "string"
-        ? (JSON.parse(template.elements) as LabelElement[])
+        ? safeJsonParse<LabelElement[]>(template.elements, [])
         : template.elements || [];
 
     setElements(rawElements);
@@ -163,7 +180,16 @@ export function LabelEditorStation({
       x: 10,
       y: 10,
       width,
-      height: type === "image" || type === "box" ? 40 : content === "{{TABELA_NUTRI}}" ? 60 : 15,
+      height:
+        type === "image" || type === "box"
+          ? 40
+          : content === "{{TABELA_NUTRI}}"
+            ? 60
+            : content === "{{COMPOSICAO_LINHAS}}"
+              ? 35
+              : content === "{{MACROS_LINHAS}}"
+                ? 35
+                : 15,
       fontSize,
       fontWeight: "700",
       zIndex: elements.length + 1,
@@ -181,15 +207,20 @@ export function LabelEditorStation({
       return;
     }
 
-    const numericId =
-      typeof templateId === "number"
-        ? templateId
-        : typeof templateId === "string" && /^\d+$/.test(templateId)
-          ? Number(templateId)
-          : undefined;
+    let numericId: number | undefined = undefined;
+    if (typeof templateId === "number") {
+      numericId = templateId;
+    } else if (typeof templateId === "string") {
+      if (templateId.startsWith("new:")) {
+        const parsed = Number(templateId.replace("new:", ""));
+        if (Number.isFinite(parsed)) {
+          numericId = parsed;
+        }
+      }
+    }
 
     upsertTemplate.mutate({
-      id: Number.isFinite(numericId) ? numericId : undefined,
+      id: numericId,
       name: trimmedName,
       width: labelWidthMm,
       height: labelHeightMm,
@@ -204,27 +235,38 @@ export function LabelEditorStation({
       return;
     }
 
-    const numericId =
-      typeof templateId === "number"
-        ? templateId
-        : typeof templateId === "string" && /^\d+$/.test(templateId)
-          ? Number(templateId)
-          : NaN;
+    let numericId: number = NaN;
+    if (typeof templateId === "number") {
+      numericId = templateId;
+    } else if (typeof templateId === "string") {
+      if (templateId.startsWith("new:")) {
+        const parsed = Number(templateId.replace("new:", ""));
+        if (Number.isFinite(parsed)) {
+          numericId = parsed;
+        }
+      }
+    }
 
     if (!Number.isFinite(numericId)) {
       toast.error("Templates legados são somente leitura.");
       return;
     }
 
-    if (!window.confirm(`Deseja realmente excluir o layout "${templateName}"?`)) {
-      return;
+    const targetTemplate = templates.find((t) => t.id === templateId);
+    const isDefault = targetTemplate ? Boolean(targetTemplate.isDefault) : false;
+
+    if (isDefault) {
+      if (!window.confirm("Este é o modelo padrão de etiqueta do sistema. Tem certeza que deseja excluí-lo?")) {
+        return;
+      }
+    } else {
+      if (!window.confirm("Tem certeza que deseja excluir este modelo de etiqueta?")) {
+        return;
+      }
     }
 
     deleteTemplate.mutate({ id: numericId });
-    setTemplateId(null);
-    setTemplateName("Novo Layout");
-    setElements([]);
-  }, [deleteTemplate, templateId, templateName]);
+  }, [deleteTemplate, templateId, templates]);
 
   const handlePrintSingle = useReactToPrint({ contentRef: printRef });
   const handlePrintAll = useReactToPrint({ contentRef: printAllRef });
@@ -447,6 +489,22 @@ export function LabelEditorStation({
             )}
             Salvar Design
           </Button>
+
+          {templateId && String(templateId).startsWith("new:") && (
+            <Button
+              onClick={handleDelete}
+              disabled={deleteTemplate.isPending}
+              variant="destructive"
+              className="h-12 w-full rounded-xl text-[10px] font-black uppercase tracking-[0.2em]"
+            >
+              {deleteTemplate.isPending ? (
+                <Loader2 size={16} className="mr-2 animate-spin" />
+              ) : (
+                <Trash2 size={16} className="mr-2" />
+              )}
+              Excluir Modelo
+            </Button>
+          )}
         </footer>
       </aside>
 
@@ -498,7 +556,9 @@ export function LabelEditorStation({
               isDesignMode={mode === "design"}
               selectedId={selectedElementId}
               setSelectedId={setSelectedElementId}
-              parseContent={parseContent}
+              parseContent={(content, _element, index) =>
+                parseContent(content, index)
+              }
               zoom={zoom}
             />
           </div>

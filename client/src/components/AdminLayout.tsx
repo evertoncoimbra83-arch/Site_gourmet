@@ -1,12 +1,13 @@
+// client/src/components/AdminLayout.tsx
 import React, { useState, useEffect, useMemo } from "react";
 import {
   LayoutDashboard, UtensilsCrossed, Layers, Package, Settings, LogOut,
-  Menu, X, Users, ShoppingCart, CreditCard, Truck,
-  Image as ImageIcon, ChevronDown, ShieldCheck, LayoutTemplate,
-  History, BellRing, ShoppingBag, TicketPercent, Zap,
+  Menu, X, Users, ShoppingCart, Truck,
+  ChevronDown, ShieldCheck, LayoutTemplate,
+  History, BellRing, ShoppingBag, Zap,
   Mail, BarChart3, Megaphone, Monitor,
-  Gift, Tags, Share2, Palette, Target, Printer
-} from "lucide-react";
+  Gift, Tags, Share2, Palette, Printer,
+  Store, PackageCheck, ServerCog, BrainCircuit, ShieldAlert} from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ import OneSignal from "react-onesignal";
 import { appToast as toast } from "@/lib/app-toast";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { SystemHealthIndicator } from "./SystemHealthIndicator";
+import { hasAdminPermission, type AdminPermission } from "@shared/security/rbac";
 
 // --- INTERFACES ---
 
@@ -26,8 +28,10 @@ interface MenuItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  badge?: string | number; // Alterado para aceitar string (ex: "BETA")
+  badge?: string | number;
   badgeColor?: string;
+  permission?: AdminPermission;
+  isActive?: (fullPath: string, pathname: string) => boolean;
 }
 
 interface MenuGroup {
@@ -37,11 +41,28 @@ interface MenuGroup {
   items: MenuItem[];
 }
 
+function matchesMenuHref(href: string, fullPath: string, pathname: string) {
+  const [basePath, query] = href.split("?");
+
+  if (query) {
+    return pathname === basePath && fullPath.startsWith(`${basePath}?`);
+  }
+
+  return (
+    pathname === basePath ||
+    fullPath === href ||
+    pathname.startsWith(`${basePath}/`)
+  );
+}
+
 export default function AdminLayout() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [openGroups, setOpenGroups] = useState<string[]>([]);
+
+  // ✅ Caminho completo para detectar sub-abas ativas no menu lateral
+  const fullPath = useMemo(() => `${pathname}${search}`, [pathname, search]);
 
   // PERSISTÊNCIA DE VISUALIZAÇÃO
   const [lastViewedOrderId, setLastViewedOrderId] = useState<string>(() => 
@@ -50,6 +71,10 @@ export default function AdminLayout() {
   const [lastViewedAbandonedId, setLastViewedAbandonedId] = useState<string>(() => 
     localStorage.getItem("last_viewed_abandoned_id") || "0"
   );
+
+  const isMenuItemActive = (item: MenuItem) =>
+    item.isActive?.(fullPath, pathname) ??
+    matchesMenuHref(item.href, fullPath, pathname);
 
   // QUERIES DE MONITORAMENTO
   const { data: abandonedData } = trpc.admin.orders.getAbandonedCarts.useQuery(undefined, { refetchInterval: 60000 });
@@ -82,79 +107,101 @@ export default function AdminLayout() {
     setIsMobileMenuOpen(false);
   }, [pathname, pendingOrders, abandonedData]);
 
-  // ✅ GRUPOS DE MENU (Sincronizado com GourmetIA Bridge)
+  // ✅ MENU REESTRUTURADO (Fase P2: Consolidação e Organização Visual)
   const menuGroups: MenuGroup[] = [
     {
-      id: "operations",
-      label: "Operações",
-      icon: Zap,
+      id: "general",
+      label: "Painel Geral",
+      icon: BarChart3,
       items: [
-        { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
-        { label: "Pedidos Live", href: "/admin/orders", icon: ShoppingCart, badge: newOrdersCount, badgeColor: "bg-rose-500" },
-        { label: "Carrinhos Perdidos", href: "/admin/abandoned-carts", icon: ShoppingBag, badge: newAbandonedCount, badgeColor: "bg-amber-500" },
-        { label: "BI & Analytics", href: "/admin/analytics", icon: BarChart3 },
-        { label: "Gestão Nutri", href: "/admin/nutris", icon: ShieldCheck },
-        { label: "Clientes", href: "/admin/users", icon: Users },
+        {
+          label: "Dashboard",
+          href: "/admin",
+          icon: LayoutDashboard,
+          isActive: (_, currentPathname) =>
+            currentPathname === "/admin" || currentPathname === "/admin/dashboard",
+        },
+        { label: "BI & Analytics", href: "/admin/analytics", icon: BarChart3, permission: "finance:view" },
       ],
     },
     {
-      id: "logistics",
-      label: "Produção & Zebra",
-      icon: Truck,
+      id: "operations",
+      label: "Operações Diárias",
+      icon: Zap,
       items: [
-        { label: "Fila de Impressão", href: "/admin/labels/editor/production", icon: Printer },
-        { label: "Studio de Etiquetas", href: "/admin/labels/editor", icon: LayoutTemplate },
+        { label: "Pedidos", href: "/admin/orders", icon: ShoppingCart, badge: newOrdersCount, badgeColor: "bg-rose-500" },
+        { label: "PDV & Caixa", href: "/admin/pdv", icon: ShoppingBag },
+        {
+          label: "Produção de Etiquetas",
+          href: "/admin/labels/editor/production",
+          icon: Printer,
+          isActive: (currentFullPath) =>
+            currentFullPath === "/admin/labels/editor/production" ||
+            currentFullPath.startsWith("/admin/labels/editor/production/"),
+        },
+        { label: "Carrinhos Perdidos", href: "/admin/abandoned-carts", icon: ShoppingBag, badge: newAbandonedCount, badgeColor: "bg-amber-500" },
+        { label: "Clientes", href: "/admin/users", icon: Users, permission: "customers:manage" },
       ],
     },
     {
       id: "catalog",
-      label: "Catálogo",
+      label: "Cardápio & Loja",
       icon: UtensilsCrossed,
       items: [
-        { label: "Pratos & Itens", href: "/admin/dishes", icon: UtensilsCrossed },
-        { label: "Acomp. & Tamanhos", href: "/admin/sizes-accompaniments", icon: Layers },
-        { label: "Pacotes", href: "/admin/packages", icon: Package },
+        { label: "Pratos & Itens", href: "/admin/dishes", icon: UtensilsCrossed, permission: "catalog:manage" },
+        { label: "Acomp. & Tamanhos", href: "/admin/sizes-accompaniments", icon: Layers, permission: "catalog:manage" },
+        { label: "Pacotes", href: "/admin/packages", icon: Package, permission: "catalog:manage" },
+        { label: "Vitrines Home", href: "/admin/showcases", icon: LayoutTemplate, permission: "catalog:manage" },
+        { label: "Gestao Nutri", href: "/admin/nutris", icon: ShieldCheck, permission: "catalog:manage" },
       ],
     },
     {
       id: "marketing",
-      label: "Marketing & Retenção",
-      icon: Megaphone,
+      label: "Fidelidade & Cupons",
+      icon: Gift,
       items: [
-        { label: "Central de Marketing", href: "/admin/marketing", icon: Target },
-        { label: "Clube de Fidelidade", href: "/admin/loyalty", icon: Gift },
-        { label: "Regras de Desconto", href: "/admin/offers", icon: Tags },
-        { label: "Indique e Ganhe", href: "/admin/referrals", icon: Share2 },
-        { label: "Cupons Manuais", href: "/admin/coupons", icon: TicketPercent },
-        { label: "E-mails", href: "/admin/mail", icon: Mail },
+        { label: "Cupons de Desconto", href: "/admin/coupons", icon: Tags, permission: "marketing:manage" },
+        { label: "Regras de Oferta", href: "/admin/offers", icon: Tags, permission: "marketing:manage" },
+        { label: "Clube de Fidelidade", href: "/admin/loyalty", icon: Gift, permission: "loyalty:manage" },
+        { label: "Indique e Ganhe", href: "/admin/referrals", icon: Share2, permission: "marketing:manage" },
+        { label: "Central de E-mails", href: "/admin/mail", icon: Mail, permission: "marketing:manage" },
       ],
     },
     {
       id: "settings",
-      label: "Site & Configurações",
+      label: "Configurações",
       icon: Settings,
       items: [
-        { label: "Vitrines da Home", href: "/admin/showcases", icon: LayoutTemplate },
-        { label: "Aparência do Site", href: "/admin/theme", icon: Palette },
-        { label: "Biblioteca Mídia", href: "/admin/media", icon: ImageIcon },
-        { label: "Logística Geral", href: "/admin/shipping", icon: Truck },
-        { label: "Pagamentos", href: "/admin/payment-methods", icon: CreditCard },
-        { label: "Ajustes Gerais", href: "/admin/settings", icon: Settings },
-        // 🚀 NOVA ROTA GOURMETIA BRIDGE
-        { label: "Integração IA", href: "/admin/integration", icon: Zap, badge: "BETA", badgeColor: "bg-blue-600" },
-        { label: "Logs do Sistema", href: "/admin/logs", icon: History },
+        {
+          label: "Configurações Globais",
+          href: "/admin/settings?tab=store",
+          icon: Store,
+          permission: "settings:critical",
+          isActive: (_, currentPathname) => currentPathname === "/admin/settings",
+        },
+        { label: "Logs de Auditoria", href: "/admin/logs", icon: History, permission: "audit:read" },
       ],
     },
   ];
 
+  const visibleMenuGroups = menuGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.permission || hasAdminPermission(user?.role, item.permission),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  // Auto-expande o grupo correto baseado na URL (incluindo parâmetros)
   useEffect(() => {
-    const activeGroup = menuGroups.find(group => 
-      group.items.some(item => pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href)))
+    const activeGroup = visibleMenuGroups.find(group => 
+      group.items.some((item) => isMenuItemActive(item))
     );
     if (activeGroup && !openGroups.includes(activeGroup.id)) {
       setOpenGroups(prev => [...prev, activeGroup.id]);
     }
-  }, [pathname]);
+  }, [fullPath, visibleMenuGroups]);
 
   const handleEnableNotifications = async () => {
     try {
@@ -177,37 +224,41 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen bg-[#F8F9FB] flex flex-col md:flex-row font-sans text-slate-900">
       
-      <header className="md:hidden sticky top-0 z-110 bg-white/70 backdrop-blur-md border-b border-slate-200/50 px-6 h-16 flex items-center justify-between shadow-xs">
+      {/* Mobile Header */}
+      <header className="md:hidden sticky top-0 z-110 bg-white/70 backdrop-blur-md border-b border-slate-200/50 px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 bg-slate-950 rounded-lg flex items-center justify-center">
             <ShieldCheck size={16} className="text-emerald-400" />
           </div>
-          <span className="font-black text-slate-900 uppercase italic text-xs tracking-tighter">Admin Boutique</span>
+          <span className="font-black text-slate-900 uppercase italic text-xs tracking-tighter">Boutique Admin</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 bg-slate-100 rounded-xl text-slate-900 active:scale-90 transition-all">
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 bg-slate-100 rounded-xl">
           {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </header>
 
+      {/* Sidebar Navigation */}
       <aside className={cn(
           "fixed inset-y-0 left-0 w-80 transition-all duration-500 ease-in-out z-105 md:translate-x-0 bg-transparent pointer-events-none md:pointer-events-auto",
           isMobileMenuOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full"
         )}>
-        <div className="m-4 h-[calc(100vh-2rem)] rounded-4xl border border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col pointer-events-auto">
+        <div className="m-4 h-[calc(100vh-2rem)] rounded-[2.5rem] border border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col pointer-events-auto">
           
+          {/* Logo Section */}
           <div className="p-8 border-b border-slate-50 flex items-center gap-4 shrink-0">
-            <div className="h-12 w-12 bg-slate-950 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 transition-transform hover:rotate-3">
+            <div className="h-12 w-12 bg-slate-950 rounded-2xl flex items-center justify-center shadow-lg transition-transform hover:rotate-3">
               <ShieldCheck size={24} className="text-emerald-400" />
             </div>
             <div>
-              <p className="text-xl font-black text-slate-900 tracking-tighter italic">BOUTIQUE</p>
+              <p className="text-xl font-black text-slate-900 tracking-tighter italic uppercase">Boutique</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Admin Control</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Painel de Controle</p>
               </div>
             </div>
           </div>
 
+          {/* Navigation Scroll Area */}
           <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
             <div className="bg-slate-50/50 rounded-3xl p-4 mb-6 border border-slate-100/50">
                 <SystemHealthIndicator />
@@ -216,13 +267,13 @@ export default function AdminLayout() {
                   className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-white text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-950 hover:text-white transition-all shadow-sm border border-slate-100"
                 >
                   <BellRing size={14} className={cn(newOrdersCount > 0 ? "animate-bounce text-rose-500" : "")} />
-                  {newOrdersCount > 0 ? `${newOrdersCount} Pedidos Novos` : "Alertas Push"}
+                  {newOrdersCount > 0 ? `${newOrdersCount} Pedidos Novos` : "Alertas Ativos"}
                 </button>
             </div>
 
-            {menuGroups.map((group) => {
+            {visibleMenuGroups.map((group) => {
               const isGrpOpen = openGroups.includes(group.id);
-              const hasActiveItem = group.items.some(item => pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href)));
+              const hasActiveItem = group.items.some((item) => isMenuItemActive(item));
               
               return (
                 <div key={group.id} className="mb-2">
@@ -245,7 +296,7 @@ export default function AdminLayout() {
                     isGrpOpen ? "max-h-150 opacity-100 mt-1" : "max-h-0 opacity-0"
                   )}>
                     {group.items.map((item) => {
-                      const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+                      const isActive = isMenuItemActive(item);
                       return (
                         <NavLink
                           key={item.href}
@@ -259,7 +310,7 @@ export default function AdminLayout() {
                             <item.icon size={16} className={cn("transition-transform group-hover/item:scale-110", isActive ? "text-emerald-600" : "text-slate-300")} />
                             <span className="text-[10px] font-bold uppercase tracking-tight">{item.label}</span>
                           </div>
-                          {item.badge !== undefined && (typeof item.badge === "string" || item.badge > 0) && (
+                          {item.badge !== undefined && (typeof item.badge === "string" || (typeof item.badge === "number" && item.badge > 0)) && (
                             <span className={cn(
                                 "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[9px] font-black text-white shadow-sm leading-none",
                                 item.badgeColor || "bg-rose-500",
@@ -289,8 +340,9 @@ export default function AdminLayout() {
         </div>
       </aside>
 
+      {/* Main Content Area */}
       <main className="flex-1 md:pl-80 transition-all duration-300">
-        <div className="p-6 md:p-12 lg:p-16 max-w-400 mx-auto min-h-screen flex flex-col">
+        <div className="p-6 md:p-12 w-full min-h-screen flex flex-col max-w-400 mx-auto">
           <div className="mb-8 flex items-center justify-between">
             <div className="flex items-center gap-2 text-slate-300 text-[10px] font-bold uppercase tracking-widest">
               <Monitor size={14} />

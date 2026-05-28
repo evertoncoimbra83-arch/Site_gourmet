@@ -3,9 +3,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
-import { orders, orderItems } from "../../../drizzle/schema/index.js"; 
+import { orders, orderItems, dishes, packages } from "../../../drizzle/schema/index.js"; 
 import { eq, inArray, desc } from "drizzle-orm";
 import { safeJsonParse as parseJsonSafe, safeNumber } from "../../lib/safe-parse.js";
+import { logger } from "../../logger.js";
 
 type DbClient = Awaited<ReturnType<typeof getDb>>;
 
@@ -23,6 +24,7 @@ interface OrderItemParsed {
   appliedNutrition: Record<string, unknown> | null;
   dishName: string;
   sizeName: string | null;
+  imageUrl?: string | null;
 }
 
 /**
@@ -57,8 +59,25 @@ async function fetchOrderWithItems(db: NonNullable<DbClient>, orderId: string) {
   if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
 
   const itemsRaw = await db
-    .select()
+    .select({
+      id: orderItems.id,
+      orderId: orderItems.orderId,
+      dishId: orderItems.dishId,
+      packageId: orderItems.packageId,
+      dishName: orderItems.dishName,
+      sizeName: orderItems.sizeName,
+      quantity: orderItems.quantity,
+      unitPrice: orderItems.unitPrice,
+      discountAmount: orderItems.discountAmount,
+      totalPrice: orderItems.totalPrice,
+      options: orderItems.options,
+      appliedNutrition: orderItems.appliedNutrition,
+      dishImage: dishes.imageUrl,
+      packageImage: packages.imageUrl,
+    })
     .from(orderItems)
+    .leftJoin(dishes, eq(orderItems.dishId, dishes.id))
+    .leftJoin(packages, eq(orderItems.packageId, packages.id))
     .where(eq(orderItems.orderId, order.id));
 
   const items: OrderItemParsed[] = itemsRaw.map((i) => ({
@@ -69,7 +88,8 @@ async function fetchOrderWithItems(db: NonNullable<DbClient>, orderId: string) {
     unitPrice: safeNumber(i.unitPrice),
     totalPrice: safeNumber(i.totalPrice),
     options: safeJsonParse(i.options),
-    appliedNutrition: safeJsonParse(i.appliedNutrition)
+    appliedNutrition: safeJsonParse(i.appliedNutrition),
+    imageUrl: i.dishImage || i.packageImage || null,
   }));
 
   return {
@@ -105,8 +125,25 @@ export const ordersRouter = router({
 
     const orderIds = baseOrders.map((o) => o.id);
     const allItemsRaw = await db
-      .select()
+      .select({
+        id: orderItems.id,
+        orderId: orderItems.orderId,
+        dishId: orderItems.dishId,
+        packageId: orderItems.packageId,
+        dishName: orderItems.dishName,
+        sizeName: orderItems.sizeName,
+        quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice,
+        discountAmount: orderItems.discountAmount,
+        totalPrice: orderItems.totalPrice,
+        options: orderItems.options,
+        appliedNutrition: orderItems.appliedNutrition,
+        dishImage: dishes.imageUrl,
+        packageImage: packages.imageUrl,
+      })
       .from(orderItems)
+      .leftJoin(dishes, eq(orderItems.dishId, dishes.id))
+      .leftJoin(packages, eq(orderItems.packageId, packages.id))
       .where(inArray(orderItems.orderId, orderIds));
 
     return baseOrders.map((o) => {
@@ -120,7 +157,8 @@ export const ordersRouter = router({
           unitPrice: safeNumber(item.unitPrice), 
           totalPrice: safeNumber(item.totalPrice),
           options: safeJsonParse(item.options),
-          appliedNutrition: safeJsonParse(item.appliedNutrition)
+          appliedNutrition: safeJsonParse(item.appliedNutrition),
+          imageUrl: item.dishImage || item.packageImage || null,
         }));
 
       return {
@@ -137,12 +175,28 @@ export const ordersRouter = router({
     });
   }),
 
-  getPublicDetail: publicProcedure 
+  getPublicDetail: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return await fetchOrderWithItems(db, input.orderId);
+      const order = await fetchOrderWithItems(db, input.orderId);
+      if (String(order.userId) !== String(ctx.user.id)) {
+        logger.warn(
+          {
+            orderId: input.orderId,
+            userId: ctx.user.id,
+            ownerId: order.userId,
+            ip: ctx.req?.ip,
+          },
+          "[SECURITY] Tentativa invalida de acesso a pedido",
+        );
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Pedido nao pertence ao usuario.",
+        });
+      }
+      return order;
     }),
 
   getById: protectedProcedure
@@ -152,7 +206,7 @@ export const ordersRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const order = await fetchOrderWithItems(db, input.id);
       if (String(order.userId) !== String(ctx.user.id)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Pedido nÃ£o pertence ao usuÃ¡rio." });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Pedido não pertence ao usuário." });
       }
       return order;
     }),

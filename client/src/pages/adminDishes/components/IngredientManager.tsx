@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { IngredientForm } from "./IngredientForm";
 import { BarcodeScanner } from "./BarcodeScanner";
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 interface ExternalProduct {
@@ -298,7 +299,7 @@ export function IngredientManager() {
               // ✅ CORREÇÃO DEFINITIVA: Removido 'any', usando o tipo extraído da prop do IngredientForm
               setFormData={setFormData as unknown as (data: Parameters<typeof IngredientForm>[0]['formData']) => void} 
               handleKcalChange={(kcal) => {
-                const val = parseFloat(kcal) || 0;
+                const val = safeNumber(kcal);
                 setFormData(prev => ({ ...prev, energyKcal: kcal, energyKj: (val * 4.184).toFixed(2) }));
               }} 
             />

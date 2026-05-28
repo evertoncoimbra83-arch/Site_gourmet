@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { trpc } from "../../../_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
+import { normalizeImageUrl } from "@shared/utils/assets";
 
 function normalizeFolder(folder?: string | null) {
   const normalized = (folder || "all").toLowerCase().trim();
@@ -80,30 +81,10 @@ export function useAdminMedia(currentFolder?: string | null) {
     }
   };
 
-  const getFullUrl = (url: string) => {
-    if (!url) return "";
-
-    if (url.startsWith("https://res.cloudinary.com")) {
-      if (url.includes("/q_auto,f_auto/")) {
-        return url;
-      }
-
-      if (url.includes("/upload/")) {
-        return url.replace("/upload/", "/upload/q_auto,f_auto/");
-      }
-
-      return url;
-    }
-
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
-    const cleanPath = url.replace(/^\/?public\//, "").replace(/^\//, "");
-    return `${baseUrl}/${cleanPath}`;
-  };
-
   const copyToClipboard = (text: string) => {
     if (!text) return;
 
-    const absoluteUrl = getFullUrl(text);
+    const absoluteUrl = normalizeImageUrl(text) || "";
     navigator.clipboard
       .writeText(absoluteUrl)
       .then(() => toast.success("Link copiado para a area de transferencia!"))
@@ -128,7 +109,6 @@ export function useAdminMedia(currentFolder?: string | null) {
     actions: {
       processFiles,
       handleDelete,
-      getFullUrl,
       copyToClipboard,
       triggerSelect: () => fileInputRef.current?.click(),
     },

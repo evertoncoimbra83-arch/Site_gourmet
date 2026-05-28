@@ -1,5 +1,6 @@
 // client/src/pages/adminLabelEditor/print-engine/logic.ts
 import { addDays, format } from "date-fns";
+import { safeJsonParse, safeNumber } from "@/lib/safe-parse";
 
 export interface NutritionData {
   energyKcal?: number;
@@ -16,6 +17,14 @@ export interface NutritionData {
   iron?: number;
   yieldWeight?: number;
 }
+
+const EMPTY_NUTRITION_FALLBACK: NutritionData = {
+  energyKcal: 0,
+  carbs: 0,
+  proteins: 0,
+  fatTotal: 0,
+  yieldWeight: 0,
+};
 
 export interface FlatLabel {
   id: string | number;
@@ -78,6 +87,7 @@ export interface OrderItem {
   ingredients?: string;
   accompaniments_ingredients?: string;
   size_name?: string;
+  sizeName?: string | null;
   options?: string | ParsedOptions;
   parsedOptions?: string | ParsedOptions;
   packageItems?: MealOption[];
@@ -87,6 +97,7 @@ export interface OrderItem {
   nutritional_info?: unknown;
   nutritionalInfo?: unknown;
   nutritionData?: unknown;
+  imageUrl?: string | null;
 }
 
 export interface OrderData {
@@ -98,13 +109,9 @@ export interface OrderData {
 function deepJsonParse<T>(val: unknown): T | Partial<T> {
   if (!val) return {} as Partial<T>;
   if (typeof val !== "string") return val as T;
-  try {
-    const parsed = JSON.parse(val);
-    if (typeof parsed === "string") return deepJsonParse<T>(parsed);
-    return (parsed && typeof parsed === "object") ? (parsed as T) : ({} as Partial<T>);
-  } catch {
-    return {} as Partial<T>;
-  }
+  const parsed = safeJsonParse<unknown>(val, {});
+  if (typeof parsed === "string") return deepJsonParse<T>(parsed);
+  return parsed && typeof parsed === "object" ? (parsed as T) : ({} as Partial<T>);
 }
 
 /**
@@ -140,6 +147,32 @@ function toUpperSafe(val: unknown): string {
   return cleanText(val).toUpperCase();
 }
 
+function splitCompositionText(
+  mainDish: string,
+  accompaniments: string[],
+): { mainDish: string; accompaniments: string[] } {
+  const normalizedMainDish = cleanText(mainDish);
+  const normalizedAccs = accompaniments.map(cleanText).filter(Boolean);
+
+  if (normalizedAccs.length > 0) {
+    return { mainDish: normalizedMainDish, accompaniments: normalizedAccs };
+  }
+
+  if (!normalizedMainDish.includes("+")) {
+    return { mainDish: normalizedMainDish, accompaniments: [] };
+  }
+
+  const parts = normalizedMainDish
+    .split("+")
+    .map((part) => cleanText(part))
+    .filter(Boolean);
+
+  return {
+    mainDish: parts[0] || normalizedMainDish,
+    accompaniments: parts.slice(1),
+  };
+}
+
 export function formatNutritionAmount(value: unknown, unit: "kcal" | "g" | "mg"): string {
   const parsed = Number(String(value ?? 0).replace(",", "."));
   if (!Number.isFinite(parsed)) return "-";
@@ -152,21 +185,33 @@ export function formatNutritionAmount(value: unknown, unit: "kcal" | "g" | "mg")
   return `${formatted}${unit === "kcal" ? " kcal" : unit}`;
 }
 
+function formatMacroValue(value: number | undefined): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return "--g";
+
+  const hasFraction = Math.abs(value % 1) > 0;
+  const formatted = value.toLocaleString("pt-BR", {
+    minimumFractionDigits: hasFraction ? 1 : 0,
+    maximumFractionDigits: hasFraction ? 1 : 0,
+  });
+
+  return `${formatted}g`;
+}
+
 export function normalizeNutrition(raw: Record<string, unknown>): NutritionData {
   return {
-    energyKcal: Number(raw.energyKcal ?? raw.energy_kcal ?? raw.kcal ?? 0),
-    energyKj: Number(raw.energyKj ?? raw.energy_kj ?? 0),
-    proteins: Number(raw.proteins ?? raw.protein ?? 0),
-    carbs: Number(raw.carbs ?? raw.carbohydrates ?? 0),
-    fatTotal: Number(raw.fatTotal ?? raw.fat_total ?? raw.fats ?? 0),
-    fatSaturated: Number(raw.fatSaturated ?? raw.fat_saturated ?? raw.saturatedFats ?? 0),
-    fatTrans: Number(raw.fatTrans ?? raw.fat_trans ?? raw.transFats ?? 0),
-    fiber: Number(raw.fiber ?? raw.dietary_fiber ?? 0),
-    sodium: Number(raw.sodium ?? raw.salt ?? 0),
-    addedSugars: Number(raw.addedSugars ?? raw.added_sugars ?? 0),
-    calcium: Number(raw.calcium ?? 0),
-    iron: Number(raw.iron ?? 0),
-    yieldWeight: Number(raw.yieldWeight ?? raw.yield_weight ?? 0),
+    energyKcal: safeNumber(raw.energyKcal ?? raw.energy_kcal ?? raw.kcal),
+    energyKj: safeNumber(raw.energyKj ?? raw.energy_kj),
+    proteins: safeNumber(raw.proteins ?? raw.protein),
+    carbs: safeNumber(raw.carbs ?? raw.carbohydrates),
+    fatTotal: safeNumber(raw.fatTotal ?? raw.fat_total ?? raw.fats),
+    fatSaturated: safeNumber(raw.fatSaturated ?? raw.fat_saturated ?? raw.saturatedFats),
+    fatTrans: safeNumber(raw.fatTrans ?? raw.fat_trans ?? raw.transFats),
+    fiber: safeNumber(raw.fiber ?? raw.dietary_fiber),
+    sodium: safeNumber(raw.sodium ?? raw.salt),
+    addedSugars: safeNumber(raw.addedSugars ?? raw.added_sugars),
+    calcium: safeNumber(raw.calcium),
+    iron: safeNumber(raw.iron),
+    yieldWeight: safeNumber(raw.yieldWeight ?? raw.yield_weight),
   };
 }
 
@@ -214,12 +259,12 @@ export function extractNutrition(
   return null;
 }
 
-function formatNutritionLinear(nutri: NutritionData | null): string {
+export function formatNutritionLinear(nutri: NutritionData | null): string {
   if (!nutri) return "INF. NUTRICIONAL INDISPONÍVEL";
   return `KCAL: ${nutri.energyKcal?.toFixed(1)} | CARB: ${nutri.carbs?.toFixed(1)}G | PROT: ${nutri.proteins?.toFixed(1)}G | GORD: ${nutri.fatTotal?.toFixed(1)}G`;
 }
 
-function formatNutritionText(nutri: NutritionData | null): string {
+export function formatNutritionText(nutri: NutritionData | null): string {
   if (!nutri) return "INFORMAÇÃO NUTRICIONAL INDISPONÍVEL";
   const weight = nutri.yieldWeight ? `PORÇÃO DE ${nutri.yieldWeight}G` : "PORÇÃO PADRÃO";
   return [
@@ -232,6 +277,28 @@ function formatNutritionText(nutri: NutritionData | null): string {
   ].join("\n");
 }
 
+export function formatMacrosCompact(nutri: NutritionData | null): string {
+  if (!nutri) return "P --g • C --g • G --g";
+
+  return [
+    `P ${formatMacroValue(nutri.proteins)}`,
+    `C ${formatMacroValue(nutri.carbs)}`,
+    `G ${formatMacroValue(nutri.fatTotal)}`,
+  ].join(" • ");
+}
+
+export function formatMacrosLines(nutri: NutritionData | null): string {
+  if (!nutri) {
+    return ["Proteinas: --g", "Carboidratos: --g", "Gorduras: --g"].join("\n");
+  }
+
+  return [
+    `Proteinas: ${formatMacroValue(nutri.proteins)}`,
+    `Carboidratos: ${formatMacroValue(nutri.carbs)}`,
+    `Gorduras: ${formatMacroValue(nutri.fatTotal)}`,
+  ].join("\n");
+}
+
 export function buildFlatLabels(order: OrderData | null): FlatLabel[] {
   const items = order?.items;
   if (!Array.isArray(items)) return [];
@@ -240,12 +307,12 @@ export function buildFlatLabels(order: OrderData | null): FlatLabel[] {
 
   for (const item of items) {
     const opts = deepJsonParse<ParsedOptions>(item.parsedOptions || item.options || "{}") as ParsedOptions;
-    const qty = Number(item.quantity || 1);
+    const qty = safeNumber(item.quantity, 1);
 
     for (let i = 0; i < qty; i += 1) {
       const baseDishIng = cleanText(item.ingredients);
       const meals = opts.meals || item.packageItems;
-      const sizeName = cleanText(opts.sizeName || opts.selectedSizeName || item.size_name || "PADRÃO");
+      const sizeName = cleanText(opts.sizeName || opts.selectedSizeName || item.sizeName || item.size_name || "PADRÃO");
 
       if (Array.isArray(meals) && meals.length > 0) {
         meals.forEach((meal, mIdx) => {
@@ -253,28 +320,40 @@ export function buildFlatLabels(order: OrderData | null): FlatLabel[] {
           let accList = meal.accompaniments || meal.selectedAccompaniments || meal.selectedAccs;
           
           if (typeof accList === "string") {
-            try { accList = JSON.parse(accList) as Accompaniment[]; } catch { accList = []; }
+            accList = safeJsonParse<Accompaniment[]>(accList, []);
           }
 
           const accNames = Array.isArray(accList)
             ? accList.map((acc) => cleanText(typeof acc === "string" ? acc : (acc?.name || acc?.label || ""))).filter(Boolean)
             : [];
 
-          const dishName = cleanText(meal.dishName ?? meal.name ?? "ITEM DO COMBO");
-          const compositionName = accNames.length > 0 ? `${dishName} + ${accNames.join(" + ")}` : dishName;
+          const splitMeal = splitCompositionText(
+            cleanText(meal.dishName ?? meal.name ?? "ITEM DO COMBO"),
+            accNames,
+          );
+          const dishName = splitMeal.mainDish;
+          const normalizedAccNames = splitMeal.accompaniments;
+          const compositionName =
+            normalizedAccNames.length > 0
+              ? `${dishName} + ${normalizedAccNames.join(" + ")}`
+              : dishName;
 
           labels.push({
             id: `${item.id}-${i}-m-${mIdx}`,
             mainDishName: dishName,
-            accompaniments: accNames,
+            accompaniments: normalizedAccNames,
             displayName: compositionName,
             compositionName,
             parentName: "",
             slot: cleanText(meal.slotName ?? meal.slot) || `Marmita ${mIdx + 1}`,
             sizeName,
             dishIngredients: dishIng,
-            accIngredients: accNames.map((name) => `+ ${name}`).join("\n"),
-            combinedIngredients: dishIng + (accNames.length > 0 ? `\nCOMPOSIÇÃO:\n${accNames.join(", ")}` : ""),
+            accIngredients: normalizedAccNames.map((name) => `+ ${name}`).join("\n"),
+            combinedIngredients:
+              dishIng +
+              (normalizedAccNames.length > 0
+                ? `\nCOMPOSIÇÃO:\n${normalizedAccNames.join(", ")}`
+                : ""),
             nutrition: extractNutrition(meal, mIdx),
           });
         });
@@ -283,28 +362,42 @@ export function buildFlatLabels(order: OrderData | null): FlatLabel[] {
 
       let accList = opts.accompaniments || opts.selectedAccs || opts.selectedAccompaniments;
       if (typeof accList === "string") {
-        try { accList = JSON.parse(accList) as Accompaniment[]; } catch { accList = []; }
+        accList = safeJsonParse<Accompaniment[]>(accList, []);
       }
 
       const accNames = Array.isArray(accList)
         ? accList.map((acc) => cleanText(typeof acc === "string" ? acc : (acc?.name || acc?.label || ""))).filter(Boolean)
         : [];
         
-      const dishName = cleanText(item.dish_name ?? item.dishName ?? item.name ?? "PRATO");
-      const compositionName = accNames.length > 0 ? `${dishName} + ${accNames.join(" + ")}` : dishName;
+      const splitItem = splitCompositionText(
+        cleanText(item.dish_name ?? item.dishName ?? item.name ?? "PRATO"),
+        accNames,
+      );
+      const dishName = splitItem.mainDish;
+      const normalizedAccNames = splitItem.accompaniments;
+      const compositionName =
+        normalizedAccNames.length > 0
+          ? `${dishName} + ${normalizedAccNames.join(" + ")}`
+          : dishName;
 
       labels.push({
         id: `${item.id}-${i}`,
         mainDishName: dishName,
-        accompaniments: accNames,
+        accompaniments: normalizedAccNames,
         displayName: compositionName,
         compositionName,
         parentName: "",
         slot: "",
         sizeName,
         dishIngredients: baseDishIng,
-        accIngredients: accNames.map((name) => `+ ${name}`).join("\n") || cleanText(item.accompaniments_ingredients),
-        combinedIngredients: baseDishIng + (accNames.length > 0 ? `\nCOMPOSIÇÃO:\n${accNames.join(", ")}` : ""),
+        accIngredients:
+          normalizedAccNames.map((name) => `+ ${name}`).join("\n") ||
+          cleanText(item.accompaniments_ingredients),
+        combinedIngredients:
+          baseDishIng +
+          (normalizedAccNames.length > 0
+            ? `\nCOMPOSIÇÃO:\n${normalizedAccNames.join(", ")}`
+            : ""),
         nutrition: extractNutrition(item, i),
       });
     }
@@ -336,9 +429,33 @@ export function createLabelContentParser(
       });
     }
 
-    const safeDishName = label?.displayName || "PRATO";
-    const safeComposition = label?.displayName || safeDishName;
-    const safeAccs = label?.accIngredients || "";
+    const safeMainDish = label?.mainDishName || "PRATO";
+    let accsList: string[] = [];
+    if (Array.isArray(label?.accompaniments)) {
+      label.accompaniments.forEach((acc) => {
+        if (typeof acc === "string") {
+          accsList.push(...acc.split("+").map((p) => p.trim()).filter(Boolean));
+        }
+      });
+    } else if (typeof label?.accompaniments === "string") {
+      accsList = (label.accompaniments as string).split("+").map((p) => p.trim()).filter(Boolean);
+    }
+
+    let finalMainDish = safeMainDish;
+    let finalAccs = [...accsList];
+
+    if (finalAccs.length === 0 && finalMainDish.includes("+")) {
+      const parts = finalMainDish.split("+").map((p) => p.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        finalMainDish = parts[0];
+        finalAccs = parts.slice(1);
+      }
+    }
+
+    const formatAccsList = (prefix: string) => finalAccs.map((acc) => `${prefix}${acc}`).join("\n");
+    const formatCompLinhas = (prefix: string) => [finalMainDish, ...finalAccs.map((acc) => `${prefix}${acc}`)].join("\n");
+
+    const safeComposition = finalAccs.length > 0 ? `${finalMainDish} + ${finalAccs.join(" + ")}` : finalMainDish;
     const safeIngredients = label?.combinedIngredients || "SEM INGREDIENTES";
     const safeSize = label?.sizeName || "PADRÃO";
     const safeNutrition = label?.nutrition || null;
@@ -349,28 +466,51 @@ export function createLabelContentParser(
       upper === "{TABELA_NUTRICIONAL_GRAFICA}" ||
       upper === "{{TABELA_NUTRI}}"
     ) {
-      return safeNutrition ?? {
-        energyKcal: 0,
-        carbs: 0,
-        proteins: 0,
-        fatTotal: 0,
-        yieldWeight: 0,
-      };
+      return safeNutrition ?? EMPTY_NUTRITION_FALLBACK;
     }
 
     const map: Record<string, string> = {
       "{{CLIENTE}}": toUpperSafe(order?.customerName || "NOME DO CLIENTE"),
-      "{{NOME_PRATO}}": toUpperSafe(safeDishName),
+      "{{NOME_PRATO}}": toUpperSafe(finalMainDish),
+      "{{PRATO_PRINCIPAL}}": toUpperSafe(finalMainDish),
       "{{COMPOSICAO}}": toUpperSafe(safeComposition),
       "{{TAMANHO}}": toUpperSafe(safeSize),
-      "{{ACOMPANHAMENTOS}}": toUpperSafe(safeAccs),
+      "{{TAMANHO_REFEICAO}}": toUpperSafe(safeSize),
+      
+      // Default multiline variables with * prefix
+      "{{ACOMPANHAMENTOS_LINHAS}}": toUpperSafe(formatAccsList("* ")),
+      "{{COMPOSICAO_LINHAS}}": toUpperSafe(formatCompLinhas("* ")),
+
+      // Variants with specific prefixes
+      "{{ACOMPANHAMENTOS_LINHAS_MAIS}}": toUpperSafe(formatAccsList("+ ")),
+      "{{ACOMPANHAMENTOS_LINHAS_PONTO}}": toUpperSafe(formatAccsList("• ")),
+      "{{ACOMPANHAMENTOS_LINHAS_ASTERISCO}}": toUpperSafe(formatAccsList("* ")),
+      "{{ACOMPANHAMENTOS_LINHAS_SETA}}": toUpperSafe(formatAccsList("↳ ")),
+      "{{ACOMPANHAMENTOS_LINHAS_SEM}}": toUpperSafe(formatAccsList("")),
+
+      "{{COMPOSICAO_LINHAS_MAIS}}": toUpperSafe(formatCompLinhas("+ ")),
+      "{{COMPOSICAO_LINHAS_PONTO}}": toUpperSafe(formatCompLinhas("• ")),
+      "{{COMPOSICAO_LINHAS_ASTERISCO}}": toUpperSafe(formatCompLinhas("* ")),
+      "{{COMPOSICAO_LINHAS_SETA}}": toUpperSafe(formatCompLinhas("↳ ")),
+      "{{COMPOSICAO_LINHAS_SEM}}": toUpperSafe(formatCompLinhas("")),
+
+      // Legacy ACOMPANHAMENTOS variable
+      "{{ACOMPANHAMENTOS}}": toUpperSafe(formatAccsList("+ ")),
+
       "{{DATA_VAL}}": format(addDays(new Date(), validityDays), "dd/MM/yyyy"),
       "{{DATA_FAB}}": format(new Date(), "dd/MM/yyyy"),
       "{{PEDIDO_ID}}": `#${String(order?.id || "").slice(-6).toUpperCase()}`,
       "{{INGREDIENTES}}": toUpperSafe(safeIngredients),
       "{{TABELA_NUTRI_LINEAR}}": formatNutritionLinear(safeNutrition),
       "{{TABELA_NUTRI_TEXTO}}": formatNutritionText(safeNutrition),
+      "{{MACROS_COMPACTO}}": formatMacrosCompact(safeNutrition),
+      "{{MACROS_LINHAS}}": formatMacrosLines(safeNutrition),
     };
+
+    map["{{ACOMPANHAMENTOS_LINHAS_PONTO}}"] = toUpperSafe(formatAccsList("\u2022 "));
+    map["{{ACOMPANHAMENTOS_LINHAS_SETA}}"] = toUpperSafe(formatAccsList("\u21b3 "));
+    map["{{COMPOSICAO_LINHAS_PONTO}}"] = toUpperSafe(formatCompLinhas("\u2022 "));
+    map["{{COMPOSICAO_LINHAS_SETA}}"] = toUpperSafe(formatCompLinhas("\u21b3 "));
 
     if (map[upper]) return map[upper];
 

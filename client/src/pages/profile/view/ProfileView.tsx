@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, ShoppingBag, MapPin, Star, ArrowLeft, ChevronLeft } from "lucide-react";
+import { User, ShoppingBag, MapPin, Star, ArrowLeft, ChevronLeft, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -14,13 +14,18 @@ import { AddressesTab } from "../components/AddressesTab";
 import { AddressForm } from "../components/AddressesForm"; 
 import { OrderTracker } from "../components/OrderTracker"; 
 import { ProfileSkeleton } from "../components/ProfileSkeleton";
+import { ProfileDashboardHome } from "../components/ProfileDashboardHome";
+import { ReorderDashboardCard } from "../components/ReorderDashboardCard";
+import { Home } from "lucide-react";
+import { SecurityTab } from "../components/SecurityTab";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "../components/PersonalDataTab";
 // ✅ Importação dos tipos centralizados
 import type { ProfileVM } from "../logic/ProfileLogic";
 import type { Order } from "../types/orderTypes"; 
+import { useOrdersProcessor } from "@/_core/hooks/useOrdersProcessor";
 
-type AllowedTabs = "dados" | "pedidos" | "enderecos" | "fidelidade";
+type AllowedTabs = "home" | "dados" | "pedidos" | "enderecos" | "fidelidade" | "seguranca";
 
 export function ProfileView({ vm }: { vm: ProfileVM }) {
   const navigate = useNavigate();
@@ -30,10 +35,10 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
 
   // Memo para identificar a Tab ativa via URL
   const currentPathTab = useMemo((): AllowedTabs => {
-    if (!splat) return "dados";
+    if (!splat) return "home";
     const base = splat.split('/')[0];
-    const validTabs: AllowedTabs[] = ["dados", "pedidos", "enderecos", "fidelidade"];
-    return validTabs.includes(base as AllowedTabs) ? (base as AllowedTabs) : "dados";
+    const validTabs: AllowedTabs[] = ["home", "dados", "pedidos", "enderecos", "fidelidade"];
+    return validTabs.includes(base as AllowedTabs) ? (base as AllowedTabs) : "home";
   }, [splat]);
 
   // Sincroniza a Tab da URL com a VM
@@ -47,6 +52,9 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
    * ✅ IDENTIFICAÇÃO DE RASTREIO
    * Se a URL for /perfil/pedidos/ID_DO_PEDIDO, renderizamos o tracker
    */
+  // ✅ Processa os pedidos — constrói nutritionLabels a partir do appliedNutrition
+  const processedOrders = useOrdersProcessor((vm.orders as unknown as Order[]) ?? []);
+
   const { isOrderDetails, orderId } = useMemo(() => {
     if (!splat) return { isOrderDetails: false, orderId: null };
     const parts = splat.split('/');
@@ -91,13 +99,9 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
             <h1 className="text-3xl md:text-4xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
               Minha <span className="text-emerald-600">Conta</span>
             </h1>
-            <p className="text-slate-500 font-bold text-[10px] md:text-xs uppercase tracking-widest mt-3 flex items-center gap-2">
-              Bem-vindo, <span className="text-slate-900">{vm.user?.name?.split(' ')[0] || 'Cliente'}</span> 
-              <span className="h-1 w-1 rounded-full bg-emerald-600" />
-            </p>
           </div>
           
-          {vm.loyalty && (
+          {vm.loyalty && vm.activeTab !== "home" && (
             <div className="bg-white border border-slate-100 p-3 px-5 rounded-2xl shadow-sm flex items-center gap-4 self-start md:self-auto transition-all hover:border-amber-200">
                 <div className="bg-[#D4AF37]/10 p-2 rounded-xl">
                   <Star className="h-5 w-5 text-[#D4AF37] fill-[#D4AF37]" />
@@ -116,21 +120,32 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
           value={currentPathTab} 
           onValueChange={(v) => {
             setIsAddingAddress(false); 
-            navigate(`/perfil/${v}`, { replace: true });
+            if (v === "home") {
+              navigate("/perfil", { replace: true });
+            } else {
+              navigate(`/perfil/${v}`, { replace: true });
+            }
           }} 
           className="space-y-6 md:space-y-8"
         >
           {/* Navegação por Tabs */}
           <div className="relative overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
             <TabsList className="bg-slate-200/50 border border-slate-200/60 p-1 rounded-2xl md:rounded-full h-auto inline-flex md:flex w-max md:w-auto gap-1">
-              <TabTriggerItem value="dados" icon={<User className="h-3.5 w-3.5" />} label="Dados" />
-              <TabTriggerItem value="pedidos" icon={<ShoppingBag className="h-3.5 w-3.5" />} label="Pedidos" />
-              <TabTriggerItem value="enderecos" icon={<MapPin className="h-3.5 w-3.5" />} label="Endereços" />
-              <TabTriggerItem value="fidelidade" icon={<Star className="h-3.5 w-3.5" />} label="Pontos" />
+              <TabTriggerItem value="home" icon={<Home className="h-3.5 w-3.5" />} label="Início" isActive={currentPathTab === "home"} />
+              <TabTriggerItem value="dados" icon={<User className="h-3.5 w-3.5" />} label="Dados" isActive={currentPathTab === "dados"} />
+              <TabTriggerItem value="pedidos" icon={<ShoppingBag className="h-3.5 w-3.5" />} label="Pedidos" isActive={currentPathTab === "pedidos"} />
+              <TabTriggerItem value="enderecos" icon={<MapPin className="h-3.5 w-3.5" />} label="Endereços" isActive={currentPathTab === "enderecos"} />
+              <TabTriggerItem value="fidelidade" icon={<Star className="h-3.5 w-3.5" />} label="Pontos" isActive={currentPathTab === "fidelidade"} />
+              <TabTriggerItem value="seguranca" icon={<Shield className="h-3.5 w-3.5" />} label="Segurança" isActive={currentPathTab === "seguranca"} />
             </TabsList>
           </div>
 
           <div className="min-h-100">
+            {/* 0. Home / Dashboard */}
+            <TabsContent value="home" className="outline-none m-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <ProfileDashboardHome vm={vm} />
+            </TabsContent>
+
             {/* 1. Dados Pessoais */}
             <TabsContent value="dados" className="outline-none m-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
               <PersonalDataTab user={vm.user as UserProfile} />
@@ -139,12 +154,16 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
             {/* 2. Histórico de Pedidos */}
             <TabsContent value="pedidos" className="outline-none m-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
               <div className="space-y-4">
+                {!vm.isLoadingOrders && (vm.orders as unknown as Order[]).length > 0 && (
+                  <ReorderDashboardCard orders={vm.orders as unknown as Order[]} />
+                )}
+
                 {vm.isLoadingOrders ? (
                   <div className="p-10 text-center text-slate-400 font-black uppercase text-[10px] tracking-widest">Carregando pedidos...</div>
                 ) : (vm.orders as unknown as Order[]).length === 0 ? (
                   <div className="p-10 text-center text-slate-400 font-black uppercase text-[10px] tracking-widest">Nenhum pedido encontrado</div>
                 ) : (
-                  (vm.orders as unknown as Order[]).map((order) => <OrdersTabCard key={order.id} order={order} />)
+                  processedOrders.map((order) => <OrdersTabCard key={order.id} order={order as unknown as Order} />)
                 )}
               </div>
             </TabsContent>
@@ -188,7 +207,12 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
 
             {/* 4. Programa de Fidelidade */}
             <TabsContent value="fidelidade" className="outline-none m-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
-              <LoyaltyTab loyalty={vm.loyalty || {}} history={vm.loyaltyHistory} />
+              <LoyaltyTab loyalty={vm.loyalty || {}} history={vm.loyaltyHistory} settings={vm.loyaltySettings} />
+            </TabsContent>
+
+            {/* 5. Segurança da Conta */}
+            <TabsContent value="seguranca" className="outline-none m-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <SecurityTab vm={vm} />
             </TabsContent>
           </div>
         </Tabs>
@@ -197,16 +221,26 @@ export function ProfileView({ vm }: { vm: ProfileVM }) {
   );
 }
 
-function TabTriggerItem({ value, icon, label }: { value: string, icon: React.ReactNode, label: string }) {
+function TabTriggerItem({ 
+  value, 
+  icon, 
+  label, 
+  isActive 
+}: { 
+  value: string; 
+  icon: React.ReactNode; 
+  label: string; 
+  isActive: boolean; 
+}) {
   return (
     <TabsTrigger 
       value={value} 
       className={cn(
         "rounded-xl md:rounded-full px-4 md:px-6 py-2.5 md:py-3 font-black text-[10px] uppercase tracking-widest gap-2 transition-all flex-1",
-        "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 border-none",
-        "data-[state=active]:bg-emerald-600 data-[state=active]:text-white", 
-        "data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-600/20",
-        "[&_svg]:data-[state=active]:text-white",
+        "border-none",
+        isActive
+          ? "!bg-primary !text-white !shadow-md [&_svg]:!text-white"
+          : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50",
         "[&_svg]:transition-colors"
       )}
     >

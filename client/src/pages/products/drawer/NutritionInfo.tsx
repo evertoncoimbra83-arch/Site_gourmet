@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react"; // ✅ Adicionado useMemo aqui
 import { Label } from "@/components/ui/label";
 import { ScrollText, ChevronDown, ChevronUp, FileText, Info } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // ✅ Interface para evitar 'any' nos dados nutricionais
@@ -56,7 +57,7 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
 
   const parseNum = (val: string | number | undefined | null): number => {
     if (val === undefined || val === null || val === "") return 0;
-    const num = typeof val === "number" ? val : parseFloat(String(val).replace(",", "."));
+    const num = typeof val === "number" ? val : safeNumber(String(val).replace(",", "."));
     return isNaN(num) ? 0 : num;
   };
 
@@ -97,9 +98,11 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
         onClick={() => setShowFull(!showFull)}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-slate-900 transition-all group"
       >
-        <FileText size={14} className="text-slate-400 group-hover:text-slate-900" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-slate-900">
-          {showFull ? "Ocultar Tabela Nutricional" : "Ver Tabela Nutricional Completa"}
+        <FileText size={14} className="text-slate-500 group-hover:text-slate-900" />
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 group-hover:text-slate-900">
+          {showFull
+            ? "Ocultar valores nutricionais"
+            : "3. Confira os valores nutricionais"}
         </span>
         {showFull ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
@@ -133,7 +136,7 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
                         : row.val.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
                       }{row.unit}
                     </span>
-                    <span className="min-w-8.75 text-right font-black text-slate-400 text-[9px]">
+                    <span className="min-w-8.75 text-right font-black text-slate-500 text-[9px]">
                       {row.noVD || !row.vdKey ? "-" : calculateVD(row.val, row.vdKey)}
                     </span>
                   </div>
@@ -161,8 +164,8 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
       )}
 
       <div className="flex items-center justify-center gap-3 bg-slate-100/50 py-3 rounded-2xl border border-dashed border-slate-200">
-        <Info size={12} className="text-slate-400" />
-        <p className="text-[8px] text-slate-500 font-black uppercase tracking-widest text-center px-4 leading-relaxed">
+        <Info size={12} className="text-slate-500" />
+        <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest text-center px-4 leading-relaxed">
           Valores baseados na montagem atual ({totalWeight}g).<br/>
           As informações podem variar conforme a pesagem final.
         </p>

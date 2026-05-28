@@ -29,7 +29,7 @@ export function DishSelector({ dishes, onSelect }: DishSelectorProps) {
     <div className="space-y-2 py-4">
       <div className="flex items-center justify-between mb-4 ml-1">
         <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.15em]">
-          Selecione o Prato Base
+          1. Escolha o prato desta refeição
         </h4>
         <span className="text-[9px] font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full uppercase">
           {dishes.length} Opções

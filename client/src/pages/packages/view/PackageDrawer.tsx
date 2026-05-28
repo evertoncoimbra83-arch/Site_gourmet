@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { trpc } from "@/_core/trpc";
 import { usePackageViewModel } from "../logic/usePackageViewModel";
+import { isMealComplete } from "../logic/packageGuards";
 import { PackageMealSlot } from "../components/PackageMealSlot";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,24 @@ interface PackageDetails extends Record<string, unknown> {
   };
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 640
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return isMobile;
+}
+
 export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps) {
+  const isMobile = useIsMobile();
+  const sheetSide = isMobile ? "bottom" : "right";
   const [currentStep, setCurrentStep] = useState(0);
   const [showDebug, setShowDebug] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,6 +99,33 @@ export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps
   
   const sizeWeight = Number(pkg?.size?.proteinWeight || pkg?.size?.defaultMainWeight || 300);
 
+  const buttonState = useMemo(() => {
+    const dishesSelectedCount = items.filter(it => it !== null && !!it.dishId).length;
+    const missingDishesCount = packageData.capacity - dishesSelectedCount;
+    const allDishesSelected = dishesSelectedCount === packageData.capacity;
+    
+    // Check if any selected meal is incomplete (missing required accompaniments)
+    const hasIncompleteAccompaniments = items.some(
+      it => it !== null && !!it.dishId && !isMealComplete(it)
+    );
+
+    let text = "";
+    if (!allDishesSelected) {
+      if (dishesSelectedCount === 0) {
+        text = "Monte todas as refeições";
+      } else {
+        text = `Faltam ${missingDishesCount} ${missingDishesCount === 1 ? "refeição" : "refeições"}`;
+      }
+    } else if (hasIncompleteAccompaniments) {
+      text = "Complete os acompanhamentos";
+    }
+
+    return {
+      isEnabled: canSubmit && !isSubmitting,
+      text,
+    };
+  }, [items, packageData.capacity, canSubmit, isSubmitting]);
+
   useEffect(() => {
     if (scrollContainerRef.current) {
       const activeItem = scrollContainerRef.current.querySelector(`[data-index="${currentStep}"]`);
@@ -101,14 +146,29 @@ export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps
   if (!pkg) return null;
 
   const options = pkg.options || [];
-  const completedCount = items.filter(it => it.dishId).length;
+  const completedCount = items.filter(it => it !== null && !!it.dishId).length;
 
   return (
     <Sheet open={!!packageId} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col h-full bg-[#F8FAFC] border-none shadow-2xl overflow-hidden text-slate-900">
+      <SheetContent 
+        side={sheetSide} 
+        className={cn(
+          "p-0 flex flex-col border-none shadow-2xl overflow-hidden text-slate-900 focus:outline-none bg-[#F8FAFC]",
+          isMobile
+            ? "w-full h-[95dvh] max-h-[95dvh] rounded-t-[2.5rem]"
+            : "h-full w-full sm:max-w-xl"
+        )}
+      >
         <SheetTitle className="sr-only">Configurar {pkg.name}</SheetTitle>
         <SheetDescription className="sr-only">Personalize seu combo fit</SheetDescription>
         
+        {/* Indicador de arrasto visual para Mobile no topo do header escuro */}
+        {isMobile && (
+          <div className="flex justify-center pt-3 pb-1 shrink-0 bg-slate-950">
+            <div className="w-10 h-1 bg-slate-800 rounded-full" />
+          </div>
+        )}
+
         {/* HEADER PREMIUM (Sticky) */}
         <div className="sticky top-0 z-50 bg-slate-950 text-white p-6 shadow-2xl shrink-0">
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">
@@ -181,7 +241,7 @@ export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps
                   index={index}
                   slot={slot}
                   pkg={pkg} 
-                  currentState={items[index]}
+                  currentState={items[index] ?? undefined}
                   isExpanded={currentStep === index}
                   isLocked={index > 0 && !items[index - 1]?.dishId}
                   onExpand={() => setCurrentStep(index)}
@@ -214,8 +274,10 @@ export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps
           </AnimatePresence>
 
           <Button 
-            disabled={!canSubmit || isSubmitting} 
+            aria-label={`Adicionar kit ao carrinho por ${money(packageData.price)}`}
+            disabled={!buttonState.isEnabled} 
             onClick={async () => { 
+              if (!buttonState.isEnabled) return;
               setIsSubmitting(true);
               try {
                 await actions.handleAddToCart(); 
@@ -226,18 +288,27 @@ export default function PackageDrawer({ packageId, onClose }: PackageDrawerProps
             }}
             className={cn(
               "w-full h-16 font-black uppercase rounded-3xl tracking-[0.15em] transition-all duration-500 text-sm", 
-              canSubmit 
+              buttonState.isEnabled 
                 ? "bg-slate-900 text-white shadow-2xl shadow-slate-200 hover:bg-emerald-600 hover:scale-[1.02] active:scale-95" 
-                : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                : "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200"
             )}
           >
             {isSubmitting ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <div className="flex items-center gap-3">
-                <ShoppingBag size={18} />
-                <span>Adicionar ao Carrinho</span>
+              <Loader2 className="animate-spin mx-auto text-emerald-600" />
+            ) : buttonState.isEnabled ? (
+              <div className="flex w-full items-center justify-center gap-2">
+                <ShoppingBag size={18} className="shrink-0" />
+                <span className="sm:hidden text-[11px] font-black uppercase tracking-wider">
+                  Adicionar — {money(packageData.price)}
+                </span>
+                <span className="hidden sm:inline text-xs font-black uppercase tracking-[0.15em]">
+                  Adicionar kit — {money(packageData.price)}
+                </span>
               </div>
+            ) : (
+              <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-400">
+                {buttonState.text}
+              </span>
             )}
           </Button>
         </div>

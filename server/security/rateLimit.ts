@@ -42,7 +42,7 @@ export const globalLimiter = rateLimit({
 
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 25,
   skip: skipLocalhost,
   message: {
     status: 429,
@@ -53,7 +53,7 @@ export const authLimiter = rateLimit({
 
 export const checkoutLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 50,
+  max: 30,
   skip: skipLocalhost,
   message: {
     status: 429,

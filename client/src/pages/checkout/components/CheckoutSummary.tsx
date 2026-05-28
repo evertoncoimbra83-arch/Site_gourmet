@@ -1,5 +1,5 @@
 // client/src/pages/checkout/components/CheckoutSummary.tsx
-import React, { useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,19 +20,26 @@ import {
 import { cn } from "@/lib/utils";
 import { useCheckout } from "../context/CheckoutContext";
 import { useCheckoutReadiness } from "../logic/useCheckoutReadiness";
+import { trpc } from "@/_core/trpc";
 
 const SummaryRow = ({ label, value, icon, isDiscount }: { label: string; value: string; icon?: React.ReactElement | null; isDiscount?: boolean }) => (
   <div className={cn(
-    "flex justify-between text-[10px] items-center uppercase font-bold tracking-tight",
-    isDiscount 
-      ? "text-emerald-600 bg-emerald-50/50 px-3 py-1.5 rounded-lg border border-emerald-100/50 my-1" 
-      : "text-slate-400 px-1 py-0.5"
+    "flex justify-between items-center",
+    isDiscount
+      ? "bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-100 my-1"
+      : "px-1 py-1"
   )}>
-    <span className="flex items-center gap-1.5 italic">
-      {icon && <span className="opacity-70">{icon}</span>}
+    <span className={cn(
+      "flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest",
+      isDiscount ? "text-emerald-600" : "text-slate-500"
+    )}>
+      {icon && <span className="opacity-60">{icon}</span>}
       {label}
     </span>
-    <span className={cn("font-black text-xs italic", isDiscount ? "text-emerald-600" : "text-slate-900")}>
+    <span className={cn(
+      "text-sm font-black",
+      isDiscount ? "text-emerald-600" : "text-slate-900"
+    )}>
       {isDiscount ? `- ${value}` : value}
     </span>
   </div>
@@ -47,6 +54,16 @@ export default function CheckoutSummary() {
     isLoading, 
     machineState 
   } = useCheckout();
+
+  const { data: loyaltySettings } = trpc.loyalty.getSettings.useQuery();
+
+  const estimatedPoints = useMemo(() => {
+    if (!loyaltySettings || loyaltySettings.enabled === false) return 0;
+    const earnPts = Number(loyaltySettings.conversionRatePoints ?? 1);
+    const earnMoney = Number(loyaltySettings.conversionRateMoney ?? 1);
+    const earnPointsPerReal = earnMoney > 0 ? earnPts / earnMoney : 0;
+    return Math.floor(summary.total * earnPointsPerReal);
+  }, [loyaltySettings, summary.total]);
   
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   
@@ -55,7 +72,30 @@ export default function CheckoutSummary() {
   const readiness = useCheckoutReadiness({ viewModel: checkoutCtx, machineState, acceptedTerms });
   const isProcessing = machineState === 'submitting' || isSubmitting;
   const canSubmit = readiness.isReady && !isProcessing;
-  // 🔍 Debug: console.log('[Checkout Gate]', readiness.gate, readiness.gates);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
+    console.debug("[checkout:readiness]", {
+      gate: readiness.gate,
+      gates: readiness.gates,
+      machineState,
+      logisticsCanContinue: logistics.canContinue,
+      logisticsCanDeliver: logistics.canDeliver,
+      selectedAddressId: logistics.selectedAddressId,
+      paymentSelectedId: checkoutCtx.payment.selectedId,
+      acceptedTerms,
+    });
+  }, [
+    readiness.gate,
+    readiness.gates,
+    machineState,
+    logistics.canContinue,
+    logistics.canDeliver,
+    logistics.selectedAddressId,
+    checkoutCtx.payment.selectedId,
+    acceptedTerms,
+  ]);
 
   return (
     <Card className="border-none shadow-2xl rounded-4xl bg-white overflow-hidden sticky top-24 text-left">
@@ -121,7 +161,7 @@ export default function CheckoutSummary() {
               {isLoading ? (
                 <Loader2 className="animate-spin mx-auto text-emerald-500" size={20} />
               ) : (
-                <p className="text-[9px] font-black text-slate-300 uppercase">Carrinho vazio</p>
+                <p className="text-[9px] font-black text-slate-500 uppercase">Carrinho vazio</p>
               )}
             </div>
           )}
@@ -158,6 +198,13 @@ export default function CheckoutSummary() {
             </div>
             <span className="text-3xl font-black text-slate-900 italic tracking-tighter">{summary.totalFormatted}</span>
           </div>
+
+          {estimatedPoints > 0 && (
+            <div className="mt-3 bg-emerald-50 border border-emerald-100/50 rounded-2xl p-3 flex items-start gap-2.5 text-emerald-800 text-[10px] font-bold uppercase tracking-wider">
+              <Gift size={14} className="text-emerald-600 shrink-0 mt-0.5 animate-pulse" />
+              <span>Você ganhará aproximadamente <strong className="text-emerald-700 font-black">{estimatedPoints} pontos</strong> com este pedido.</span>
+            </div>
+          )}
         </div>
 
         {/* NOTAS E TERMOS */}
@@ -214,6 +261,11 @@ export default function CheckoutSummary() {
             <div className="flex flex-col gap-1 items-center">
               {machineState !== 'review_ready' && machineState !== 'submitting' && (
                 <p className="text-[8px] font-black text-rose-500 uppercase italic">Complete os passos anteriores para liberar</p>
+              )}
+              {import.meta.env.DEV && (
+                <p className="text-[8px] font-mono text-slate-500">
+                  gate={readiness.gate} machine={machineState}
+                </p>
               )}
               {logistics.type === "delivery" && !logistics.canDeliver && (
                 <div className="flex items-center gap-1.5 text-rose-500 mb-1">

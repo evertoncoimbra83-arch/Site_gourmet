@@ -121,7 +121,10 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!identifier.includes("@")) return toast.error("E-mail inválido");
-    if (password.length < 4) return toast.error("Senha deve ter no mínimo 4 caracteres");
+    if (!password) return toast.error("Senha e obrigatoria");
+    if (mode === "register" && password.trim().length < 8) {
+      return toast.error("Senha deve ter no minimo 8 caracteres");
+    }
 
     if (mode === "login") {
       // ✅ ENVIANDO: rememberMe para o tRPC
@@ -314,3 +317,4 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
     </div>
   );
 }
+

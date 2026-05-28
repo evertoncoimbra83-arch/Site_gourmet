@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch'; 
 import { Loader2, Trash2 } from 'lucide-react'; 
 import { appToast as toast } from "@/lib/app-toast";
+import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
+import { safeNumber } from "@/lib/safe-parse";
+import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 
 // Interfaces
 interface ShippingRule {
@@ -68,7 +71,7 @@ export default function AdminShippingConfig() {
             toast.success("Configurações salvas!");
             utils.admin.shippingRules.getSettings.invalidate();
         },
-        onError: () => toast.error("Erro ao salvar."),
+        onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao salvar frete.")),
     });
 
     const createRuleMutation = trpc.admin.shippingRules.createRule.useMutation({
@@ -78,7 +81,7 @@ export default function AdminShippingConfig() {
             setIsFreeShipping(false);
             utils.admin.shippingRules.getRules.invalidate();
         },
-        onError: (err) => toast.error("Erro: " + err.message),
+        onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao salvar regra de frete.")),
     });
     
     const deleteRuleMutation = trpc.admin.shippingRules.deleteRule.useMutation({
@@ -86,33 +89,47 @@ export default function AdminShippingConfig() {
             toast.success("Regra removida."); 
             utils.admin.shippingRules.getRules.invalidate(); 
         },
-        onError: () => toast.error("Erro ao remover regra."),
+        onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao remover regra de frete.")),
     });
 
     const rules = useMemo<ShippingRule[]>(() => fetchedRules ?? [], [fetchedRules]);
 
     const handleSaveGeneralSettings = async () => {
-        await updateSettingsMutation.mutateAsync(generalSettings);
+        const confirmation = requestStrongConfirmation(
+            "Alterar configuracoes de retirada/frete afeta o checkout.",
+        );
+        if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+        await updateSettingsMutation.mutateAsync({ ...generalSettings, ...confirmation });
     };
 
     const handleAddRule = async () => {
         if (newRule.zipCodeStart.length < 8) return toast.warning("CEP Inicial incompleto.");
         if (newRule.zipCodeEnd.length < 8) return toast.warning("CEP Final incompleto.");
         
+        const needsConfirmation = Number(newRule.shippingCost) > 100;
+        const confirmation = needsConfirmation
+            ? requestStrongConfirmation("Regra de frete de alto valor.")
+            : null;
+        if (needsConfirmation && !confirmation) {
+            return toast.warning("Confirmacao forte cancelada.");
+        }
+
         const ruleToSend = {
             name: newRule.name,
             type: "zipcode" as const, 
             price: isFreeShipping ? 0 : Number(newRule.shippingCost), 
             cepStart: newRule.zipCodeStart, 
-            cepEnd: newRule.zipCodeEnd
+            cepEnd: newRule.zipCodeEnd,
+            ...confirmation,
         };
 
         await createRuleMutation.mutateAsync(ruleToSend);
     };
     
     const handleDeleteRule = async (id: number) => {
-        if (!confirm("Remover esta regra?")) return;
-        await deleteRuleMutation.mutateAsync({ id }); 
+        const confirmation = requestStrongConfirmation("Excluir regra de frete.");
+        if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+        await deleteRuleMutation.mutateAsync({ id, ...confirmation }); 
     };
 
     const formatZipCode = (value: string) => value.replace(/\D/g, '').slice(0, 8);
@@ -148,7 +165,7 @@ export default function AdminShippingConfig() {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <Input placeholder="CEP Inicial" value={newRule.zipCodeStart} onChange={(e) => setNewRule({...newRule, zipCodeStart: formatZipCode(e.target.value)})} className="bg-slate-800 border-none"/>
                             <Input placeholder="CEP Final" value={newRule.zipCodeEnd} onChange={(e) => setNewRule({...newRule, zipCodeEnd: formatZipCode(e.target.value)})} className="bg-slate-800 border-none"/>
-                            <Input placeholder="Custo" type="number" value={newRule.shippingCost} onChange={(e) => setNewRule({...newRule, shippingCost: parseFloat(e.target.value) || 0})} className="bg-slate-800 border-none"/>
+                            <Input placeholder="Custo" type="number" value={newRule.shippingCost} onChange={(e) => setNewRule({...newRule, shippingCost: safeNumber(e.target.value)})} className="bg-slate-800 border-none"/>
                             <Input placeholder="Nome Região" value={newRule.name} onChange={(e) => setNewRule({...newRule, name: e.target.value})} className="bg-slate-800 border-none"/>
                         </div>
                         <Button onClick={handleAddRule} disabled={createRuleMutation.isPending} className="w-full bg-emerald-500 text-slate-900 font-black">

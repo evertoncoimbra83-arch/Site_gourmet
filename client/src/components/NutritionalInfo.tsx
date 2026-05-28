@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Label } from "@/components/ui/label";
 import { ScrollText, ChevronDown, ChevronUp, FileText } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // ✅ Interface exportada para uso em outros componentes
@@ -47,12 +48,12 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
       // Se for um array (Pacote), somamos os valores para exibir na tabela
       if (Array.isArray(parsed)) {
         return parsed.reduce((acc, curr) => ({
-          energyKcal: (Number(acc.energyKcal) || 0) + (Number(curr.energyKcal) || 0),
-          proteins: (Number(acc.proteins) || 0) + (Number(curr.proteins) || 0),
-          carbs: (Number(acc.carbs) || 0) + (Number(curr.carbs) || 0),
-          fatTotal: (Number(acc.fatTotal) || 0) + (Number(curr.fatTotal) || 0),
-          sodium: (Number(acc.sodium) || 0) + (Number(curr.sodium) || 0),
-          fiber: (Number(acc.fiber) || 0) + (Number(curr.fiber) || 0),
+          energyKcal: safeNumber(acc.energyKcal) + safeNumber(curr.energyKcal),
+          proteins: safeNumber(acc.proteins) + safeNumber(curr.proteins),
+          carbs: safeNumber(acc.carbs) + safeNumber(curr.carbs),
+          fatTotal: safeNumber(acc.fatTotal) + safeNumber(curr.fatTotal),
+          sodium: safeNumber(acc.sodium) + safeNumber(curr.sodium),
+          fiber: safeNumber(acc.fiber) + safeNumber(curr.fiber),
         }), {} as NutritionData);
       }
       
@@ -66,7 +67,7 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
 
   const parseNum = (val: string | number | undefined | null): number => {
     if (val === undefined || val === null || val === "") return 0;
-    const num = typeof val === "number" ? val : parseFloat(String(val).replace(",", "."));
+    const num = typeof val === "number" ? val : safeNumber(String(val).replace(",", "."));
     return isNaN(num) ? 0 : num;
   };
 

@@ -2,9 +2,24 @@
 // Fix UX mobile: side="bottom" em mobile, side="right" em desktop (sm+)
 // Fix: padding inferior respeitando safe-area do iOS
 
-import React, { useMemo, useRef } from "react"; 
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Loader2, ChevronDown, Activity, Info, X } from "lucide-react";
+import React, { useMemo, useRef } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Loader2,
+  ChevronDown,
+  Activity,
+  Info,
+  X,
+  Snowflake,
+  Clock3,
+  Salad,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -68,6 +83,31 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
     if (!hasGroups) return !!selectedSize; 
     return isAccompanimentsComplete;
   }, [selectedSize, isAccompanimentsComplete]);
+
+  const trustBadges = useMemo(
+    () => [
+      { label: "Pronto em poucos minutos", icon: Clock3 },
+      { label: "Ideal para freezer", icon: Snowflake },
+      { label: "Porção controlada", icon: ShieldCheck },
+      { label: "Comida saudável pronta", icon: Salad },
+    ],
+    [],
+  );
+
+  const nutritionBenefits = useMemo(() => {
+    if (!selectedSize || !totalNutrition) return [];
+
+    const badges: string[] = [];
+    if (totalNutrition.proteins >= 25) badges.push("Alta proteína");
+    if (totalNutrition.carbs <= 20) badges.push("Low carb");
+    if (totalNutrition.energyKcal <= 400) {
+      badges.push("Leve");
+    } else if (totalNutrition.energyKcal <= 650) {
+      badges.push("Refeição completa");
+    }
+
+    return badges;
+  }, [selectedSize, totalNutrition]);
 
   const onSizeClick = (s: unknown) => {
     handleSizeSelect(s as DishSize);
@@ -155,7 +195,37 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
                 <Loader2 className="animate-spin text-emerald-500 h-8 w-8" />
               </div>
             ) : (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-5">
+                <div className="rounded-[2rem] border border-slate-100 bg-linear-to-br from-white via-slate-50 to-emerald-50/40 p-4 shadow-sm">
+                  <div className="flex flex-wrap gap-2">
+                    {trustBadges.map((badge) => {
+                      const Icon = badge.icon;
+                      return (
+                        <span
+                          key={badge.label}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-[10px] font-black uppercase tracking-tight text-slate-600"
+                        >
+                          <Icon size={12} className="text-emerald-600" />
+                          {badge.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {nutritionBenefits.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {nutritionBenefits.map((benefit) => (
+                        <span
+                          key={benefit}
+                          className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-white"
+                        >
+                          {benefit}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <SizeSelector 
                   sizes={(dish?.sizes || []) as unknown as React.ComponentProps<typeof SizeSelector>["sizes"]} 
                   selectedId={selectedSize?.id || null} 
@@ -200,7 +270,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] leading-none mb-1">
-                      Kcal Totais
+                      3. Confira os valores nutricionais
                     </span>
                     <span className="text-lg font-black text-slate-900 italic leading-none tracking-tighter">
                       {Math.round(totalNutrition.energyKcal)} <span className="text-[10px] not-italic font-bold text-slate-400">kcal</span>

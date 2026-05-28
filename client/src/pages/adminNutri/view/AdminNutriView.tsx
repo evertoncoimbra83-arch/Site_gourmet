@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeInteger } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 import { useAdminNutri, NutriData } from "../logic/useAdminNutri";
@@ -32,7 +33,7 @@ function DiscountInputCell({
   const hasChanged = val !== originalValue;
 
   const handleSave = () => {
-    const num = parseInt(val, 10);
+    const num = safeInteger(val);
     if (!isNaN(num) && num >= 0 && num <= 100) {
       onSave(nutriId, num);
     } else {

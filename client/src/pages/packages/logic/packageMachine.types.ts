@@ -55,7 +55,7 @@ export type PackageEvent =
   | { type: 'REMOVE_MEAL'; payload: { index: number } }
   | { type: 'VALIDATE_REQUEST'; payload: { items: PackageItem[] } }
   | { type: 'SUBMIT_CART' }
-  | { type: 'RESET' }; // ✅ Garantido na união para evitar erro 2367
+  | { type: 'RESET'; payload?: { capacity?: number } }; // ✅ Garantido na união para evitar erro 2367
 
 /**
  * Contexto global da máquina de estados

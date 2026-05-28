@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { mapPackageMealNutrition } from "./nutritionCalculator";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 
@@ -85,7 +86,7 @@ export function usePackageSelection(pkg: Package | null | undefined) {
   const getNumericValue = (text: string | null | undefined): number => {
     if (!text || typeof text !== "string") return 0;
     const match = text.match(/(\d+)/);
-    return match ? parseInt(match[0], 10) : 0;
+    return match ? safeInteger(match[0]) : 0;
   };
 
   const sortByWeightAndName = (a: Product, b: Product): number => {
@@ -107,7 +108,7 @@ export function usePackageSelection(pkg: Package | null | undefined) {
         .filter((g) => !!g)
         .map((group) => ({
           ...group,
-          maxSelections: Number(group.maxSelections) || 1,
+          maxSelections: safeNumber(group.maxSelections, 1),
           defaultGrammage: Number(group.defaultGrammage || 100),
           options: [...(group.options || [])].filter((o) => !!o).sort(sortByWeightAndName),
         }));
@@ -166,7 +167,7 @@ export function usePackageSelection(pkg: Package | null | undefined) {
           groupId: group.id,
           groupName: group.name,
           ingredients: option.ingredients || "",
-          weight: Number(group.defaultGrammage) || 100,
+          weight: safeNumber(group.defaultGrammage, 100),
         };
 
         let newSelections: SelectedMeal["selectedAccompaniments"] = [];

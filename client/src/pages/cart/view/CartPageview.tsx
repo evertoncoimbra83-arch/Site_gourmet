@@ -60,6 +60,7 @@ export function CartPageView() {
     discountsInfo,
     allTiers,
     totalQuantity,
+    loyaltyValidation,
   } = useCartPageLogic();
 
   const { scrollYProgress } = useScroll();
@@ -231,6 +232,7 @@ export function CartPageView() {
             }}
             couponInput={couponInput}
             setCouponInput={setCouponInput}
+            loyaltyValidation={loyaltyValidation}
             onApplyCoupon={async (codeStr) => {
               const code = codeStr || couponInput;
               if (code.trim()) {

@@ -1,6 +1,6 @@
 import type { CookieOptions, Request } from "express";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1","192.168.24.6", "192.168.24.10","::1"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "192.168.24.2", "192.168.24.8", "192.168.24.7", "192.168.24.11", "192.168.24.12", "192.168.24.10", "192.168.24.5", "::1"]);
 
 /**
  * Verifica se a requisição é segura (HTTPS) ou se vem de um proxy seguro.
@@ -24,7 +24,7 @@ function isSecureRequest(req: Request) {
 export function getSessionCookieOptions(
   req: Request
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
-  
+
   const isLocal = LOCAL_HOSTS.has(req.hostname);
   const secure = isSecureRequest(req);
 

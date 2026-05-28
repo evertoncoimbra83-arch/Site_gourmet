@@ -1,52 +1,88 @@
-// client/src/pages/adminSettings/components/tabs/AppearanceTab.tsx
-import React, { ComponentProps } from "react";
-import { Palette } from "lucide-react";
+import React from "react";
+import { Palette, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { AccessibilitySettings } from "../AccessibilitySettings";
 import { AreaShell } from "../AreaShell";
 import { ShortcutGrid } from "../ShortcutGrid";
 import { settingsAreas } from "../../config/settingsAreas";
 
-const area = settingsAreas[4];
+const area = settingsAreas.find((item) => item.id === "appearance") || settingsAreas[2];
 
 interface AppearanceTabProps {
   accessibilityTab: {
-    state: ComponentProps<typeof AccessibilitySettings>["state"];
-    actions: ComponentProps<typeof AccessibilitySettings>["actions"];
+    state: {
+      accessibilityData: {
+        favicon: string;
+        highContrast: boolean;
+        dyslexicFont: boolean;
+        fontScale: number;
+        vLibrasActive: boolean;
+      };
+      isLoading: boolean;
+    };
+    actions: {
+      updateField: (data: {
+        favicon?: string;
+        highContrast?: boolean;
+        dyslexicFont?: boolean;
+        fontScale?: number;
+        vLibrasActive?: boolean;
+      }) => void;
+    };
   };
 }
 
 export function AppearanceTab({ accessibilityTab }: AppearanceTabProps) {
   return (
     <AreaShell area={area}>
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <AccessibilitySettings
-          state={accessibilityTab.state}
-          actions={accessibilityTab.actions}
-        />
-        <Card className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-violet-50 p-3 text-violet-600">
-                <Palette size={20} />
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_380px]">
+        <div className="space-y-6">
+          <AccessibilitySettings
+            state={accessibilityTab.state}
+            actions={accessibilityTab.actions}
+          />
+        </div>
+
+        <div className="space-y-6">
+          <Card className="rounded-[2.5rem] border border-slate-200 bg-slate-50/50 p-8 shadow-sm transition-all hover:bg-white hover:shadow-md">
+            <div className="space-y-6">
+              <div className="flex items-center gap-4">
+                <div className="rounded-2xl bg-violet-600 p-3 text-white shadow-lg shadow-violet-200">
+                  <Palette size={22} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black uppercase italic tracking-tighter text-slate-900">
+                    Design <span className="text-violet-600">&</span> UI
+                  </h3>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    Acessibilidade e Identidade
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">
-                  Experiência visual
-                </h3>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                  Acessibilidade e identidade
+
+              <div className="space-y-4">
+                <p className="text-sm font-medium leading-relaxed text-slate-600">
+                  Esta area controla o favicon, os defaults globais de
+                  acessibilidade e o carregamento do VLibras para publico e
+                  Admin.
                 </p>
+
+                <div className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-white p-4">
+                  <Sparkles className="shrink-0 text-amber-400" size={18} />
+                  <p className="text-[11px] font-semibold italic leading-relaxed text-slate-500">
+                    As preferencias do usuario continuam podendo sobrescrever os
+                    defaults via painel publico de acessibilidade.
+                  </p>
+                </div>
               </div>
             </div>
-            <p className="text-sm leading-relaxed text-slate-500">
-              Favicon, contraste e recursos de leitura permanecem nesta página. Tema,
-              vitrines e mídia foram agrupados logo abaixo como acessos dedicados.
-            </p>
-          </div>
-        </Card>
+          </Card>
+        </div>
       </div>
-      <ShortcutGrid shortcuts={area.shortcuts || []} />
+
+      <div className="mt-8">
+        <ShortcutGrid shortcuts={area.shortcuts || []} />
+      </div>
     </AreaShell>
   );
 }

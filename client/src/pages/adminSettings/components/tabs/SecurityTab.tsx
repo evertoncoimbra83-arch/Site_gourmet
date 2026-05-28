@@ -7,10 +7,10 @@ import { SecurityDiagnosticsCard } from "../SecurityDiagnosticsCard";
 import { DatabaseBackupsCard } from "../DatabaseBackupsCard";
 import { InfrastructureCard } from "../InfrastructureCard";
 import { AreaShell } from "../AreaShell";
-import { ShortcutGrid } from "../ShortcutGrid";
 import { settingsAreas } from "../../config/settingsAreas";
 
-const area = settingsAreas[2];
+const area =
+  settingsAreas.find((item) => item.id === "security") || settingsAreas[2];
 
 export function SecurityTab() {
   return (
@@ -40,7 +40,6 @@ export function SecurityTab() {
         </div>
         <InfrastructureCard />
       </div>
-      <ShortcutGrid shortcuts={area.shortcuts || []} />
     </AreaShell>
   );
 }

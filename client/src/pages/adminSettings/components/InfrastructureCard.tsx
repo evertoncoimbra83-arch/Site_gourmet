@@ -16,8 +16,8 @@ import { authenticator } from "otplib";
 
 // --- INTERFACES ---f
 interface BackupResponse { 
-  sql: string; 
-  fileName?: string; 
+  filename: string; 
+  success: boolean; 
 }
 
 interface HealthComponent {
@@ -97,17 +97,14 @@ export function InfrastructureCard() {
 
   const backupMutation = storeActions.downloadBackup.useMutation({
     onSuccess: (data) => {
-      if (data.sql) {
-        const blob = new Blob([data.sql], { type: 'text/sql' });
-        const url = window.URL.createObjectURL(blob);
+      if (data.filename) {
         const a = document.createElement('a');
-        a.href = url;
-        a.download = data.fileName || `backup_${Date.now()}.sql`;
+        a.href = `/api/admin/backups/${data.filename}`;
+        a.download = data.filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        toast.success("Backup Concluído");
+        toast.success("Backup Concluído", { description: "Download do arquivo compactado (.sql.gz) iniciado." });
       }
     },
     onError: (err) => toast.error("Falha no Backup", { description: err.message })

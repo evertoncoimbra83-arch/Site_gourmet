@@ -1,1 +1,0 @@
-import{cd as o,b7 as r}from"./index-DouO6uBK.js";function f(e,n){const t=o(e),a=o(n);return+t==+a}function i(e,n){const t=r(e),a=r(n);return t.getFullYear()===a.getFullYear()&&t.getMonth()===a.getMonth()}export{i as a,f as i};

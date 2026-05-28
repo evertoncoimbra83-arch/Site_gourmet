@@ -120,7 +120,7 @@ export function SizeSelector({
               {weight && (
                 <span className={cn(
                   "text-[8px] font-bold mt-1 uppercase tracking-tighter opacity-70",
-                  isSelected ? "text-slate-300" : "text-slate-400"
+                  isSelected ? "text-slate-300" : "text-slate-500"
                 )}>
                   {weight}g
                 </span>

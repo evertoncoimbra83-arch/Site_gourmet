@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
 import { AlertCircle, RefreshCcw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { trpcClient } from "@/_core/trpc";
 
 interface Props {
   children: ReactNode;
@@ -33,8 +34,23 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Aqui você enviaria para um Sentry ou LogRocket
     console.error("🚨 [ErrorBoundary]:", error, errorInfo);
+    try {
+      trpcClient.public.logClientError.mutate({
+        errorName: error.name || "ReactError",
+        errorMessage: error.message || "Erro desconhecido de renderização",
+        errorStack: error.stack,
+        url: typeof window !== "undefined" ? window.location.href : undefined,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+        metadata: {
+          componentStack: errorInfo.componentStack || "",
+        }
+      }).catch((e) => {
+        console.error("Falha ao reportar erro ao backend:", e);
+      });
+    } catch (e) {
+      console.error("Erro ao invocar logClientError mutation:", e);
+    }
   }
 
   private handleReset = () => {

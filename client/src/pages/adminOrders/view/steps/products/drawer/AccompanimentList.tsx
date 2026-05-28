@@ -130,7 +130,7 @@ export function AccompanimentList({ groups, selectedAccs, onAdd, onRemove }: Acc
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-[9px] font-black text-slate-400 block uppercase">
+                <span className="text-[9px] font-black text-slate-500 block uppercase">
                   {selections.length} / {max}
                 </span>
               </div>
@@ -160,7 +160,7 @@ export function AccompanimentList({ groups, selectedAccs, onAdd, onRemove }: Acc
                         <div className="flex items-center gap-3">
                           <CategoryIcon iconKey={opt.iconKey} color={opt.categoryColor} size={16} />
                           <div className="flex flex-col text-left">
-                            <span className={cn("text-[10px] font-bold", isSel ? "text-slate-300" : "text-slate-700")}>
+                            <span className={cn("text-[10px] font-bold", isSel ? "text-slate-500" : "text-slate-700")}>
                               {opt.name}
                             </span>
                             {price > 0 && (

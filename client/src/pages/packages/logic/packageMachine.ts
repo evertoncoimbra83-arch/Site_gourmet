@@ -14,8 +14,9 @@ export function packageMachine(
   event: PackageEvent
 ): PackageMachineContext {
   
-  if ((event.type as string) === 'RESET') {
-    return { ...initialPackageContext, capacity: state.capacity };
+  if (event.type === 'RESET') {
+    const newCapacity = event.payload?.capacity ?? state.capacity;
+    return { ...initialPackageContext, capacity: newCapacity };
   }
 
   switch (state.currentState) {

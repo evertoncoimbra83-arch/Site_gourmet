@@ -8,6 +8,11 @@ import { router, protectedProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { decrypt, encrypt, piiHash, normalizeDigits } from "../../encryption.js";
 import { logAction } from "../../db/lib/audit.js";
+import { lucia } from "../../auth.js";
+import {
+  assertPasswordPolicy,
+  recordAuthEvent,
+} from "./auth/auth-security.js";
 import crypto from "crypto";
 
 import {
@@ -146,14 +151,14 @@ export const profileRouter = router({
   changePassword: protectedProcedure
     .input(z.object({
       currentPassword: z.string().optional(),
-      newPassword: z.string().min(6, "A nova senha deve ter no mínimo 6 caracteres"),
+      newPassword: z.string().min(8, "A nova senha deve ter no minimo 8 caracteres"),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const targetId = ctx.user.id;
 
       const [userRow] = await db
-        .select({ password: users.password })
+        .select({ password: users.password, email: users.email })
         .from(users)
         .where(eq(users.id, targetId))
         .limit(1);
@@ -172,6 +177,7 @@ export const profileRouter = router({
         }
       }
 
+      assertPasswordPolicy(input.newPassword, userRow?.email);
       const hashedNewPassword = await hash(input.newPassword); 
       
       await db.update(users)
@@ -181,7 +187,35 @@ export const profileRouter = router({
         })
         .where(eq(users.id, targetId));
 
+      await lucia.invalidateUserSessions(targetId);
+      const session = await lucia.createSession(targetId, {});
+      const sessionCookie = lucia.createSessionCookie(session.id);
+      if (ctx.req?.hostname && (
+        ctx.req.hostname === "localhost" ||
+        ctx.req.hostname === "127.0.0.1" ||
+        ctx.req.hostname.startsWith("192.168.24.")
+      )) {
+        sessionCookie.attributes.secure = false;
+      }
+      sessionCookie.attributes.maxAge = undefined;
+      sessionCookie.attributes.expires = undefined;
+      if (ctx.res) {
+        if (typeof ctx.res.appendHeader === "function") {
+          ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+        } else {
+          ctx.res.append("Set-Cookie", sessionCookie.serialize());
+        }
+      }
+
       await logAction(ctx, "CHANGE_PASSWORD", "users", { entityId: targetId });
+      recordAuthEvent({
+        ctx,
+        action: "PASSWORD_CHANGED",
+        severity: "warning",
+        userId: targetId,
+        identifier: userRow?.email,
+        reason: "profile_change_password",
+      });
       
       return { success: true, message: "Senha alterada com sucesso! 🛡️" };
     }),
@@ -258,3 +292,4 @@ export const profileRouter = router({
       return { success: true, message: "Endereço cadastrado!" };
     }),
 });
+

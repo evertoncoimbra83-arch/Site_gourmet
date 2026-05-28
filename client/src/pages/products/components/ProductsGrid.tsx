@@ -40,6 +40,7 @@ const itemVariants: Variants = {
 const ProductsGrid: React.FC<ProductsGridProps> = ({ products, isLoading, onOpenDish }) => {
   return (
     <div className="min-h-100 mt-8 text-left">
+      <h2 className="sr-only">Nossos Pratos Saudáveis</h2>
       <AnimatePresence mode="wait">
         {isLoading ? (
           <motion.div 
@@ -80,6 +81,9 @@ const ProductsGrid: React.FC<ProductsGridProps> = ({ products, isLoading, onOpen
                         <img 
                           src={dish.imageUrl} 
                           alt={dish.name} 
+                          loading="lazy"
+                          width="240"
+                          height="240"
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                         />
                       ) : (

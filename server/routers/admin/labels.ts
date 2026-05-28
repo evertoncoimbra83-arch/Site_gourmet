@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProcedure, router } from "../../_core/trpc.js";
+import { adminProcedure, operatorProcedure, router } from "../../_core/trpc.js";
 import { inArray, eq, sql, InferSelectModel } from "drizzle-orm"; // ✅ Adicionado InferSelectModel
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db.js";
@@ -25,7 +25,7 @@ export const adminLabelsRouter = router({
   /**
    * 2. Busca pedidos que precisam de impressão (Fila de Produção)
    */
-  getPending: adminProcedure.query(async () => {
+  getPending: operatorProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
@@ -63,7 +63,7 @@ export const adminLabelsRouter = router({
   /**
    * 📄 3. Gera o ZPL em lote para os pedidos selecionados
    */
-  generateBatchZPL: adminProcedure
+  generateBatchZPL: operatorProcedure
     .input(z.object({
       orderIds: z.array(z.string().min(1)),
       templateId: z.number()

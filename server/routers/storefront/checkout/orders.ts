@@ -4,7 +4,6 @@ import {
   orderItems,
   cartItems,
   carts,
-  loyaltyHistory,
 } from "../../../../drizzle/schema/index.js";
 import { decrypt, encrypt } from "../../../encryption.js";
 import crypto from "crypto";
@@ -24,7 +23,6 @@ type TransactionType = MySqlTransaction<
 >;
 
 type NewOrderItem = typeof orderItems.$inferInsert;
-type NewLoyaltyHistory = typeof loyaltyHistory.$inferInsert;
 
 interface AddressSnapshot {
   street?: string;
@@ -129,8 +127,6 @@ export async function createOrderWithItems(params: {
   addressSnap: AddressSnapshot;
   payMethod: { name: string } | undefined;
   verifiedItems: VerifiedOrderItem[];
-  pointsUsed: number;
-  pointsEarned: number;
   finalNet: number;
 }) {
   const {
@@ -143,8 +139,6 @@ export async function createOrderWithItems(params: {
     addressSnap,
     payMethod,
     verifiedItems,
-    pointsUsed,
-    pointsEarned,
     finalNet,
   } = params;
 
@@ -185,40 +179,6 @@ export async function createOrderWithItems(params: {
   };
 
   await tx.insert(orders).values(orderValues);
-
-  if (userId) {
-    try {
-      const historyEntries: NewLoyaltyHistory[] = [];
-
-      if (pointsUsed > 0) {
-        historyEntries.push({
-          id: crypto.randomUUID(),
-          userId: userId,
-          pointsChange: -Math.abs(pointsUsed),
-          type: "redeemed",
-          reason: "order_redemption",
-          orderId: newOrderId,
-        });
-      }
-
-      if (pointsEarned > 0) {
-        historyEntries.push({
-          id: crypto.randomUUID(),
-          userId: userId,
-          pointsChange: Math.abs(pointsEarned),
-          type: "earned",
-          reason: "order_cashback",
-          orderId: newOrderId,
-        });
-      }
-
-      if (historyEntries.length > 0) {
-        await tx.insert(loyaltyHistory).values(historyEntries);
-      }
-    } catch (err) {
-      console.error(`Erro fidelidade ${newOrderId}:`, err);
-    }
-  }
 
   if (verifiedItems?.length) {
     const itemsToInsert: NewOrderItem[] = verifiedItems.map((cItem) => {

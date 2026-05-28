@@ -3,10 +3,21 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Loader2 } from "lucide-react"; // ✅ Removido ShieldAlert não utilizado
 import { getLoginUrl } from "@/const";
+import { normalizeRole, type AppRole } from "@shared/security/rbac";
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  requiredRole?: "admin" | "user" | "nutri";
+  requiredRole?: AppRole | AppRole[];
+}
+
+function hasRequiredRole(userRole: string | undefined, requiredRole: AppRole | AppRole[]) {
+  const role = normalizeRole(userRole);
+  const required = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+  if (required.includes(role)) return true;
+  if (required.includes("admin")) {
+    return role === "super_admin" || role === "admin" || role === "operator";
+  }
+  return false;
 }
 
 export default function ProtectedRoute({
@@ -32,7 +43,7 @@ export default function ProtectedRoute({
     }
 
     // 3. Se estiver autenticado mas for um 'user' tentando entrar em rota 'admin'
-    if (requiredRole === "admin" && user.role !== "admin") {
+    if (!hasRequiredRole(user.role, requiredRole)) {
       console.warn("🚫 Acesso negado: Redirecionando para a home.");
       navigate("/", { replace: true }); 
     }
@@ -69,7 +80,7 @@ export default function ProtectedRoute({
 
   // Proteção visual imediata para evitar "flicker" de conteúdo proibido
   if (!isAuthenticated || !user) return null;
-  if (requiredRole === "admin" && user.role !== "admin") return null;
+  if (!hasRequiredRole(user.role, requiredRole)) return null;
 
   // Tudo ok! Renderiza o conteúdo protegido
   return <React.Fragment>{children}</React.Fragment>;

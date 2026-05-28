@@ -24,8 +24,10 @@ import { OrderTracker } from "./OrderTracker";
 import { OrdersTabItem } from "./OrderTab/OrdersTabItem";
 import { OrdersTabLoyalty } from "./OrderTab/OrdersTabLoyalty";
 import { useReorder } from "./../logic/useReorder";
+import { useNavigate } from "react-router-dom";
 
 export function OrdersTabCard({ order }: { order: Order }) {
+  const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(false);
   const { total } = getOrderDiscounts(order);
   const { reorder, isLoading: isReordering } = useReorder();
@@ -76,13 +78,14 @@ export function OrdersTabCard({ order }: { order: Order }) {
 
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
             onClick={(e) => { e.stopPropagation(); reorder(order); }}
             disabled={isReordering}
-            className="hidden md:flex gap-2 rounded-full font-black text-[9px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+            aria-label={`Pedir novamente o pedido ${order.id}`}
+            className="hidden md:flex gap-2 rounded-full font-black text-[9px] uppercase tracking-widest border-emerald-200 text-emerald-600 bg-white hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 shadow-xs transition-all active:scale-95 disabled:opacity-50"
           >
             <RotateCcw size={13} className={isReordering ? "animate-spin" : ""} />
-            {isReordering ? "Adicionando..." : "Pedir de novo"}
+            {isReordering ? "Carregando..." : "Pedir de novo"}
           </Button>
 
           <Dialog>
@@ -91,7 +94,8 @@ export function OrdersTabCard({ order }: { order: Order }) {
                 size="sm"
                 variant="ghost"
                 onClick={(e) => e.stopPropagation()}
-                className="hidden md:flex gap-2 rounded-full font-black text-[9px] uppercase tracking-widest text-emerald-600 hover:bg-emerald-50"
+                aria-label={`Rastrear pedido ${order.id}`}
+                className="hidden md:flex gap-2 rounded-full font-black text-[9px] uppercase tracking-widest text-slate-500 hover:bg-slate-50"
               >
                 <ExternalLink size={14} />
                 Rastrear
@@ -135,6 +139,45 @@ export function OrdersTabCard({ order }: { order: Order }) {
             <div className="text-[10px] md:text-xs font-bold text-slate-600 italic leading-tight text-left">
               {formatAddress(order)}
             </div>
+          </div>
+
+          {/* Ações do Pedido (Pedir novamente e Rastrear) visíveis imediatamente sem scroll longo */}
+          <div className="px-5 md:px-8 py-4 bg-emerald-50/10 border-b border-slate-100/40 flex flex-col sm:flex-row gap-3">
+            <Button
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); reorder(order); }}
+              disabled={isReordering}
+              aria-label={`Pedir novamente o pedido ${order.id}`}
+              className="w-full sm:w-auto h-11 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-widest gap-2 disabled:opacity-50 shadow-md shadow-emerald-600/10 flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+            >
+              <RotateCcw size={13} className={isReordering ? "animate-spin" : ""} />
+              {isReordering ? "Carregando..." : "Pedir novamente"}
+            </Button>
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Rastrear pedido ${order.id}`}
+                  className="w-full sm:w-auto h-11 px-6 rounded-2xl border border-slate-200 bg-white text-emerald-600 hover:bg-emerald-50 font-black uppercase text-[10px] tracking-widest gap-2 flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                >
+                  <ExternalLink size={13} />
+                  Rastrear Pedido
+                </Button>
+              </DialogTrigger>
+
+              <DialogContent className="max-w-2xl rounded-[2.5rem] border-none p-0 overflow-hidden outline-none shadow-2xl">
+                <DialogHeader className="sr-only">
+                  <DialogTitle>Rastreio do Pedido #{order.id}</DialogTitle>
+                  <DialogDescription>
+                    Acompanhamento detalhado do status do pedido
+                  </DialogDescription>
+                </DialogHeader>
+                <OrderTracker orderId={String(order.id)} />
+              </DialogContent>
+            </Dialog>
           </div>
 
           <div className="p-4 md:p-8 space-y-6">

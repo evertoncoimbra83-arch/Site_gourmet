@@ -27,7 +27,7 @@ export function OrdersTabLoyalty({ order }: { order: Order }) {
 
   return (
     <div className="space-y-6 mt-4 pt-4 border-t border-slate-50">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 ${hasLoyalty ? "md:grid-cols-2" : ""} gap-4`}>
         <div className="bg-slate-50 rounded-[2rem] p-6 space-y-3 border border-slate-100 shadow-inner text-left">
           <div className="text-[10px] font-black uppercase text-slate-400 mb-4 tracking-widest italic flex items-center gap-2">
             Extrato Financeiro
@@ -95,48 +95,42 @@ export function OrdersTabLoyalty({ order }: { order: Order }) {
           </div>
         </div>
 
-        <div className="bg-emerald-50/30 rounded-[2rem] p-6 border border-emerald-100 flex flex-col justify-center">
-          <div className="flex items-center gap-2 mb-4 text-left">
-            <div className="h-6 w-6 rounded-lg bg-emerald-600 flex items-center justify-center text-white">
-              <Star size={12} fill="currentColor" />
+        {hasLoyalty && (
+          <div className="bg-emerald-50/30 rounded-[2rem] p-6 border border-emerald-100 flex flex-col justify-center">
+            <div className="flex items-center gap-2 mb-4 text-left">
+              <div className="h-6 w-6 rounded-lg bg-emerald-600 flex items-center justify-center text-white">
+                <Star size={12} fill="currentColor" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 italic">
+                Programa de Fidelidade
+              </span>
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 italic">
-              Programa de Fidelidade
-            </span>
+
+            <div className="space-y-2 text-left">
+              {pointsEarned > 0 && (
+                <div className="flex justify-between items-center p-3 bg-white rounded-2xl border border-emerald-100 shadow-sm transition-all hover:shadow-md">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Ganhos no pedido
+                  </span>
+                  <span className="text-sm font-black text-emerald-600">
+                    +{pointsEarned} pts
+                  </span>
+                </div>
+              )}
+
+              {pointsUsed > 0 && (
+                <div className="flex justify-between items-center p-3 bg-white rounded-2xl border border-orange-100 shadow-sm transition-all hover:shadow-md">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Resgatados
+                  </span>
+                  <span className="text-sm font-black text-orange-500">
+                    -{pointsUsed} pts
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-
-          <div className="space-y-2 text-left">
-            {pointsEarned > 0 && (
-              <div className="flex justify-between items-center p-3 bg-white rounded-2xl border border-emerald-100 shadow-sm transition-all hover:shadow-md">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Ganhos no pedido
-                </span>
-                <span className="text-sm font-black text-emerald-600">
-                  +{pointsEarned} pts
-                </span>
-              </div>
-            )}
-
-            {pointsUsed > 0 && (
-              <div className="flex justify-between items-center p-3 bg-white rounded-2xl border border-orange-100 shadow-sm transition-all hover:shadow-md">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Resgatados
-                </span>
-                <span className="text-sm font-black text-orange-500">
-                  -{pointsUsed} pts
-                </span>
-              </div>
-            )}
-
-            {!pointsEarned && !pointsUsed && (
-              <div className="py-6 text-center bg-white/50 rounded-2xl border border-emerald-50 border-dashed">
-                <p className="text-[10px] text-slate-400 italic font-medium uppercase tracking-wider">
-                  Nenhuma movimentação neste pedido
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

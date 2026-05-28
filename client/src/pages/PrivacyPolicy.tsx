@@ -1,12 +1,18 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck, Lock, Eye, FileText } from "lucide-react";
+import { SEO } from "@/components/SEO";
 
 export default function PrivacyPolicy() {
   const companyName = "Gourmet Saudável";
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 md:py-20 text-left">
+      <SEO 
+        title="Política de Privacidade" 
+        description="Consulte a política de privacidade da plataforma Gourmet Saudável. Entenda como protegemos e gerimos seus dados pessoais." 
+        path="/privacidade" 
+      />
       <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Header da Página */}

@@ -66,6 +66,7 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("last_signed_in"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(), 
+  deletedAt: timestamp("deleted_at"),
 }, (table) => ({
   nameIdx: index("name_search_idx").on(table.nameIndex),
   docIdx: index("doc_search_idx").on(table.documentIndex),

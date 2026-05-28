@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
 
 import { DEFAULT_PACKAGE_PERSONAS } from "../logic/generator/package-personas";
 import { generateSmartPackage } from "../logic/generator/smartGenerator";
@@ -177,7 +178,7 @@ export function PackageAutoGenerator({
     }
   };
 
-  const totalQuantity = rules.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+  const totalQuantity = rules.reduce((acc, r) => acc + safeNumber(r.quantity), 0);
   const canGenerate   = totalQuantity > 0 && rules.every((r) => r.sizeId) && allDishes.length > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -296,7 +297,7 @@ export function PackageAutoGenerator({
                 <Input
                   type="number"
                   value={rule.quantity}
-                  onChange={(e) => updateRule(rule.id, { quantity: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => updateRule(rule.id, { quantity: safeInteger(e.target.value) })}
                   className="bg-white border-slate-100 h-12 font-bold rounded-xl shadow-sm"
                 />
               </div>

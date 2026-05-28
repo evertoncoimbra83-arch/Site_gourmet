@@ -1,12 +1,18 @@
 import React from "react"; // ✅ Adicionado para satisfazer o ESLint
 import { Card, CardContent } from "@/components/ui/card";
 import { Scale, FileText, ShieldAlert, CheckCircle } from "lucide-react";
+import { SEO } from "@/components/SEO";
 
 export default function TermsOfUse() {
   const companyName = "Gourmet Saudável";
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 md:py-20 italic">
+      <SEO 
+        title="Termos de Uso" 
+        description="Leia os Termos de Uso do Gourmet Saudável. Conheça as diretrizes para utilização de nossa plataforma e pedidos de marmitas congeladas." 
+        path="/termos" 
+      />
       <div className="max-w-4xl mx-auto space-y-8">
         
         <div className="text-center space-y-4">

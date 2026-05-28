@@ -219,11 +219,6 @@ function HubDetailManager({ storeSlug }: { storeSlug: string }) {
       // ✅ FIX: Cast seguro para a interface ZipValidationResult em vez de 'any'
       const res = await utils.addresses.validateZipZone.fetch({ zipCode: cleanCep, storeSlug }) as ZipValidationResult;
       
-      console.group(`💎 [DEBUG ADMIN] Teste em ${storeSlug}`);
-      console.log("Pedido Mínimo Capturado:", res.minOrderValue);
-      console.log("Mensagem Capturada:", res.minOrderMessage);
-      console.groupEnd();
-
       if (res.isValid) {
         const minMsg = res.minOrderValue > 0 ? ` | Mínimo: R$ ${res.minOrderValue}` : '';
         setTestResult({ 

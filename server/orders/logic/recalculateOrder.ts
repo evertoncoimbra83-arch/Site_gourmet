@@ -1,3 +1,4 @@
+// server/orders/logic/recalculateOrder.ts
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import { getDb } from "../../db.js";
@@ -169,11 +170,13 @@ function parseSelectedMeals(value: unknown): RawSelectedMeal[] {
 }
 
 function pickSelectedAccs(options: Record<string, unknown>): RawSelectedAcc[] {
-  return (
-    parseSelectedAccs(options.selectedAccs) ||
-    parseSelectedAccs(options.selectedAccompaniments) ||
-    parseSelectedAccs(options.accompaniments)
-  );
+  const candidates = [
+    parseSelectedAccs(options.selectedAccs),
+    parseSelectedAccs(options.selectedAccompaniments),
+    parseSelectedAccs(options.accompaniments),
+  ];
+
+  return candidates.find((items) => items.length > 0) || [];
 }
 
 function getSelectedAccsFromMeal(meal: RawSelectedMeal): RawSelectedAcc[] {
@@ -256,7 +259,8 @@ async function recalculateSingleItem(
 ): Promise<AuthoritativeCartItem> {
   const parsedDishId = toNumber(dishId, NaN);
   if (!Number.isFinite(parsedDishId)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Prato invÃ¡lido ou inativo." });
+    // ✅ FIX 2: corrigido encoding corrompido "invÃ¡lido" → "inválido"
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Prato inválido ou inativo." });
   }
 
   const dish = (await getDishDetails(parsedDishId)) as Record<string, unknown> | null;
@@ -576,12 +580,18 @@ async function calculateLoyaltyDiscount(
     return { loyaltyDiscount: 0, pointsUsed: 0 };
   }
 
-  // ✅ Limite vem das faixas (redemptionRules), não do maxDiscountAmount global
+  // ✅ FIX 1: safeJsonParse em vez de JSON.parse direto
+  // JSON.parse lançava exceção se redemptionRules estivesse malformado no banco,
+  // derrubando o checkout inteiro. safeJsonParse retorna [] como fallback seguro.
   const rawRules = cfg?.redemptionRules;
-  const rules: Array<{ minOrderValue: number; maxDiscount: number }> =
-    Array.isArray(rawRules) ? rawRules : (typeof rawRules === 'string' ? JSON.parse(rawRules) : []);
+  const rules: Array<{ minOrderValue: number; maxDiscount: number }> = Array.isArray(rawRules)
+    ? rawRules
+    : safeJsonParse<Array<{ minOrderValue: number; maxDiscount: number }>>(
+        typeof rawRules === "string" ? rawRules : "",
+        [],
+      );
 
-  let tierCeiling = remainder; // sem faixas = sem limite além do saldo
+  let tierCeiling = remainder;
   if (rules.length > 0) {
     const sorted = [...rules].sort((a, b) => toNumber(b.minOrderValue) - toNumber(a.minOrderValue));
     const matched = sorted.find(r => remainder >= toNumber(r.minOrderValue));

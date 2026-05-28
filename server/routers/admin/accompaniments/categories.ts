@@ -1,31 +1,33 @@
+import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { accompanimentCategories } from "../../../../drizzle/schema/index.js";
 import { adminProcedure, router } from "../../../_core/trpc.js";
-import { accompanimentCategories } from "../../../../drizzle/schema/index.js"; 
-import { eq } from "drizzle-orm"; // ✅ CORREÇÃO ESLint: 'sql' removido pois não era usado
 
 type NewCategory = typeof accompanimentCategories.$inferInsert;
 
 export const accompanimentCategoriesRouter = router({
   list: adminProcedure.query(async ({ ctx }) => {
-    return await ctx.db
+    return ctx.db
       .select()
       .from(accompanimentCategories)
       .orderBy(accompanimentCategories.displayOrder);
   }),
 
   upsert: adminProcedure
-    .input(z.object({
-      id: z.number().optional(),
-      name: z.string().min(1, "O nome é obrigatório"),
-      iconKey: z.string().nullable().optional(),
-      color: z.string().nullable().optional(),
-      isActive: z.boolean().optional(),
-      displayOrder: z.number().optional(),
-    }))
+    .input(
+      z.object({
+        id: z.number().optional(),
+        name: z.string().min(1, "O nome é obrigatório"),
+        iconKey: z.string().nullable().optional(),
+        color: z.string().nullable().optional(),
+        isActive: z.boolean().optional(),
+        displayOrder: z.number().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      
-      // ✅ CORREÇÃO TS2353: 'slug' removido do payload pois não existe nesta tabela
+
       const payload: NewCategory = {
         name: data.name,
         iconKey: data.iconKey,
@@ -35,23 +37,32 @@ export const accompanimentCategoriesRouter = router({
       };
 
       if (id) {
-        await ctx.db.update(accompanimentCategories)
-          .set(payload) 
+        await ctx.db
+          .update(accompanimentCategories)
+          .set(payload)
           .where(eq(accompanimentCategories.id, id));
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           id,
-          message: `Categoria "${data.name}" atualizada!` 
+          message: `Categoria "${data.name}" atualizada!`,
         };
       }
 
-      const [result] = await ctx.db.insert(accompanimentCategories).values(payload) as unknown as [{ insertId: number }];
+      const result = await ctx.db.insert(accompanimentCategories).values(payload);
+      const insertId = result[0]?.insertId;
 
-      return { 
-        success: true, 
-        id: result.insertId,
-        message: `Nova categoria "${data.name}" criada com sucesso!` 
+      if (!insertId) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro operacional: Não foi possível gerar o identificador do registro.",
+        });
+      }
+
+      return {
+        success: true,
+        id: insertId,
+        message: `Nova categoria "${data.name}" criada com sucesso!`,
       };
     }),
 });

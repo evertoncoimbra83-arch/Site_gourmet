@@ -1,6 +1,6 @@
 // client/src/pages/packages/logic/usePackageViewModel.ts
 
-import { useReducer, useState, useCallback, useMemo } from "react";
+import { useReducer, useState, useCallback, useMemo, useEffect } from "react";
 import { packageMachine, initialPackageContext } from "./packageMachine";
 import { 
   PackageItem, 
@@ -8,8 +8,7 @@ import {
   AccompanimentOption, 
   AccompanimentGroupRule 
 } from "./packageMachine.types";
-import { canSubmitPackage } from "./packageGuards"; 
-import { useCart } from "@/_core/CartContext";
+import { canSubmitPackage, isMealComplete } from "./packageGuards"; import { useCart } from "@/_core/CartContext";
 import { appToast as toast } from "@/lib/app-toast";
 
 // ✅ IMPORTAÇÕES DO DOMÍNIO
@@ -36,8 +35,16 @@ interface ItemTrace {
 
 export function usePackageViewModel(packageData: PackageData) {
   const cart = useCart();
-  const [selectedItems, setSelectedItems] = useState<PackageItem[]>([]);
-  
+  // ✅ FIX: Array de tamanho fixo (capacity) — cada slot tem posição fixa
+  // Evita o bug onde remover um item desloca os índices e troca as seleções
+  const emptySlots = useCallback((): Array<PackageItem | null> =>
+    Array.from({ length: packageData.capacity }, () => null), [packageData.capacity]);
+
+  const [slotItems, setSlotItems] = useState<Array<PackageItem | null>>([]);
+
+  // Derived: apenas slots preenchidos (para compatibilidade com canSubmit e cart)
+  const selectedItems = slotItems.filter((s): s is PackageItem => s !== null && s !== undefined);
+
   const [machine, dispatch] = useReducer(packageMachine, {
     ...initialPackageContext,
     capacity: packageData.capacity,
@@ -45,54 +52,62 @@ export function usePackageViewModel(packageData: PackageData) {
   });
 
   const handleReset = useCallback(() => {
-    dispatch({ type: 'RESET' });
-    setSelectedItems([]);
-  }, []);
+    dispatch({ type: 'RESET', payload: { capacity: packageData.capacity } });
+    setSlotItems(emptySlots());
+  }, [dispatch, emptySlots, packageData.capacity]);
 
-  // ✅ CORREÇÃO: A função addMeal agora aceita o parâmetro nutrition
-  const addMeal = useCallback((dish: { 
-    id: string; 
-    name: string; 
-    requiresAccompaniments: boolean; 
+  useEffect(() => {
+    handleReset();
+  }, [packageData.id, handleReset]);
+
+  // ✅ addMeal agora recebe slotIndex — insere na posição correta
+  const addMeal = useCallback((dish: {
+    id: string;
+    name: string;
+    requiresAccompaniments: boolean;
     accompanimentGroups: AccompanimentGroupRule[];
-    nutrition?: Record<string, unknown>; // <-- Adicionado aqui
+    nutrition?: Record<string, unknown>;
+    slotIndex: number; // ✅ obrigatório agora
   }) => {
-    if (selectedItems.length >= packageData.capacity) return;
-
-    // ✅ CORREÇÃO: O newItem agora salva a nutrição para o estado não perder os dados do prato
     const newItem = {
       dishId: dish.id,
       dishName: dish.name,
       requiresAccompaniments: dish.requiresAccompaniments,
       accompanimentGroups: dish.accompanimentGroups,
       selectedAccompaniments: [],
-      nutrition: dish.nutrition // <-- Salvando na memória da marmita!
-    } as PackageItem; // Fazemos o cast para PackageItem caso a interface em types.ts não tenha sido atualizada ainda
+      nutrition: dish.nutrition,
+    } as PackageItem;
 
-    setSelectedItems(prev => {
-      const updated = [...prev, newItem];
+    setSlotItems(prev => {
+      const updated = [...prev];
+      updated[dish.slotIndex] = newItem;
+      const filled = updated.filter((s): s is PackageItem => s !== null);
       dispatch({ type: 'ADD_MEAL', payload: { item: newItem } });
-      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: updated } });
+      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: filled } });
       return updated;
     });
-  }, [packageData.capacity, selectedItems.length]);
+  }, []);
 
+  // ✅ removeMeal limpa apenas o slot — não desloca os outros
   const removeMeal = useCallback((index: number) => {
-    setSelectedItems(prev => {
-      const updated = prev.filter((_, i) => i !== index);
+    setSlotItems(prev => {
+      const updated = [...prev];
+      updated[index] = null;
+      const filled = updated.filter((s): s is PackageItem => s !== null);
       dispatch({ type: 'REMOVE_MEAL', payload: { index } });
-      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: updated } });
+      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: filled } });
       return updated;
     });
   }, []);
 
   const updateAccompaniments = useCallback((index: number, accompaniments: AccompanimentOption[]) => {
-    setSelectedItems(prev => {
+    setSlotItems(prev => {
       const updated = [...prev];
       if (updated[index]) {
-        updated[index] = { ...updated[index], selectedAccompaniments: accompaniments };
+        updated[index] = { ...updated[index]!, selectedAccompaniments: accompaniments };
       }
-      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: updated } });
+      const filled = updated.filter((s): s is PackageItem => s !== null);
+      dispatch({ type: 'VALIDATE_REQUEST', payload: { items: filled } });
       return updated;
     });
   }, []);
@@ -113,8 +128,11 @@ export function usePackageViewModel(packageData: PackageData) {
     return aggregateNutritionCollection(mealsNutrition);
   }, [selectedItems]);
 
-  const canSubmit = useMemo(() => canSubmitPackage(machine, selectedItems), [machine, selectedItems]);
-
+  const canSubmit = useMemo(() => {
+    const full = selectedItems.length === packageData.capacity;
+    const configured = selectedItems.every(item => isMealComplete(item));
+    return full && configured && !machine.isBusy;
+  }, [selectedItems, packageData.capacity, machine.isBusy]);
   const handleAddToCart = useCallback(async () => {
     if (!canSubmit) return;
 
@@ -170,7 +188,7 @@ export function usePackageViewModel(packageData: PackageData) {
 
   return {
     state: machine.currentState as PackageState,
-    items: selectedItems,
+    items: slotItems, // array de tamanho fixo — null = slot vazio
     progress: packageData.capacity > 0 ? (selectedItems.length / packageData.capacity) * 100 : 0,
     canSubmit,
     aggregatedNutrition, 

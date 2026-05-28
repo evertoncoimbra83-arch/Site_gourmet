@@ -2,12 +2,13 @@
 // client/src/app/logic/routesConfig.tsx
 
 import { lazy, LazyExoticComponent, ComponentType } from "react";
+import type { AppRole } from "@shared/security/rbac";
 
 /**
  * 1. TIPAGEM MELHORADA
  * ✅ Alterado ComponentType<unknown> para ComponentType<any> para evitar conflitos de props no lazy loading
  */
-export type AllowedRoles = "admin" | "user" | "nutri" | "customer";
+export type AllowedRoles = AppRole;
 
 type LazyComponent = LazyExoticComponent<ComponentType<any>>;
 
@@ -25,6 +26,7 @@ export const publicRoutes: RouteConfig[] = [
   { path: "/", element: lazy(() => import("../../pages/Home")) },
   { path: "/produtos", element: lazy(() => import("../../pages/Products")) },
   { path: "/pacotes", element: lazy(() => import("../../pages/Packages")) },
+  { path: "/nutricionistas", element: lazy(() => import("../../pages/nutri/NutriPublicLanding")) },
   
   // ✅ PÁGINA EXPLICATIVA DO CLUBE (Alimentada pelo DB)
   { path: "/fidelidade", element: lazy(() => import("../../pages/loyalty/LoyaltyRulesPage")) },
@@ -91,7 +93,11 @@ export const adminRoutes: RouteConfig[] = [
   // Pedidos & PDV
   { path: "orders", element: lazy(() => import("../../pages/AdminOrders")) },
   { path: "orders/create", element: lazy(() => import("../../pages/adminOrders/view/AdminOrderCreate")) },
+  { path: "orders/success", element: lazy(() => import("../../pages/adminOrders/view/AdminOrderSuccess")) },
   { path: "abandoned-carts", element: lazy(() => import("../../pages/AdminAbandonedCarts")) },
+  { path: "pdv", element: lazy(() => import("../../pages/AdminPdv")) },
+  { path: "pdv/comanda/:id", element: lazy(() => import("../../pages/AdminPdvComanda")) },
+  { path: "pdv/relatorios", element: lazy(() => import("../../pages/AdminPdvRelatorios")) },
   
   // ✅ ETIQUETAS ZEBRA (Gourmet Saudável)
   // Rota do Editor Visual
@@ -100,7 +106,7 @@ export const adminRoutes: RouteConfig[] = [
   { path: "labels/editor/production/:orderId", element: lazy(() => import("../../pages/AdminLabelEditor")) },
   { path: "labels/editor/:id", element: lazy(() => import("../../pages/AdminLabelEditor")) },
   // ✅ BI & Analytics
-  { path: "analytics", element: lazy(() => import("../../pages/AdminAnalytics")) },
+  { path: "analytics", element: lazy(() => import("../../pages/AdminAnalytics")), role: "super_admin" },
 
   { 
     path: "orders/:id/print", 
@@ -110,33 +116,35 @@ export const adminRoutes: RouteConfig[] = [
   // ✅ GESTÃO DE NUTRICIONISTAS (Admin)
   { 
     path: "nutris", 
-    element: lazy(() => import("../../pages/AdminNutri")) 
+    element: lazy(() => import("../../pages/AdminNutri")),
+    role: ["super_admin", "admin"],
   },
 
   // Marketing - ✅ Suporte a Named Export
   { 
     path: "marketing", 
-    element: lazy(() => import("../../pages/adminMarketing/view/AdminMarketingView").then(m => ({ default: m.AdminMarketingView }))) 
+    element: lazy(() => import("../../pages/adminMarketing/view/AdminMarketingView").then(m => ({ default: m.AdminMarketingView }))),
+    role: ["super_admin", "admin"],
   },  
-  { path: "coupons", element: lazy(() => import("../../pages/AdminCoupons")) },
-  { path: "offers", element: lazy(() => import("../../pages/AdminDiscountRules")) },
-  { path: "loyalty", element: lazy(() => import("../../pages/AdminLoyalty")) },
-  { path: "mail", element: lazy(() => import("../../pages/AdminMail")) },
+  { path: "coupons", element: lazy(() => import("../../pages/AdminCoupons")), role: ["super_admin", "admin"] },
+  { path: "offers", element: lazy(() => import("../../pages/AdminDiscountRules")), role: ["super_admin", "admin"] },
+  { path: "loyalty", element: lazy(() => import("../../pages/AdminLoyalty")), role: ["super_admin", "admin"] },
+  { path: "mail", element: lazy(() => import("../../pages/AdminMail")), role: ["super_admin", "admin"] },
 
   // Catálogo
-  { path: "dishes", element: lazy(() => import("../../pages/AdminDishes")) },
-  { path: "packages", element: lazy(() => import("../../pages/adminPackages/view/AdminPackagesView")) }, 
-  { path: "sizes-accompaniments", element: lazy(() => import("../../pages/AdminSizesAccompaniments")) },
-  { path: "showcases", element: lazy(() => import("../../pages/AdminShowcases")) },
+  { path: "dishes", element: lazy(() => import("../../pages/AdminDishes")), role: ["super_admin", "admin"] },
+  { path: "packages", element: lazy(() => import("../../pages/adminPackages/view/AdminPackagesView")), role: ["super_admin", "admin"] }, 
+  { path: "sizes-accompaniments", element: lazy(() => import("../../pages/AdminSizesAccompaniments")), role: ["super_admin", "admin"] },
+  { path: "showcases", element: lazy(() => import("../../pages/AdminShowcases")), role: ["super_admin", "admin"] },
 
   // Gestão
-  { path: "media", element: lazy(() => import("../../pages/AdminMediaManager")) },
-  { path: "users", element: lazy(() => import("../../pages/AdminUsers")) },
+  { path: "media", element: lazy(() => import("../../pages/AdminMediaManager")), role: ["super_admin", "admin"] },
+  { path: "users", element: lazy(() => import("../../pages/AdminUsers")), role: "super_admin" },
   { path: "referrals", element: lazy(() => import("../../pages/adminReferral")) }, 
-  { path: "payment-methods", element: lazy(() => import("../../pages/AdminPaymentMethods")) },
-  { path: "shipping", element: lazy(() => import("../../pages/AdminShipping")) },
-  { path: "settings", element: lazy(() => import("../../pages/AdminSettings")) },
-  { path: "integration", element: lazy(() => import("../../pages/admin/IntegrationPage")) },
-  { path: "theme", element: lazy(() => import("../../pages/AdminTheme")) },
-  { path: "logs", element: lazy(() => import("../../pages/AdminLogs")) },
+  { path: "payment-methods", element: lazy(() => import("../../pages/AdminPaymentMethods")), role: "super_admin" },
+  { path: "shipping", element: lazy(() => import("../../pages/AdminShipping")), role: "super_admin" },
+  { path: "settings", element: lazy(() => import("../../pages/AdminSettings")), role: "super_admin" },
+  { path: "integration", element: lazy(() => import("../../pages/admin/IntegrationPage")), role: "super_admin" },
+  { path: "theme", element: lazy(() => import("../../pages/AdminTheme")), role: "super_admin" },
+  { path: "logs", element: lazy(() => import("../../pages/AdminLogs")), role: "super_admin" },
 ];

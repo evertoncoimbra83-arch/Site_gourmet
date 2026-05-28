@@ -41,7 +41,8 @@ export function ProfileTab({ details }: ProfileTabProps) {
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500 font-sans text-left">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+      {/* Alterado para grid-cols-1 para que cada item ocupe uma linha inteira */}
+      <div className="grid grid-cols-1 gap-y-6 max-w-2xl">
         
         {/* NOME */}
         <div className="space-y-2 group">

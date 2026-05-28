@@ -1,10 +1,13 @@
+// server/routers/admin/orders/AdminOrderDraftService.ts
 import { eq, and, sql, like } from "drizzle-orm";
-import { getDb } from "../../../db";
+import { getDb } from "../../../db.js";
 import { v4 as uuidv4 } from "uuid";
-import * as schema from "../../../../drizzle/schema/index";
-import { unseal, processDraftMetadata } from "./AdminOrderHelpers";
+import * as schema from "../../../../drizzle/schema/index.js";
+import { unseal, processDraftMetadata } from "./AdminOrderHelpers.js";
+import { OrderManagerService } from "./OrderManagerService.js";
 import { TRPCError } from "@trpc/server";
 import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
+import { nanoid } from "nanoid";
 
 // --- INTERFACES DE INPUT ---
 
@@ -32,6 +35,19 @@ interface ListPackagesInput {
   search?: string;
 }
 
+interface EditOrderInput {
+  orderId: string;
+  adminId: string;
+  justification: string;
+  discountAmount: number;
+  shippingCost: number;
+  items: Array<{
+    dishName: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+}
+
 type DraftMetadata = Record<string, unknown> & {
   customer?: Record<string, unknown>;
   address?: Record<string, unknown>;
@@ -43,17 +59,17 @@ export const AdminOrderDraftService = {
     const [existing] = await db.select().from(schema.adminOrderDrafts)
       .where(and(eq(schema.adminOrderDrafts.adminId, adminId), eq(schema.adminOrderDrafts.status, "active")))
       .limit(1);
-    
+
     if (existing) return { id: existing.id, isExisting: true };
-    
+
     const newId = uuidv4();
-    await db.insert(schema.adminOrderDrafts).values({ 
-      id: newId, 
-      adminId, 
-      status: "active", 
-      shippingValue: "0.00", 
-      discountValue: "0.00", 
-      updatedAt: new Date() 
+    await db.insert(schema.adminOrderDrafts).values({
+      id: newId,
+      adminId,
+      status: "active",
+      shippingValue: "0.00",
+      discountValue: "0.00",
+      updatedAt: new Date()
     });
     return { id: newId, isExisting: false };
   },
@@ -61,22 +77,22 @@ export const AdminOrderDraftService = {
   async update(input: DraftUpdateInput) {
     const db = await getDb();
     const rawData = safeJsonParse<Record<string, unknown>>(input.metadataJson, {});
-    
+
     const totalDiscount = (
-      safeNumber(rawData.couponValue) + 
-      safeNumber(rawData.loyaltyValue) + 
+      safeNumber(rawData.couponValue) +
+      safeNumber(rawData.loyaltyValue) +
       safeNumber(rawData.paymentDiscountValue)
     ).toFixed(2);
 
-    await db.update(schema.adminOrderDrafts).set({ 
-      userId: input.userId, 
-      shippingValue: input.shippingValue !== undefined ? safeNumber(input.shippingValue).toFixed(2) : undefined, 
-      discountValue: totalDiscount, 
-      metadataJson: processDraftMetadata(input.metadataJson || "{}"), 
+    await db.update(schema.adminOrderDrafts).set({
+      userId: input.userId,
+      shippingValue: input.shippingValue !== undefined ? safeNumber(input.shippingValue).toFixed(2) : undefined,
+      discountValue: totalDiscount,
+      metadataJson: processDraftMetadata(input.metadataJson || "{}"),
       discountsSnapshot: JSON.stringify(rawData),
-      updatedAt: new Date() 
+      updatedAt: new Date()
     }).where(eq(schema.adminOrderDrafts.id, input.draftId));
-    
+
     return { success: true };
   },
 
@@ -85,16 +101,16 @@ export const AdminOrderDraftService = {
     const [draft] = await db.select().from(schema.adminOrderDrafts)
       .where(and(eq(schema.adminOrderDrafts.adminId, adminId), eq(schema.adminOrderDrafts.status, "active")))
       .limit(1);
-    
+
     if (!draft) return null;
-    
+
     const items = await db.select().from(schema.adminOrderDraftItems).where(eq(schema.adminOrderDraftItems.draftId, draft.id));
-    
+
     const meta = safeJsonParse<DraftMetadata>(draft.metadataJson, {});
-    
-    if (meta.customer) { 
-      (meta.customer as Record<string, unknown>).name = unseal((meta.customer as Record<string, unknown>).name || ""); 
-      (meta.customer as Record<string, unknown>).phone = unseal((meta.customer as Record<string, unknown>).phone || ""); 
+
+    if (meta.customer) {
+      (meta.customer as Record<string, unknown>).name = unseal((meta.customer as Record<string, unknown>).name || "");
+      (meta.customer as Record<string, unknown>).phone = unseal((meta.customer as Record<string, unknown>).phone || "");
     }
 
     if (meta.address) {
@@ -104,20 +120,20 @@ export const AdminOrderDraftService = {
         shipping_address_number: unseal((meta.address as Record<string, unknown>).shipping_address_number || ""),
         shipping_neighborhood: unseal((meta.address as Record<string, unknown>).shipping_neighborhood || ""),
         shipping_address_complement: unseal((meta.address as Record<string, unknown>).shipping_address_complement || ""),
-        zipCode: unseal(meta.address.zipCode || meta.address.shipping_zip_code || ""), // ✅ Padronizado para zipCode
+        zipCode: unseal(meta.address.zipCode || meta.address.shipping_zip_code || ""),
         shipping_city: unseal((meta.address as Record<string, unknown>).shipping_city || ""),
         shipping_state: unseal((meta.address as Record<string, unknown>).shipping_state || ""),
       };
     }
-    
-    return { 
-      ...draft, 
-      metadataJson: JSON.stringify({ 
-        ...meta, 
-        discountValue: safeNumber(draft.discountValue), 
-        shippingValue: safeNumber(draft.shippingValue) 
-      }), 
-      items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) })) 
+
+    return {
+      ...draft,
+      metadataJson: JSON.stringify({
+        ...meta,
+        discountValue: safeNumber(draft.discountValue),
+        shippingValue: safeNumber(draft.shippingValue)
+      }),
+      items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
     };
   },
 
@@ -140,10 +156,10 @@ export const AdminOrderDraftService = {
 
   async applyLoyalty(draftId: string, pointsRequested: string) {
     const db = await getDb();
-    
+
     const [settings] = await db.select().from(schema.loyaltySettings).limit(1);
     const [draft] = await db.select().from(schema.adminOrderDrafts).where(eq(schema.adminOrderDrafts.id, draftId)).limit(1);
-    
+
     if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Rascunho não encontrado." });
     if (!settings?.enabled) throw new TRPCError({ code: "BAD_REQUEST", message: "Programa de fidelidade desativado." });
 
@@ -158,11 +174,11 @@ export const AdminOrderDraftService = {
     const discountAmount = safeNumber((ptsToUse * pointValueUnit).toFixed(2));
 
     if (discountAmount > subtotal) {
-       throw new TRPCError({ code: "BAD_REQUEST", message: "Desconto de pontos não pode ser maior que o total dos itens." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Desconto de pontos não pode ser maior que o total dos itens." });
     }
 
     const meta = safeJsonParse<Record<string, unknown>>(draft.metadataJson, {});
-    
+
     const currentCouponValue = safeNumber(meta.couponValue);
     const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
     const totalDiscountSum = (currentCouponValue + discountAmount + currentPaymentDiscount).toFixed(2);
@@ -175,9 +191,9 @@ export const AdminOrderDraftService = {
     };
 
     await db.update(schema.adminOrderDrafts).set({
-        metadataJson: JSON.stringify(updatedMeta),
-        discountValue: totalDiscountSum,
-        updatedAt: new Date()
+      metadataJson: JSON.stringify(updatedMeta),
+      discountValue: totalDiscountSum,
+      updatedAt: new Date()
     }).where(eq(schema.adminOrderDrafts.id, draftId));
 
     return { success: true, discountAmount, pointsUsed: ptsToUse };
@@ -189,11 +205,11 @@ export const AdminOrderDraftService = {
     if (!draft) return { success: false };
 
     const meta = safeJsonParse<Record<string, unknown>>(draft.metadataJson, {});
-    
+
     const { ...rest } = meta;
     delete rest.loyaltyPointsUsed;
     delete rest.loyaltyValue;
-    
+
     const currentCouponValue = safeNumber(meta.couponValue);
     const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
 
@@ -210,20 +226,20 @@ export const AdminOrderDraftService = {
 
   async addItem(input: DraftAddItemInput) {
     const db = await getDb();
-    const finalOptions = input.options || "{}"; 
-    
-    await db.insert(schema.adminOrderDraftItems).values({ 
-        id: uuidv4(), 
-        draftId: input.draftId, 
-        dishId: input.dishId ? String(input.dishId) : null,
-        packageId: input.packageId ? String(input.packageId) : null,
-        name: input.name, 
-        unitPrice: String(safeNumber(input.unitPrice).toFixed(2)),
-        quantity: input.quantity || 1, 
-        options: finalOptions, 
-        appliedNutrition: input.applied_nutrition || null
+    const finalOptions = input.options || "{}";
+
+    await db.insert(schema.adminOrderDraftItems).values({
+      id: uuidv4(),
+      draftId: input.draftId,
+      dishId: input.dishId ? String(input.dishId) : null,
+      packageId: input.packageId ? String(input.packageId) : null,
+      name: input.name,
+      unitPrice: String(safeNumber(input.unitPrice).toFixed(2)),
+      quantity: input.quantity || 1,
+      options: finalOptions,
+      appliedNutrition: input.applied_nutrition || null
     } as typeof schema.adminOrderDraftItems.$inferInsert);
-    
+
     return { success: true };
   },
 
@@ -259,8 +275,8 @@ export const AdminOrderDraftService = {
       .set({ metadataJson: JSON.stringify(updatedMeta), updatedAt: new Date() })
       .where(eq(schema.adminOrderDrafts.id, draftId));
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       coupon: { code: coupon.code, type: coupon.discountType, value: safeNumber(coupon.discountValue) }
     };
   },
@@ -269,16 +285,131 @@ export const AdminOrderDraftService = {
     const db = await getDb();
     const offset = (input.page - 1) * input.perPage;
     const whereClause = and(
-      eq(schema.packages.status, "active"), 
+      eq(schema.packages.status, "active"),
       input.search ? like(schema.packages.name, `%${input.search}%`) : undefined
     );
 
     const data = await db.select().from(schema.packages).where(whereClause).limit(input.perPage).offset(offset);
     const [totalRes] = await db.select({ count: sql<number>`count(*)` }).from(schema.packages).where(whereClause);
 
-    return { 
-      data: data.map(p => ({ ...p, price: safeNumber(p.price) })), 
-      total: safeNumber(totalRes?.count) 
+    return {
+      data: data.map(p => ({ ...p, price: safeNumber(p.price) })),
+      total: safeNumber(totalRes?.count)
     };
+  },
+
+  // 🚀 MÉTODO ATÔMICO ATUALIZADO: APENAS EDITA QUANTIDADE/VALORES DE ITENS ATUAIS E FORMATA NOTA AMIGÁVEL
+  async applyAdministrativeChanges(input: EditOrderInput) {
+    const db = await getDb();
+    await OrderManagerService.assertOrdersAreMutable([input.orderId]);
+
+    return await db.transaction(async (tx) => {
+      // 1. Obtém o estado atual da capa do pedido
+      const [currentOrder] = await tx
+        .select()
+        .from(schema.orders)
+        .where(eq(schema.orders.id, input.orderId))
+        .limit(1);
+
+      if (!currentOrder) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não localizado na base de dados.",
+        });
+      }
+
+      // 2. Busca os metadados complexos originais (options, acompanhamentos) de todos os itens do pedido
+      const currentItems = await tx
+        .select()
+        .from(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, input.orderId));
+
+      let newSubtotal = 0;
+      const itemsToInsert = [];
+
+      // 3. Itera estritamente sobre a lista enviada pelo painel administrativo
+      for (const item of input.items) {
+        // Encontra obrigatoriamente o prato correspondente que já existia no faturamento original
+        const originalItem = currentItems.find(
+          (ci) => ci.dishName?.toUpperCase().trim() === item.dishName.toUpperCase().trim()
+        );
+
+        // 🛑 BLINDAGEM OPERACIONAL: Ignora inclusões manuais e impede a perda ou quebra estrutural de pacotes
+        if (!originalItem) {
+          continue;
+        }
+
+        newSubtotal += safeNumber(item.unitPrice) * safeNumber(item.quantity);
+
+        itemsToInsert.push({
+          id: nanoid(),
+          orderId: input.orderId,
+          dishId: originalItem.dishId,
+          packageId: originalItem.packageId,
+          dishName: originalItem.dishName,
+          quantity: item.quantity,
+          unitPrice: String(item.unitPrice),
+          totalPrice: String(safeNumber(item.unitPrice) * safeNumber(item.quantity)),
+          options: typeof originalItem.options === "string" ? originalItem.options : JSON.stringify(originalItem.options || {}),
+          appliedNutrition: originalItem.appliedNutrition ? String(originalItem.appliedNutrition) : null
+        });
+      }
+
+      // Medida de segurança contra listas vazias mal-intencionadas
+      if (itemsToInsert.length === 0 && currentItems.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é permitido remover todos os pratos ou incluir novos itens por esta gaveta administrativa.",
+        });
+      }
+
+      const finalTotal = newSubtotal + safeNumber(input.shippingCost) - safeNumber(input.discountAmount);
+
+      if (finalTotal < 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "O valor do desconto concedido não pode ultrapassar o total do pedido.",
+        });
+      }
+
+      // 4. Substituição segura e controlada apenas dos itens válidos filtrados
+      await tx.delete(schema.orderItems).where(eq(schema.orderItems.orderId, input.orderId));
+      await tx.insert(schema.orderItems).values(itemsToInsert as any);
+
+      // 5. FORMATAÇÃO DO HISTÓRICO HUMANIZADO (Remove UUIDs e dados de debug do cliente)
+      const dataAtualStr = new Date().toLocaleDateString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+      let detalhesComerciais = "";
+      if (safeNumber(input.discountAmount) > 0) detalhesComerciais += ` | Desconto: R$ ${safeNumber(input.discountAmount).toFixed(2)}`;
+      if (safeNumber(input.shippingCost) !== safeNumber(currentOrder.shippingCost)) detalhesComerciais += ` | Frete: R$ ${safeNumber(input.shippingCost).toFixed(2)}`;
+
+      const novaLinhaNota = `• [Ajuste Comercial em ${dataAtualStr}]: ${input.justification.trim()}${detalhesComerciais}`;
+      const existingNotes = currentOrder.notes ? `${currentOrder.notes}\n` : "";
+      const updatedNotes = `${existingNotes}${novaLinhaNota}`;
+
+      await tx
+        .update(schema.orders)
+        .set({
+          subtotal: String(newSubtotal),
+          shippingCost: String(input.shippingCost),
+          total: String(finalTotal),
+          notes: updatedNotes
+        })
+        .where(eq(schema.orders.id, input.orderId));
+
+      // 6. O Log bruto contendo o UUID do Admin e o snapshot completo fica restrito à tabela interna de auditoria
+      const logPayload = {
+        justification: input.justification,
+        before: currentItems.map((i) => ({ dishName: i.dishName, quantity: i.quantity, unitPrice: i.unitPrice, options: i.options })),
+        after: itemsToInsert
+      };
+
+      await tx.execute(
+        sql`INSERT INTO order_admin_logs (id, order_id, admin_id, action_type, description, changes_payload) 
+        VALUES (${nanoid()}, ${input.orderId}, ${input.adminId}, 'ADMIN_RESTRUCTURING', ${input.justification}, ${JSON.stringify(logPayload)})`
+      );
+
+      return { success: true, newTotal: finalTotal };
+    });
   }
 };

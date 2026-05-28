@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import type { Id } from "@/_core/type/utils";
 import { normalizeGourmetOptions, type PricingOptions, type NormalizedMeal } from "../../../../../../shared/domain/math/pricing";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
+import { normalizeImageUrl } from "@shared/utils/assets";
 
 /* --------------------------------- TYPES ---------------------------------- */
 
@@ -117,7 +119,7 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
           accs: rawAccs.map(a => ({
             name: a.name || a.label || "Item",
             weight: a.weight ? `${a.weight}g` : "" 
-          })).sort((a, b) => (parseInt(String(b.weight)) || 0) - (parseInt(String(a.weight)) || 0)),
+          })).sort((a, b) => safeInteger(String(b.weight)) - safeInteger(String(a.weight))),
           kcal: individualKcal ? Math.round(Number(individualKcal)) : null,
         };
       });
@@ -125,10 +127,7 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
 
     const currentImageUrl = useMemo(() => {
       if (!group.image || imageError) return null;
-      if (/^(http|blob|data):/.test(group.image)) return group.image;
-      const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
-      const cleanPath = group.image.replace(/\\/g, "/").replace(/.*\/uploads\//, "");
-      return `${baseUrl}/uploads/${cleanPath}`;
+      return normalizeImageUrl(group.image) || "";
     }, [group.image, imageError]);
 
     const displaySize = options.size?.name || (rawOptions.sizeName as string) || group.sizeName;
@@ -219,7 +218,7 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
           {/* Preço e Quantidade */}
           <div className="flex items-center justify-between pt-2 border-t border-slate-100">
             <span className="text-lg font-black tracking-tighter text-slate-900">
-              {money((Number(group.price) || 0) * group.quantity)}
+              {money(safeNumber(group.price) * group.quantity)}
             </span>
             <div className="flex items-center gap-px rounded-xl border border-slate-200 bg-slate-100 overflow-hidden">
               <button 

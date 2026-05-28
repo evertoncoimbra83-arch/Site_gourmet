@@ -189,7 +189,7 @@ const PrescriptionDrawer = ({
                   isLoading={loadingTemplates} 
                   onApply={(t: Record<string, unknown>) => {
                     // ✅ FIX TS2352: Passa por unknown primeiro
-                    const normalized = normalizePrescriptionData(t, catalog as CatalogItem[]) as unknown as CleanPrescriptionState;
+                    const normalized = normalizePrescriptionData(t, catalog as CatalogItem[], true) as unknown as CleanPrescriptionState;
                     
                     if (originalIdRef.current) {
                       normalized.id = originalIdRef.current;
@@ -212,6 +212,18 @@ const PrescriptionDrawer = ({
             <Button variant="ghost" onClick={onClose} className="h-12 px-6 rounded-xl font-black uppercase text-[10px] text-slate-400">
               Cancelar
             </Button>
+            {!isTemplateMode && (
+              <Button 
+                variant="outline"
+                disabled={actions.isSaving || (builderPrescription.meals?.length === 0)}
+                onClick={() => {
+                  actions.setShowTemplateModal(true);
+                }}
+                className="h-12 px-6 rounded-xl border-2 border-slate-200 hover:border-slate-300 font-black uppercase text-[10px] text-slate-600 gap-2"
+              >
+                Salvar como Modelo
+              </Button>
+            )}
             <Button 
               disabled={actions.isSaving || (builderPrescription.meals?.length === 0)}
               onClick={() => {

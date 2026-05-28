@@ -1,3 +1,5 @@
+import { safeJsonParse, safeNumber } from "@/lib/safe-parse";
+
 export interface PrintLabelElement {
   id: string;
   type: "text" | "variable" | "image" | "box";
@@ -41,33 +43,32 @@ export interface ActiveLabelTemplate {
 }
 
 function normalizeNewElements(rawElements: string): PrintLabelElement[] {
-  const raw = JSON.parse(rawElements) as Array<Record<string, unknown>>;
+  const raw = safeJsonParse<Array<Record<string, unknown>>>(rawElements, []);
   return raw.map((element) => ({
     id: String(element.id ?? ""),
     type: (element.type === "nutrition_table" ? "text" : element.type ?? "text") as PrintLabelElement["type"],
     content: String(
-      element.staticText ||
+      element.content ||
+        element.staticText ||
         (element.field ? `{{${String(element.field).toUpperCase()}}}` : "TEXTO"),
     ),
-    x: Number(element.x ?? 0),
-    y: Number(element.y ?? 0),
-    width: Number(element.width ?? 100),
-    height: Number(element.height ?? 20),
-    fontSize: Number(element.fontSize ?? 12),
-    fontWeight: "700",
-    zIndex: 10,
-    textAlign: "left",
+    x: safeNumber(element.x),
+    y: safeNumber(element.y),
+    width: safeNumber(element.width, 100),
+    height: safeNumber(element.height, 20),
+    fontSize: safeNumber(element.fontSize, 12),
+    fontWeight: String(element.fontWeight ?? "700"),
+    zIndex: safeNumber(element.zIndex, 10),
+    textAlign: (element.textAlign ?? "left") as PrintLabelElement["textAlign"],
+    color: element.color ? String(element.color) : undefined,
+    backgroundColor: element.backgroundColor ? String(element.backgroundColor) : undefined,
   }));
 }
 
 export function parseLegacyTemplates(rawValue?: string | null): LegacyLabelTemplate[] {
   if (!rawValue) return [];
-  try {
-    const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return [];
-  }
+  const parsed = safeJsonParse<unknown>(rawValue, []);
+  return Array.isArray(parsed) ? parsed : parsed ? [parsed as LegacyLabelTemplate] : [];
 }
 
 export function buildTemplateLibrary(
@@ -92,8 +93,12 @@ export function buildTemplateLibrary(
     source: "legacy" as const,
     width: template.config?.width ?? 100,
     height: template.config?.height ?? 60,
-    elements: typeof template.elements === "string" ? JSON.parse(template.elements) : template.elements,
+    elements:
+      typeof template.elements === "string"
+        ? safeJsonParse<PrintLabelElement[]>(template.elements, [])
+        : Array.isArray(template.elements)
+          ? template.elements
+          : [],
     isDefault: index === 0,
   }));
 }
-

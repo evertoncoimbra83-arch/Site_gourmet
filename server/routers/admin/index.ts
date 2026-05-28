@@ -1,5 +1,5 @@
 // server/routers/admin/index.ts
-import { router, adminProcedure } from "../../_core/trpc.js"; 
+import { router, superAdminProcedure } from "../../_core/trpc.js"; 
 import { z } from "zod";
 
 // IMPORTAÇÕES DE ROTAS EXISTENTES
@@ -38,6 +38,7 @@ import { shippingMeshRouter } from "./shipping/shippingMesh.js";
 import { adminApiRouter } from "./api.js";
 import { backupsAdminRouter } from "./backups.js";
 import { ga4AnalyticsRouter } from "./ga4Analytics.js";
+import { pdvRouter } from "./pdv.js";
 
 // IMPORTAÇÃO DA NOVA LÓGICA DE BI
 import { syncHistoricalData } from "../../api/admin/bi-sync.js";
@@ -54,7 +55,7 @@ export const adminRouter = router({
 
   // ✅ BI & DATA SYNC
   // Resolve o "Property syncBI does not exist" e prepara o terreno para o Dashboard
-  syncBI: adminProcedure
+  syncBI: superAdminProcedure
     .input(z.object({
       ids: z.array(z.string()).optional(), 
       start: z.string(),                   
@@ -121,6 +122,7 @@ export const adminRouter = router({
   usersAdmin: usersAdminRouter, 
   orders: ordersAdminRouter, 
   ordersAdmin: ordersAdminRouter, 
+  pdv: pdvRouter,
   
   // ⚙️ CONFIGURAÇÕES DE SISTEMA
   storeSettings: adminStoreSettingsRouter,

@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, ArrowLeft, CheckCircle2, Loader2, Leaf } from "lucide-react"; // ✅ Adicionado Leaf para o tema
 import { Link } from "react-router-dom"; 
 import { appToast as toast } from "@/lib/app-toast"; 
+import { SEO } from "@/components/SEO"; 
 
 export default function ForgotPasswordView() {
   const [email, setEmail] = useState("");
@@ -45,6 +46,7 @@ export default function ForgotPasswordView() {
   if (isSent) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-4">
+        <SEO title="Recuperar Acesso | Gourmet Saudável" noindex />
         <div className="max-w-md w-full bg-white p-10 rounded-4xl shadow-2xl shadow-slate-200 text-center animate-in zoom-in duration-500 border border-slate-50">
           <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 size={40} />
@@ -69,6 +71,7 @@ export default function ForgotPasswordView() {
   // ✅ ESTADO: FORMULÁRIO INICIAL
   return (
     <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <SEO title="Recuperar Acesso | Gourmet Saudável" noindex />
       <div className="max-w-md w-full bg-white p-10 rounded-4xl shadow-2xl shadow-slate-200 animate-in slide-in-from-bottom-4 duration-500 border border-slate-50">
         
         <Link to="/" className="inline-flex items-center gap-2 text-slate-400 hover:text-emerald-600 mb-8 transition-colors text-xs font-black uppercase tracking-widest">

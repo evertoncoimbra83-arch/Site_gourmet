@@ -2,6 +2,7 @@ import React from "react";
 import { Flame, Beef, Wheat, Droplets, CheckCircle2, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrescriptionOptionData } from "../hooks/usePrescriptionLogic";
+import { safeNumber } from "@/lib/safe-parse";
 
 interface OptionCardProps {
   opt: PrescriptionOptionData;
@@ -19,7 +20,7 @@ export function OptionCard({ opt, basePrice, nutriDiscount, onAdd }: OptionCardP
     fat: 0 
   };
   
-  const safeBasePrice = Number(basePrice) || 0;
+  const safeBasePrice = safeNumber(basePrice);
   const finalPrice = nutriDiscount > 0 
     ? safeBasePrice * (1 - nutriDiscount / 100) 
     : safeBasePrice;
@@ -35,28 +36,28 @@ export function OptionCard({ opt, basePrice, nutriDiscount, onAdd }: OptionCardP
           <div className="flex flex-col items-center">
             <Flame size={14} className="text-slate-400 mb-1" />
             <span className="text-[10px] font-black text-slate-800">
-              {Math.round(Number(macros.kcal) || 0)}
+              {Math.round(safeNumber(macros.kcal))}
             </span>
             <span className="text-[8px] uppercase text-slate-400 font-bold">Kcal</span>
           </div>
           <div className="flex flex-col items-center">
             <Beef size={14} className="text-emerald-500 mb-1" />
             <span className="text-[10px] font-black text-emerald-700">
-              {Math.round(Number(macros.protein) || 0)}g
+              {Math.round(safeNumber(macros.protein))}g
             </span>
             <span className="text-[8px] uppercase text-emerald-500 font-bold">Prot</span>
           </div>
           <div className="flex flex-col items-center">
             <Wheat size={14} className="text-blue-500 mb-1" />
             <span className="text-[10px] font-black text-blue-700">
-              {Math.round(Number(macros.carbs) || 0)}g
+              {Math.round(safeNumber(macros.carbs))}g
             </span>
             <span className="text-[8px] uppercase text-blue-500 font-bold">Carb</span>
           </div>
           <div className="flex flex-col items-center">
             <Droplets size={14} className="text-orange-500 mb-1" />
             <span className="text-[10px] font-black text-orange-700">
-              {Math.round(Number(macros.fat) || 0)}g
+              {Math.round(safeNumber(macros.fat))}g
             </span>
             <span className="text-[8px] uppercase text-orange-500 font-bold">Gord</span>
           </div>

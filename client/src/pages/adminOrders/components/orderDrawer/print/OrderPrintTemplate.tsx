@@ -109,9 +109,9 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
           background: #fff;
           color: #000;
           font-family: "Courier New", Courier, monospace;
-          font-size: 11px;
+          font-size: 13px;
           font-weight: 700;
-          line-height: 1.25;
+          line-height: 1.35;
           margin: 0 auto;
           padding: 8mm 5mm 6mm;
         }
@@ -125,23 +125,26 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
         .text-center { text-align: center; }
         .font-black { font-weight: 900 !important; }
         .uppercase { text-transform: uppercase; }
+
         .section-title {
-          font-size: 10px;
+          font-size: 11px;
           font-weight: 900;
           letter-spacing: 0.08em;
           margin: 0 0 4px;
         }
+
         .block {
           border: 1px solid #000;
           padding: 6px;
           margin-top: 6px;
         }
+
         .row {
           display: flex;
           justify-content: space-between;
           gap: 8px;
           align-items: flex-start;
-          margin: 2px 0;
+          margin: 3px 0;
         }
         .row-label {
           flex: 1;
@@ -153,26 +156,29 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
           white-space: nowrap;
           text-align: right;
         }
+
         .item {
-          margin-bottom: 10px;
+          margin-bottom: 12px;
         }
         .item-title {
-          font-size: 12px;
+          font-size: 14px;
           font-weight: 900;
-          margin: 0 0 2px;
+          margin: 0 0 3px;
         }
         .item-detail {
-          padding-left: 10px;
-          font-size: 10px;
+          padding-left: 12px;
+          font-size: 12px;
           margin: 2px 0 0;
         }
+
         .total-row {
-          font-size: 16px;
+          font-size: 17px;
           font-weight: 900;
           border-top: 2px solid #000;
           padding-top: 6px;
           margin-top: 6px;
         }
+
         .badge {
           display: inline-block;
           border: 2px solid #000;
@@ -181,18 +187,29 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
           font-weight: 900;
           margin-top: 4px;
         }
+
+        .obs-block {
+          border: 2px dashed #000;
+          padding: 8px;
+          margin-top: 6px;
+          font-size: 13px;
+          line-height: 1.5;
+          word-break: break-word;
+        }
       `}</style>
 
+      {/* CABEÇALHO */}
       <div className="text-center">
-        <h1 style={{ fontSize: "18px", margin: 0, fontWeight: 900 }}>GOURMET SAUDAVEL</h1>
+        <h1 style={{ fontSize: "20px", margin: 0, fontWeight: 900 }}>GOURMET SAUDAVEL</h1>
         <div className="badge">CUPOM NAO FISCAL</div>
-        <p style={{ fontSize: "14px", margin: "6px 0 0", fontWeight: 900 }}>
+        <p style={{ fontSize: "15px", margin: "6px 0 0", fontWeight: 900 }}>
           PEDIDO #{String(order.id).slice(-6).toUpperCase()}
         </p>
       </div>
 
       <div className="receipt-rule" />
 
+      {/* CLIENTE */}
       <div>
         <p className="section-title uppercase">Cliente</p>
         <div className="block">
@@ -201,6 +218,7 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
         </div>
       </div>
 
+      {/* ENTREGA / RETIRADA */}
       <div>
         <p className="section-title uppercase" style={{ marginTop: 8 }}>
           {isPickup ? "Retirada" : "Entrega"}
@@ -210,23 +228,16 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
             <div className="font-black uppercase">Retirada na loja</div>
           ) : (
             addressLines.map((line) => (
-              <div key={line} className="uppercase">
-                {line}
-              </div>
+              <div key={line} className="uppercase">{line}</div>
             ))
           )}
         </div>
       </div>
 
-      {order.notes?.trim() ? (
-        <div>
-          <p className="section-title uppercase" style={{ marginTop: 8 }}>Observacoes</p>
-          <div className="block">{order.notes.trim()}</div>
-        </div>
-      ) : null}
-
       <div className="receipt-rule" />
-      <p className="text-center font-black uppercase" style={{ fontSize: "11px", margin: 0 }}>
+
+      {/* RESUMO DOS ITENS */}
+      <p className="text-center font-black uppercase" style={{ fontSize: "12px", margin: 0 }}>
         Resumo do pedido
       </p>
 
@@ -269,7 +280,8 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
 
       <div className="receipt-rule" />
 
-      <div style={{ fontSize: "12px", fontWeight: 900 }}>
+      {/* TOTAIS */}
+      <div style={{ fontSize: "13px", fontWeight: 900 }}>
         <div className="row">
           <span className="row-label">SUBTOTAL</span>
           <span className="row-value">{formatReceiptMoney(totals.subtotal)}</span>
@@ -279,7 +291,7 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
           <span className="row-value">{formatReceiptMoney(totals.shippingCost)}</span>
         </div>
 
-        {totals.discountLines.length > 0 ? (
+        {totals.discountLines.length > 0 && (
           <>
             <div className="receipt-rule" />
             {totals.discountLines.map((line) => (
@@ -289,7 +301,7 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
               </div>
             ))}
           </>
-        ) : null}
+        )}
 
         <div className="row total-row">
           <span className="row-label">TOTAL</span>
@@ -297,15 +309,27 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
         </div>
       </div>
 
+      {/* PAGAMENTO */}
       <div className="block text-center" style={{ marginTop: "12px", borderWidth: "2px" }}>
-        <p className="font-black" style={{ fontSize: "10px", margin: 0 }}>FORMA DE PAGAMENTO</p>
-        <p className="font-black uppercase" style={{ fontSize: "16px", margin: "4px 0 0" }}>
+        <p className="font-black" style={{ fontSize: "11px", margin: 0 }}>FORMA DE PAGAMENTO</p>
+        <p className="font-black uppercase" style={{ fontSize: "17px", margin: "4px 0 0" }}>
           {payMethod}
         </p>
       </div>
 
-      <div className="text-center font-black" style={{ marginTop: "16px", fontSize: "10px" }}>
-        <p style={{ fontSize: "12px", margin: 0 }}>BOM APETITE!</p>
+      {/* OBSERVAÇÕES DO CLIENTE */}
+      {order.notes?.trim() && (
+        <div style={{ marginTop: "12px" }}>
+          <p className="section-title uppercase">Observacoes do cliente</p>
+          <div className="obs-block">
+            {order.notes.trim()}
+          </div>
+        </div>
+      )}
+
+      {/* RODAPÉ */}
+      <div className="text-center font-black" style={{ marginTop: "16px", fontSize: "11px" }}>
+        <p style={{ fontSize: "13px", margin: 0 }}>Obrigado pelo pedido!</p>
         <p>{new Date().toLocaleString("pt-BR")}</p>
         <div style={{ height: "20px" }} />
       </div>

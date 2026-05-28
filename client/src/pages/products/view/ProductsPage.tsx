@@ -11,6 +11,7 @@ import ProductDrawer from "../view/ProductDrawer";
 
 // Componentes Globais / UI
 import { SEO } from "@/components/SEO";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { LayoutGrid } from "lucide-react"; 
 
@@ -27,7 +28,8 @@ export default function ProductsPage() {
     actions,
     filteredProducts, 
     handleOpenDish,
-    handleCloseDish
+    handleCloseDish,
+    handleSelectCategory
     // ✅ Removido isAdmin daqui, já que não vamos mais usá-lo neste componente
   } = useProductsLogic();
 
@@ -54,7 +56,7 @@ export default function ProductsPage() {
         {/* 2. CATEGORIAS MOBILE (Mais baixas e intuitivas) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-4 pt-2 no-scrollbar snap-x snap-mandatory">
           <button
-            onClick={() => actions.setSelectedCategory(null)}
+            onClick={() => handleSelectCategory(null)}
             className={cn(
               "snap-center h-9 md:h-11 px-4 md:px-6 rounded-lg md:rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-2 border-2 shrink-0 shadow-sm",
               (state.selectedCategory === null) 
@@ -66,11 +68,11 @@ export default function ProductsPage() {
           </button>
           
           {(state.catList as unknown as Category[] | undefined)
-            ?.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0))
+            ?.sort((a, b) => safeNumber(a.displayOrder) - safeNumber(b.displayOrder))
             .map((cat) => (
             <button
               key={`cat-${cat.id}`}
-              onClick={() => actions.setSelectedCategory(cat.id)}
+              onClick={() => handleSelectCategory(cat.id)}
               className={cn(
                 "snap-center h-9 md:h-11 px-4 md:px-6 rounded-lg md:rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-2 border-2 shrink-0 shadow-sm",
                 Number(state.selectedCategory) === Number(cat.id) 

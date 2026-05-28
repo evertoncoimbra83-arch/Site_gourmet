@@ -5,6 +5,7 @@ import { trpc } from "@/_core/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Trash2, ShoppingCart, Loader2, Package, UtensilsCrossed, Check, Flame, Edit2, Minus } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 import ProductDrawer from "../steps/products/view/ProductDrawer";
@@ -152,7 +153,7 @@ export default function StepItems({ draftId }: { draftId: string }) {
   };
 
   const handleSavePrice = (id: string) => {
-    const val = parseFloat(tempPrice.replace(',', '.'));
+    const val = safeNumber(tempPrice.replace(',', '.'));
     if (!isNaN(val) && val >= 0) {
       updateItemMutation.mutate({ itemId: id, unitPrice: val } as unknown as Record<string, unknown>);
       toast.success("Preço atualizado!");

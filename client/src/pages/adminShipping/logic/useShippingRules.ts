@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 interface LatLng { lat: number; lng: number; }
@@ -130,7 +131,7 @@ export function useShippingRules(options?: ShippingRulesOptions) {
       id,
       name: name,
       type: type,
-      price: parseFloat(String(rawPrice).replace(',', '.')) || 0,
+      price: safeNumber(String(rawPrice).replace(',', '.')),
       active: true,
       storeSlug: storeSlug,
       cepStart: type === 'zipcode' ? (isFromMap ? "00000000" : newRule.cepStart) : "00000000",

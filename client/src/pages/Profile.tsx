@@ -20,7 +20,7 @@ export default function Profile() {
 
   return (
     <>
-      <SEO title="Meu Perfil | Gourmet Saudável" />
+      <SEO title="Meu Perfil | Gourmet Saudável" noindex />
       
       {/* A ProfileView recebe a 'vm' (ViewModel). 
           Dentro dela, você deve renderizar o conteúdo condicionalmente:

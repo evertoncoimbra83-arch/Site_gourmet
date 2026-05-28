@@ -82,72 +82,79 @@ export function AddressesTab({
           <p className="text-slate-400 font-black uppercase text-[9px] md:text-[10px] tracking-widest leading-tight">Nenhum endereço cadastrado</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-1">
           {addresses.map((addr) => (
             <Card 
               key={addr.id} 
               className={cn(
-                "rounded-3xl md:rounded-[2rem] shadow-sm transition-all duration-300 relative overflow-hidden",
+                "rounded-3xl shadow-sm transition-all duration-300 relative overflow-hidden",
                 addr.isDefault 
-                ? 'border-2 border-[#D4AF37] bg-white shadow-xl shadow-[#D4AF37]/5' 
-                : 'bg-slate-50 hover:bg-white border border-slate-100'
+                ? 'border-2 border-slate-900 bg-white shadow-xl shadow-slate-100' 
+                : 'bg-slate-50/60 hover:bg-white border border-slate-100 hover:shadow-md'
               )}
             >
-              <CardContent className="p-5 md:p-8">
-                <div className="flex justify-between items-start mb-4 md:mb-6">
+              <CardContent className="p-6 md:p-8">
+                <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={cn(
-                      "p-2.5 md:p-3 rounded-xl md:rounded-2xl shrink-0",
-                      addr.isDefault ? 'bg-[#D4AF37]/10' : 'bg-white shadow-sm border border-slate-50'
+                      "p-2 rounded-xl shrink-0",
+                      addr.isDefault ? 'bg-slate-900 text-white' : 'bg-white shadow-sm border border-slate-100'
                     )}>
-                      <Home className={cn("h-4 w-4 md:h-5 md:w-5", addr.isDefault ? 'text-[#D4AF37]' : 'text-slate-300')} />
+                      <Home className="h-4 w-4" />
                     </div>
-                    <div className="min-w-0 truncate">
-                      <p className="font-black text-slate-900 uppercase text-[11px] md:text-[13px] tracking-tighter italic truncate">
+                    <div className="min-w-0 truncate text-left">
+                      <p className="font-bold text-slate-800 text-sm tracking-tight truncate">
                         {safeString(addr.label) || "Endereço"}
                       </p>
                       {addr.isDefault && (
-                        <div className="mt-0.5">
-                          <Badge className="bg-[#D4AF37] text-white text-[7px] md:text-[9px] font-black uppercase tracking-tighter h-4 px-2">Padrão</Badge>
-                        </div>
+                        <span className="inline-block mt-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
+                          Padrão de Entrega
+                        </span>
                       )}
                     </div>
                   </div>
                   
-                  <div className="flex gap-1 shrink-0">
-                    {!addr.isDefault && (
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-slate-300 hover:text-[#D4AF37] hover:bg-[#D4AF37]/5" 
-                        onClick={() => onSetDefault(addr.id)} 
-                        disabled={isSettingDefault}
-                      >
-                        {isSettingDefault ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      </Button>
-                    )}
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50" 
-                      onClick={() => onDelete(addr.id)} 
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                    </Button>
-                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-slate-350 hover:text-red-500 hover:bg-red-50 transition-colors rounded-full shrink-0" 
+                    onClick={() => onDelete(addr.id)} 
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </Button>
                 </div>
 
-                <div className="space-y-1">
-                  <p className="text-sm md:text-lg font-black text-slate-800 leading-tight tracking-tighter">
+                <div className="space-y-1 text-left pb-4 border-b border-slate-100">
+                  <p className="text-sm font-bold text-slate-700 leading-tight">
                     {safeString(addr.street)}, {safeString(addr.number)}
                   </p>
-                  <p className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-tight">
+                  <p className="text-xs text-slate-400 font-medium leading-relaxed">
                     {safeString(addr.neighborhood)} {addr.complement && `— ${safeString(addr.complement)}`}
                   </p>
-                  <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                  <p className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase">
                     {safeString(addr.city)}/{safeString(addr.state)} — {safeString(addr.zipCode)}
                   </p>
+                </div>
+
+                <div className="pt-3 flex justify-between items-center h-8">
+                  {!addr.isDefault ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onSetDefault(addr.id)}
+                      disabled={isSettingDefault}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-900 p-0 hover:bg-transparent flex items-center gap-1.5"
+                    >
+                      {isSettingDefault ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      Definir como padrão
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 fill-emerald-50" />
+                      Pronto para entrega
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>

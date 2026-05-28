@@ -18,6 +18,9 @@ export interface OrderItem {
   applied_nutrition?: unknown;
   nutritionalInfo?: Record<string, unknown> | null;
   nutritionLabels?: OrderNutritionSummary[];
+  imageUrl?: string | null;
+  sizeName?: string | null;
+  size_name?: string | null;
   [key: string]: unknown;
 }
 
@@ -58,6 +61,7 @@ export interface OrderNutritionSummary {
   carbs: number;
   fat: number;
   hasNutrition: boolean;
+  sizeName?: string | null;
 }
 
 export interface NutritionStats {

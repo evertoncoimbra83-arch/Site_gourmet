@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
+import { normalizeImageUrl } from "@shared/utils/assets";
 import { useAdminMedia } from "../logic/useAdminMedia";
 import { MediaCard } from "../components/MediaCard";
 import { UploadZone } from "../components/UploadZone";
@@ -117,7 +118,7 @@ export function AdminMediaView() {
                 <CloudUpload size={18} /> Novo Upload
               </Button>
             </DialogTrigger>
-            <DialogContent className="rounded-[2rem] border-none p-1 shadow-2xl sm:max-w-[600px]">
+            <DialogContent className="rounded-[2rem] border-none p-1 shadow-2xl sm:max-w-150">
               <div className="space-y-6 p-8">
                 <DialogHeader>
                   <DialogTitle className="text-2xl font-black uppercase tracking-tight text-slate-900">
@@ -192,7 +193,7 @@ export function AdminMediaView() {
                 {mediaItems.length > 0 ? (
                   mediaItems.map((item) => {
                     const finalUrl = item.url || item.filePath || "";
-                    const displayUrl = actions.getFullUrl(finalUrl);
+                    const displayUrl = normalizeImageUrl(finalUrl) || "";
 
                     return (
                       <MediaCard
@@ -201,7 +202,6 @@ export function AdminMediaView() {
                           ...item,
                           url: finalUrl,
                           displayUrl,
-                          folder: item.folder || "geral",
                           originalFilename: item.originalFilename || "imagem",
                         }}
                         onCopy={() => actions.copyToClipboard(displayUrl)}

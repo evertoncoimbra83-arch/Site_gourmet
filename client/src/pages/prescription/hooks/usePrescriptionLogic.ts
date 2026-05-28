@@ -3,6 +3,7 @@ import { trpc } from "@/_core/trpc";
 import { useCart } from "@/_core/CartContext";
 import { useNavigate } from "react-router-dom";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeNumber } from "@/lib/safe-parse";
 
 export interface PrescriptionOptionData {
   dishId: string | number;
@@ -82,7 +83,7 @@ export function usePrescriptionLogic() {
     if (!dish.dishId || !activePlan) return;
 
     try {
-      const discount = Number(activePlan.discountPercentage) || 0;
+      const discount = safeNumber(activePlan.discountPercentage);
       const finalPrice = discount > 0 
         ? dish.originalPrice * (1 - discount / 100) 
         : dish.originalPrice;

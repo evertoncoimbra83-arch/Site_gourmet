@@ -32,6 +32,9 @@ function toLogicOrderItem(item: OrderItem): LogicOrderItem {
     appliedNutrition: item.appliedNutrition,
     applied_nutrition: item.applied_nutrition,
     nutritionalInfo: item.nutritionalInfo ?? undefined,
+    imageUrl: item.imageUrl ?? undefined,
+    sizeName: (item.sizeName as string) ?? (item.size_name as string) ?? undefined,
+    size_name: (item.size_name as string) ?? (item.sizeName as string) ?? undefined,
   };
 }
 
@@ -58,6 +61,9 @@ function toProfileOrderItem(
     applied_nutrition: item.applied_nutrition,
     nutritionalInfo: isRecord(item.nutritionalInfo) ? item.nutritionalInfo : null,
     nutritionLabels,
+    imageUrl: item.imageUrl,
+    sizeName: item.sizeName ?? item.size_name ?? null,
+    size_name: item.size_name ?? item.sizeName ?? null,
   };
 }
 
@@ -99,6 +105,7 @@ export function useOrdersProcessor(orders: Order[]) {
             carbs: Math.round(label.nutrition?.carbs || 0),
             fat: Math.round(label.nutrition?.fatTotal || 0),
             hasNutrition: !!label.nutrition?.energyKcal,
+            sizeName: label.sizeName ? cleanText(label.sizeName) : null,
           }));
 
           return toProfileOrderItem(item, nutritionLabels);

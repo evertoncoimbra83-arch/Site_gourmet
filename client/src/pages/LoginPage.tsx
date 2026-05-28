@@ -97,6 +97,9 @@ export default function LoginPage() {
       if (!name || !cpf) {
         return toast.warning("Nome e CPF são obrigatórios para cadastro");
       }
+      if (password.trim().length < 8) {
+        return toast.warning("Senha deve ter no minimo 8 caracteres");
+      }
       
       registerMutation.mutate({ 
         name,
@@ -234,3 +237,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

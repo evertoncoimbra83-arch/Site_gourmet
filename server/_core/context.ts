@@ -6,14 +6,41 @@ import { getDb } from "../db.js";
 import { lucia, promoteCart } from "../auth.js"; 
 import { guests, users } from "../../drizzle/schema/index.js"; 
 import { eq, and, isNull } from "drizzle-orm"; 
+import { AuditLogService } from "../services/AuditLogService.js";
 
 export async function createContext({ req, res }: CreateExpressContextOptions) {
   const db = await getDb();
   
   const sessionId = lucia.readSessionCookie(req.headers.cookie ?? "");
-  const { session, user } = sessionId 
+  let { session, user } = sessionId 
     ? await lucia.validateSession(sessionId) 
     : { session: null, user: null };
+
+  if (user && user.deletedAt) {
+    if (session) {
+      await lucia.invalidateSession(session.id);
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: user.id,
+        ipAddress:
+          req.ip ||
+          (req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+          "127.0.0.1",
+        userAgent: req.headers?.["user-agent"] || "unknown",
+        requestId: (req as any)?.requestId,
+      },
+      module: "auth",
+      action: "LOGIN_BLOCKED_DELETED",
+      severity: "critical",
+      entityType: "auth_event",
+      entityId: user.id,
+      entityLabel: user.email,
+      newValues: { reason: "active_session_soft_deleted" },
+    });
+    session = null;
+    user = null;
+  }
 
   const guestId = req.headers["x-guest-id"] as string | undefined;
   
@@ -59,7 +86,6 @@ export async function createContext({ req, res }: CreateExpressContextOptions) {
               const affected = parsedResult[0]?.affectedRows || 0;
               
               if (affected > 0) {
-                console.log(`\x1b[32m%s\x1b[0m`, `✅ [Referral Success] Usuário ${user.id} agora é indicado de: ${cleanReferral}`);
               }
             })
             .catch((err: unknown) => console.error("❌ Erro ao vincular referral ao user:", err));
@@ -75,9 +101,17 @@ export async function createContext({ req, res }: CreateExpressContextOptions) {
     if (session && session.fresh) {
       const newCookie = lucia.createSessionCookie(session.id);
       
+      // Se for ambiente local, desabilita a flag secure para que o cookie seja gravado via HTTP
+      if (req.hostname && (
+        req.hostname === "localhost" || 
+        req.hostname === "127.0.0.1" || 
+        req.hostname.startsWith("192.168.24.")
+      )) {
+        newCookie.attributes.secure = false;
+      }
+      
       // Removemos a validade para forçar "Cookie de Sessão"
       newCookie.attributes.maxAge = undefined;
-      // ✅ FIX: Comentário '@ts-expect-error' removido pois o TypeScript já valida nativamente
       newCookie.attributes.expires = undefined;
 
       if (typeof res.appendHeader === "function") {
@@ -87,6 +121,14 @@ export async function createContext({ req, res }: CreateExpressContextOptions) {
       }
     } else if (!session && sessionId) {
       const blankCookie = lucia.createBlankSessionCookie();
+      
+      if (req.hostname && (
+        req.hostname === "localhost" || 
+        req.hostname === "127.0.0.1" || 
+        req.hostname.startsWith("192.168.24.")
+      )) {
+        blankCookie.attributes.secure = false;
+      }
       
       if (typeof res.appendHeader === "function") {
         res.appendHeader("Set-Cookie", blankCookie.serialize());

@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { safeNumber } from "@/lib/safe-parse";
 import { 
   Scale, Calculator, Flame, Bone, Magnet, Beef, 
   Wheat, Droplets, Info, Activity, Layers 
@@ -36,7 +37,7 @@ interface IngredientFormProps {
 function NutritionalLabel({ data }: { data: IngredientData }) {
   const fmt = (val: unknown) => {
     if (val === undefined || val === null || val === "") return "0.00";
-    const num = parseFloat(String(val).replace(',', '.'));
+    const num = safeNumber(String(val).replace(',', '.'));
     return isNaN(num) ? "0.00" : num.toFixed(2);
   };
 

@@ -53,7 +53,7 @@ export const nutriRouter = router({
         state: z.string(),
         complement: z.string().optional(),
         isDefault: z.boolean()
-      }))
+      })).optional()
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();

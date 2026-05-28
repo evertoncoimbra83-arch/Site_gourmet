@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Edit2, Trash2, Utensils, Layers, Check, Plus, Scale, Loader2, Save, Camera } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { appToast as toast } from "@/lib/app-toast";
+import { normalizeImageUrl } from "@shared/utils/assets"; // ✅ substitui getFullImageUrl com localhost hardcoded
 
 // --- INTERFACES ---
 interface DishSize {
@@ -32,7 +34,7 @@ interface Dish {
   isActive: boolean | number;
   category?: DishCategory | null;
   categoryName?: string;
-  composition?: unknown[]; 
+  composition?: unknown[];
   sizes?: DishSize[];
 }
 
@@ -47,7 +49,7 @@ interface DishCardProps {
 
 export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEditing }: DishCardProps) {
   const utils = trpc.useUtils();
-  
+
   const [isPriceOpen, setIsPriceOpen] = useState(false);
   const [priceInput, setPriceInput] = useState(String(dish.price || ""));
   const [imageError, setImageError] = useState(false);
@@ -56,28 +58,17 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
     if (dish.category?.name) return dish.category.name;
     if (dish.categoryName) return dish.categoryName;
     if (dish.category?.label) return dish.category.label;
-    if (typeof dish.category === 'string') return dish.category;
+    if (typeof dish.category === "string") return dish.category;
     return "Sem Categoria";
   };
 
-  const getFullImageUrl = (rawUrl: string | null | undefined) => {
-    if (!rawUrl || imageError) return null;
-    if (rawUrl.startsWith("http") || rawUrl.startsWith("blob:")) return rawUrl;
-    
-    const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
-    let cleanPath = rawUrl.replace(/\\/g, "/");
-    
-    if (cleanPath.includes("/uploads/")) cleanPath = cleanPath.split("/uploads/")[1];
-    else if (cleanPath.includes("/public/")) cleanPath = cleanPath.split("/public/")[1];
-
-    cleanPath = cleanPath.replace(/^\//, "");
-    return `${baseUrl}/uploads/${cleanPath.replace(/^uploads\//, "")}`;
-  };
-
-  const currentImageUrl = getFullImageUrl(dish.imageUrl);
+  // ✅ normalizeImageUrl em vez de getFullImageUrl com localhost hardcoded
+  const currentImageUrl = !imageError && dish.imageUrl
+    ? normalizeImageUrl(dish.imageUrl)
+    : null;
 
   const { data: allSizes } = trpc.admin.dishes.listSizes.useQuery(undefined, {
-    staleTime: 1000 * 60 * 10 
+    staleTime: 1000 * 60 * 10,
   });
 
   const updateDish = trpc.admin.dishes.update.useMutation({
@@ -88,23 +79,22 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
     },
     onError: (err) => {
       toast.error(`Erro ao salvar: ${err.message}`);
-    }
+    },
   });
 
   const handleSavePrice = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     const cleanValue = priceInput.replace(",", ".");
-    const newPrice = parseFloat(cleanValue);
+    const newPrice = safeNumber(cleanValue);
 
     if (isNaN(newPrice)) {
       toast.error("Valor inválido");
       return;
     }
 
-    // ✅ Tipagem do payload para evitar o erro do ESLint
     updateDish.mutate({
       id: Number(dish.id),
-      price: newPrice 
+      price: newPrice,
     } as Parameters<typeof updateDish.mutate>[0]);
   };
 
@@ -112,7 +102,7 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
     onSuccess: () => {
       utils.admin.dishes.list.invalidate();
       toast.success("Tamanho atualizado!");
-    }
+    },
   });
 
   const originalPrice = Number(dish.price || 0);
@@ -120,28 +110,32 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
   const hasDiscount = Boolean(salePrice && salePrice > 0 && salePrice < originalPrice);
   const hasComposition = Array.isArray(dish.composition) && dish.composition.length > 0;
   const hasEngineering = Array.isArray(dish.sizes) && dish.sizes.length > 0;
-  const discountPercent = hasDiscount ? Math.round(((originalPrice - salePrice!) / originalPrice) * 100) : 0;
+  const discountPercent = hasDiscount
+    ? Math.round(((originalPrice - salePrice!) / originalPrice) * 100)
+    : 0;
 
   return (
     <Card className={cn(
       "group border-none shadow-[0_4px_20px_rgba(0,0,0,0.03)] rounded-4xl bg-white overflow-hidden transition-all duration-500",
-      !dish.isActive ? "opacity-60 grayscale-[0.5] bg-slate-50" : "hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)]"
+      !dish.isActive
+        ? "opacity-60 grayscale-[0.5] bg-slate-50"
+        : "hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)]",
     )}>
       <CardContent className="p-5 flex flex-col h-full min-h-40 text-left">
         <div className="flex gap-4 items-start">
-          
-          <div 
+
+          <div
             onClick={onImageClick}
             className={cn(
               "h-20 w-20 overflow-hidden rounded-[1.5rem] border border-slate-100 bg-slate-50 relative shrink-0 cursor-pointer transition-all active:scale-95 group/img",
-              !dish.isActive && "pointer-events-none"
+              !dish.isActive && "pointer-events-none",
             )}
           >
             {currentImageUrl ? (
-              <img 
-                src={currentImageUrl} 
-                className="h-full w-full object-cover transition-transform group-hover/img:scale-110 duration-700" 
-                alt={dish.name} 
+              <img
+                src={currentImageUrl}
+                className="h-full w-full object-cover transition-transform group-hover/img:scale-110 duration-700"
+                alt={dish.name}
                 onError={() => setImageError(true)}
               />
             ) : (
@@ -149,9 +143,9 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
                 <Utensils size={24} />
               </div>
             )}
-            
+
             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                <Camera size={16} className="text-white" />
+              <Camera size={16} className="text-white" />
             </div>
 
             {hasDiscount && !!dish.isActive && (
@@ -171,7 +165,7 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
               <div className="space-y-1">
                 <h3 className={cn(
                   "font-black text-xs md:text-[15px] uppercase tracking-tight leading-[1.2] line-clamp-2 transition-colors",
-                  !dish.isActive ? "text-slate-400" : "text-slate-900"
+                  !dish.isActive ? "text-slate-400" : "text-slate-900",
                 )}>
                   {dish.name}
                 </h3>
@@ -181,11 +175,22 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
               </div>
 
               <div className="flex gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl text-slate-300 hover:text-emerald-600 hover:bg-emerald-50" onClick={onEdit} disabled={isEditing}>
-                  {isEditing ? <Loader2 size={12} className="animate-spin" /> : <Edit2 size={12}/>}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-xl text-slate-300 hover:text-emerald-600 hover:bg-emerald-50"
+                  onClick={onEdit}
+                  disabled={isEditing}
+                >
+                  {isEditing ? <Loader2 size={12} className="animate-spin" /> : <Edit2 size={12} />}
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50" onClick={() => onDelete(Number(dish.id))}>
-                  <Trash2 size={12}/>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50"
+                  onClick={() => onDelete(Number(dish.id))}
+                >
+                  <Trash2 size={12} />
                 </Button>
               </div>
             </div>
@@ -197,11 +202,11 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
         <div className="pt-3 flex items-end justify-between border-t border-slate-100/50 mt-4">
           <Popover open={isPriceOpen} onOpenChange={setIsPriceOpen}>
             <PopoverTrigger asChild>
-              <div 
+              <div
                 role="button"
                 className={cn(
                   "flex flex-col cursor-pointer p-1 -ml-1 rounded-lg transition-colors hover:bg-slate-50 group/price select-none",
-                  !dish.isActive && "pointer-events-none"
+                  !dish.isActive && "pointer-events-none",
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -212,7 +217,11 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
                 )}
                 <div className={cn(
                   "font-black text-lg italic leading-none transition-colors flex items-center gap-1",
-                  !dish.isActive ? "text-slate-300" : (hasDiscount ? "text-emerald-600" : "text-slate-900")
+                  !dish.isActive
+                    ? "text-slate-300"
+                    : hasDiscount
+                      ? "text-emerald-600"
+                      : "text-slate-900",
                 )}>
                   <span className="text-[10px] mr-0.5 font-bold not-italic">R$</span>
                   {(salePrice || originalPrice).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
@@ -220,28 +229,38 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
                 </div>
               </div>
             </PopoverTrigger>
-            
-            <PopoverContent className="w-48 p-3 rounded-2xl shadow-xl border-slate-100 bg-white" align="start" sideOffset={5}>
+
+            <PopoverContent
+              className="w-48 p-3 rounded-2xl shadow-xl border-slate-100 bg-white"
+              align="start"
+              sideOffset={5}
+            >
               <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
                 <p className="text-[10px] font-black uppercase text-slate-400">Novo Preço</p>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-400">R$</span>
-                  <Input 
+                  <Input
                     autoFocus
-                    type="text" 
-                    value={priceInput} 
+                    type="text"
+                    value={priceInput}
                     onChange={(e) => setPriceInput(e.target.value)}
                     className="h-8 text-sm font-bold border-slate-200 focus-visible:ring-emerald-500"
-                    onKeyDown={(e) => e.key === 'Enter' && handleSavePrice(e as React.KeyboardEvent<HTMLInputElement>)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && handleSavePrice(e as React.KeyboardEvent<HTMLInputElement>)
+                    }
                   />
                 </div>
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   className="w-full h-8 text-[10px] bg-emerald-600 hover:bg-emerald-700 font-bold uppercase"
                   onClick={handleSavePrice}
                   disabled={updateDish.isPending}
                 >
-                  {updateDish.isPending ? <Loader2 size={12} className="animate-spin mr-2" /> : <Save size={12} className="mr-2" />}
+                  {updateDish.isPending ? (
+                    <Loader2 size={12} className="animate-spin mr-2" />
+                  ) : (
+                    <Save size={12} className="mr-2" />
+                  )}
                   Salvar
                 </Button>
               </div>
@@ -251,12 +270,14 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
           <div className="flex items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className={cn(
                     "h-8 px-3 rounded-xl text-[9px] font-black uppercase flex items-center gap-2 border transition-all",
-                    hasEngineering ? "bg-slate-900 text-white border-slate-900 shadow-md" : "bg-slate-50 text-slate-400 border-slate-100"
+                    hasEngineering
+                      ? "bg-slate-900 text-white border-slate-900 shadow-md"
+                      : "bg-slate-50 text-slate-400 border-slate-100",
                   )}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -264,8 +285,13 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
                   {hasEngineering ? `${dish.sizes?.length} TAM.` : "VINCULAR"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-56 p-3 rounded-3xl shadow-2xl border-none bg-white" align="end">
-                <p className="text-[9px] font-black uppercase text-slate-400 mb-3 px-1">Engenharia de Prato</p>
+              <PopoverContent
+                className="w-56 p-3 rounded-3xl shadow-2xl border-none bg-white"
+                align="end"
+              >
+                <p className="text-[9px] font-black uppercase text-slate-400 mb-3 px-1">
+                  Engenharia de Prato
+                </p>
                 <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
                   {(allSizes as unknown as DishSize[])?.map((size) => {
                     const isLinked = dish.sizes?.some((s) => Number(s.id) === Number(size.id));
@@ -275,15 +301,22 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleSize.mutate({ dishId: Number(dish.id), sizeId: Number(size.id) });
+                          toggleSize.mutate({
+                            dishId: Number(dish.id),
+                            sizeId: Number(size.id),
+                          });
                         }}
                         className={cn(
                           "w-full flex items-center justify-between p-2.5 rounded-xl text-[9px] font-bold uppercase transition-all",
-                          isLinked ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50 text-slate-400"
+                          isLinked ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50 text-slate-400",
                         )}
                       >
                         <span>{size.name}</span>
-                        {isLinked ? <Check size={12} className="text-emerald-500" /> : <Plus size={12} className="opacity-30" />}
+                        {isLinked ? (
+                          <Check size={12} className="text-emerald-500" />
+                        ) : (
+                          <Plus size={12} className="opacity-30" />
+                        )}
                       </button>
                     );
                   })}
@@ -291,14 +324,15 @@ export function DishCard({ dish, onEdit, onImageClick, onDelete, onToggle, isEdi
               </PopoverContent>
             </Popover>
 
-            <div className={cn(
-              "flex items-center px-2 py-1 rounded-xl border transition-all shadow-sm",
-              dish.isActive ? "bg-emerald-50 border-emerald-100" : "bg-slate-200 border-slate-300"
-            )}
-            onClick={(e) => e.stopPropagation()}
+            <div
+              className={cn(
+                "flex items-center px-2 py-1 rounded-xl border transition-all shadow-sm",
+                dish.isActive ? "bg-emerald-50 border-emerald-100" : "bg-slate-200 border-slate-300",
+              )}
+              onClick={(e) => e.stopPropagation()}
             >
-              <Switch 
-                checked={!!dish.isActive} 
+              <Switch
+                checked={!!dish.isActive}
                 onCheckedChange={(checked) => onToggle(Number(dish.id), checked)}
                 className="data-[state=checked]:bg-emerald-600 scale-75"
               />

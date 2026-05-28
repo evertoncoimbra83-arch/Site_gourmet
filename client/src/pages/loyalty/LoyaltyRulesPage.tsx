@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import { trpc } from "@/_core/trpc";
 import { Loader2, Star, Target, Zap, Gift, Info } from "lucide-react";
 import { formatCurrency } from "@/pages/profile/utils/orderHelpers";
+import { SEO } from "@/components/SEO";
 
 // 1. Interface para as regras de resgate
 interface RedemptionRule {
@@ -65,7 +66,11 @@ export default function LoyaltyRulesPage() {
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-6 space-y-12 text-left animate-in fade-in duration-700">
-      
+      <SEO 
+        title="Clube de Fidelidade e Cashback" 
+        description="Conheça o Clube de Fidelidade Gourmet Saudável. Acumule pontos em todas as compras de suas marmitas congeladas e ganhe cashback e descontos exclusivos." 
+        path="/fidelidade" 
+      />
       <header className="space-y-4">
         <div className="flex items-center gap-2 text-emerald-600">
           <Star size={20} className="fill-emerald-500" />

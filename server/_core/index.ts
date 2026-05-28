@@ -8,8 +8,10 @@ import { appRouter } from "../routers/_app.js";
 import { createContext } from "./context.js";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { logger } from "../../server/logger.js";
 import { handleAdminBackupDownload } from "../routers/admin/backups.js";
+import { AuditLogService } from "../services/AuditLogService.js";
 
 // ✅ Worker de IA para processar dietas em segundo plano
 import "../workers/nutriWorker.js";
@@ -19,12 +21,22 @@ import "../workers/nutriWorker.js";
 import { globalLimiter, authLimiter, checkoutLimiter } from "../security/rateLimit.js";
 
 // ✅ Security headers e logging (já existiam mas não estavam sendo usados)
-import { setupSecurityHeaders, setupSecurityLogging } from "../_core/security-middleware.js";
+import { setupCsrfProtection, setupSecurityHeaders, setupSecurityLogging } from "../_core/security-middleware.js";
 import { setupMaintenanceMode } from "../_core/maintenance-middleware.js";
 
 const app = express();
 
 app.set("trust proxy", 1);
+
+app.use((req, res, next) => {
+  const requestId =
+    req.headers["x-request-id"] ||
+    req.headers["x-correlation-id"] ||
+    crypto.randomUUID();
+  (req as any).requestId = Array.isArray(requestId) ? requestId[0] : requestId;
+  res.setHeader("x-request-id", (req as any).requestId);
+  next();
+});
 
 logger.info(`🚀 Iniciando servidor em: ${new Date().toLocaleString()}`);
 logger.debug({ cwd: process.cwd() }, "Informações do ambiente de execução");
@@ -52,6 +64,16 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://192.168.24.2:5173",
+      "http://192.168.24.7:5173",
+      "http://192.168.24.8:5173",
+      "http://192.168.24.2:3001",
+      "http://192.168.24.7:3001",
+      "http://192.168.24.8:3001",
+      "http://192.168.24.2",
+      "http://192.168.24.7",
+      "http://192.168.24.8",
       "https://gourmetsaudavel.com",
       "https://www.gourmetsaudavel.com",
     ],
@@ -60,8 +82,11 @@ app.use(
     allowedHeaders: [
       "Content-Type",
       "Authorization",
+      "x-csrf-token",
       "x-guest-id",
       "x-referral-code",
+      "x-request-id",
+      "x-correlation-id",
     ],
   })
 );
@@ -74,6 +99,9 @@ app.use("/trpc/auth", authLimiter);
 
 // ✅ Rate limit específico para checkout — 5 pedidos / hora por IP
 app.use("/trpc/checkout", checkoutLimiter);
+
+// CSRF double-submit para chamadas mutantes via cookie de sessao/browser.
+setupCsrfProtection(app);
 
 const UPLOADS_PATH = path.join(process.cwd(), "public", "uploads");
 if (!fs.existsSync(UPLOADS_PATH)) {
@@ -140,6 +168,37 @@ if (fs.existsSync(distPath)) {
     res.send("Backend Online - Rodando em modo de desenvolvimento.");
   });
 }
+
+// Middleware global de tratamento de erro do Express (captura exceções não tratadas nas rotas Express)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const requestId = (req as any).requestId || req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"];
+
+  const actor = {
+    userId: (req as any).user?.id || "system",
+    ipAddress: req.ip || (req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+    userAgent: req.headers?.["user-agent"] || "unknown",
+  };
+
+  void AuditLogService.recordError({
+    module: "system",
+    source: "express",
+    error: err,
+    actor,
+    requestId,
+    route: req.originalUrl || req.url,
+    severity: "critical",
+    metadata: {
+      method: req.method,
+      query: req.query,
+    }
+  });
+
+  res.status(500).json({
+    error: "Internal Server Error",
+    message: "Ocorreu um erro interno no servidor.",
+    requestId,
+  });
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

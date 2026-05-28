@@ -1,18 +1,64 @@
-import { getDb } from "../../db";
-import { auditLogs } from "../../../drizzle/schema/index";
-import { redactSensitiveData } from "../../lib/redact";
+import { AuditLogService } from "../../services/AuditLogService.js";
 
 export interface AuditContext {
   userId?: string | number | null;
   user?: { id: string | number };
   ip?: string;
   userAgent?: string;
+  requestId?: string;
 }
 
 interface AuditDetails {
   entityId?: string | number | null;
+  entityLabel?: string | null;
   old?: unknown;
   new?: unknown;
+}
+
+function deduceModule(action: string, entity: string): string {
+  const act = action.toUpperCase();
+  const ent = (entity || "").toLowerCase();
+
+  if (act.includes("AUTH") || act.includes("LOGIN") || act.includes("PASSWORD") || ent.includes("user")) return "security";
+  if (ent.includes("setting") || ent.includes("config")) return "settings";
+  if (ent.includes("payment") || act.includes("PAYMENT")) return "payments";
+  if (ent.includes("shipping") || ent.includes("zone") || ent.includes("mesh") || ent.includes("cep")) return "shipping";
+  if (ent.includes("loyalty")) return "loyalty";
+  if (ent.includes("coupon") || ent.includes("marketing") || ent.includes("offer")) return "marketing";
+  if (ent.includes("backup")) return "backup";
+  if (ent.includes("label") || ent.includes("template")) return "zebra";
+  if (ent.includes("dish") || ent.includes("ingredient") || ent.includes("category") || ent.includes("package") || ent.includes("showcase")) return "catalog";
+  if (ent.includes("order") || act.includes("ORDER")) return "orders";
+  
+  return "system";
+}
+
+function deduceSeverity(action: string): "info" | "warning" | "critical" {
+  const act = action.toUpperCase();
+  if (
+    act.includes("PASSWORD") ||
+    act.includes("BACKUP") ||
+    act.includes("SECURITY") ||
+    act.includes("EMERGENCY") ||
+    act.includes("PANIC") ||
+    act.includes("TOKEN") ||
+    act.includes("SECRET") ||
+    act.includes("GENERATE_TOKEN") ||
+    act.includes("DELETE_USER")
+  ) {
+    return "critical";
+  }
+  if (
+    act.includes("DELETE") ||
+    act.includes("UPDATE_SETTINGS") ||
+    act.includes("DISABLE") ||
+    act.includes("ADJUST") ||
+    act.includes("ESTORNO") ||
+    act.includes("BULK")
+  ) {
+    return "warning";
+  }
+  return "info";
 }
 
 export async function logAction(
@@ -21,33 +67,25 @@ export async function logAction(
   entity: string,
   details: AuditDetails,
 ) {
-  const db = await getDb();
-  if (!db) return;
+  const actor = {
+    userId: ctx.userId || ctx.user?.id || null,
+    ipAddress: ctx.ip,
+    userAgent: ctx.userAgent,
+    requestId: ctx.requestId || (ctx as any).req?.requestId,
+  };
 
-  try {
-    const now = new Date();
-    now.setHours(now.getHours() - 3);
+  const module = deduceModule(action, entity);
+  const severity = deduceSeverity(action);
 
-    const safeOld = details.old ? redactSensitiveData(details.old) : null;
-    const safeNew = details.new ? redactSensitiveData(details.new) : null;
-
-    const logData = {
-      action,
-      entity,
-      entityId: details.entityId ? String(details.entityId) : "global",
-      userId: String(ctx.userId || ctx.user?.id || "system"),
-      oldValues: safeOld ? JSON.stringify(safeOld) : null,
-      newValues: safeNew ? JSON.stringify(safeNew) : null,
-      ipAddress: ctx.ip || "127.0.0.1",
-      userAgent: ctx.userAgent || "Sistema",
-      createdAt: now,
-    };
-
-    await db.insert(auditLogs).values(logData);
-  } catch (error) {
-    console.error(
-      "CRITICAL_AUDIT_ERROR:",
-      error instanceof Error ? error.message : error,
-    );
-  }
+  await AuditLogService.record({
+    actor,
+    module,
+    action,
+    entityType: entity,
+    entityId: details.entityId || null,
+    entityLabel: details.entityLabel || null,
+    oldValues: details.old,
+    newValues: details.new,
+    severity,
+  });
 }

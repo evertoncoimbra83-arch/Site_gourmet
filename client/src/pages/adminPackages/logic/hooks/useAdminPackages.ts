@@ -4,6 +4,7 @@ import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
 import { Slot, SlotGroup } from "../generator/smartGenerator";
 import { mapAdminDishesToCandidates, AdminDishForGenerator } from "../generator/package-adapter";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
 
 export interface AdminDish {
   id: string | number;
@@ -225,7 +226,7 @@ const candidates = mapAdminDishesToCandidates(rawDishes as AdminDishForGenerator
       const firstDishId = slot.dishIds[0];
       if (!firstDishId) return acc;
       const dish = allDishes.find((item) => String(item.id) === String(firstDishId));
-      return acc + (Number(dish?.price) || 0);
+      return acc + safeNumber(dish?.price);
     }, 0);
   }, [config.slots, allDishes]);
 
@@ -344,7 +345,7 @@ const candidates = mapAdminDishesToCandidates(rawDishes as AdminDishForGenerator
   const handleSave = async (formData: PackageFormData) => {
     if (!formData.name) return toast.warning("Nome obrigatorio.");
 
-    const finalSizeId = parseInt(String(formData.size_id), 10);
+    const finalSizeId = safeInteger(String(formData.size_id));
     if (isNaN(finalSizeId) || finalSizeId <= 0) {
       return toast.warning("Selecione um tamanho.");
     }
@@ -378,7 +379,7 @@ const candidates = mapAdminDishesToCandidates(rawDishes as AdminDishForGenerator
         config: {
           slots: (config.slots || []).map((slot) => ({
             name: String(slot.name || "Marmita"),
-            sizeId: slot.sizeId ? parseInt(String(slot.sizeId), 10) : finalSizeId,
+            sizeId: slot.sizeId ? safeInteger(String(slot.sizeId)) : finalSizeId,
             dishIds: (slot.dishIds || []).map((id) => String(id)),
             groups: normalizeSlotGroups(
               (slot.groups || []).map((group) => ({

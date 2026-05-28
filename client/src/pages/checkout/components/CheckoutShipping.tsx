@@ -46,7 +46,7 @@ const PickupToggle = ({
         <div
           className={cn(
             "h-10 w-10 rounded-2xl flex items-center justify-center transition-colors",
-            isPickup ? "bg-emerald-50 text-white shadow-lg shadow-emerald-500/20" : "bg-slate-100 text-slate-400"
+            isPickup ? "bg-emerald-50 text-emerald-600 shadow-lg shadow-emerald-500/20" : "bg-slate-100 text-slate-400"
           )}
         >
           <Store size={18} />

@@ -12,6 +12,7 @@ import { keepPreviousData } from "@tanstack/react-query"; // ✅ Melhor forma de
 export type AnalyticsPeriod = "7d" | "30d" | "90d" | "all";
 
 export interface AnalyticsData {
+  topProducts: never[];
   financials: {
     netRevenue: number;
     grossRevenue: number;

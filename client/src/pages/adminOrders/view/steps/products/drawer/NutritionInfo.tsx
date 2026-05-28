@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronUp, FileText } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // --- INTERFACES ---
@@ -32,7 +33,7 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
   const parseNum = (val: unknown): number => {
     if (val === undefined || val === null || val === "") return 0;
     if (typeof val === "number") return val;
-    const num = parseFloat(String(val).replace(",", "."));
+    const num = safeNumber(String(val).replace(",", "."));
     return isNaN(num) ? 0 : num;
   };
 
@@ -69,8 +70,8 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
         onClick={() => setShowFull(!showFull)}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-slate-900 transition-all group"
       >
-        <FileText size={14} className="text-slate-400 group-hover:text-slate-900" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-slate-900">
+        <FileText size={14} className="text-slate-500 group-hover:text-slate-900" />
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 group-hover:text-slate-900">
           {showFull ? "Ocultar Tabela Nutricional" : "Ver Tabela Nutricional Completa"}
         </span>
         {showFull ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -95,7 +96,7 @@ export const NutritionInfo = ({ data, totalWeight = 100 }: NutritionProps) => {
                   </span>
                   <div className="flex gap-4 items-baseline">
                     <span className="font-black text-slate-900">{row.val}{row.unit}</span>
-                    <span className="min-w-[35px] text-right font-black text-slate-400 text-[9px]">
+                    <span className="min-w-[35px] text-right font-black text-slate-500 text-[9px]">
                       {calculateVD(row.val, row.vdKey)}
                     </span>
                   </div>

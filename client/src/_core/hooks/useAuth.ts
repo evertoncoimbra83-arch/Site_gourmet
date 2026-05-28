@@ -5,6 +5,7 @@ import { AuthContext } from "@/_core/context";
 import { useAnalytics } from "@/_core/hooks/useAnalytics";
 import { trpc } from "../trpc";
 import { rotateGuestId } from "@/lib/guest";
+import { isAdminRole } from "@shared/security/rbac";
 
 interface AuthUser {
   id: string;
@@ -80,7 +81,7 @@ export function useAuth() {
         return;
       }
 
-      const isAdminUser = user?.role?.toLowerCase() === "admin";
+      const isAdminUser = isAdminRole(user?.role);
       window.location.href = isAdminUser ? "/admin/dashboard" : "/";
       return;
     }
@@ -160,7 +161,7 @@ export function useAuth() {
     user,
     loading: isLoading,
     isAuthenticated,
-    isAdmin: user?.role?.toLowerCase() === "admin",
+    isAdmin: isAdminRole(user?.role),
     needsPasswordReset: user?.needsPasswordReset ?? false,
     logout: () => {
       if (!logoutMutation.isPending) {

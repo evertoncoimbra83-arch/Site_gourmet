@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
+import { appToast as toast } from "@/lib/app-toast";
+import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
+import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 
 // --- INTERFACES ---
 
@@ -43,7 +46,11 @@ export function useAdminPaymentMethods() {
     onSuccess: () => {
       utils.admin.paymentMethods.listAll.invalidate();
       setIsOpen(false);
-    }
+      toast.success("Metodo de pagamento criado.");
+    },
+    onError: (err) => {
+      toast.error(getAdminMutationErrorMessage(err, "Erro ao criar metodo de pagamento."));
+    },
   });
 
   const updateMutation = trpc.admin.paymentMethods.update.useMutation({
@@ -51,13 +58,21 @@ export function useAdminPaymentMethods() {
       await utils.admin.paymentMethods.listAll.invalidate();
       setIsOpen(false);
       setEditingMethod(null);
-    }
+      toast.success("Metodo de pagamento atualizado.");
+    },
+    onError: (err) => {
+      toast.error(getAdminMutationErrorMessage(err, "Erro ao atualizar metodo de pagamento."));
+    },
   });
 
   const deleteMutation = trpc.admin.paymentMethods.delete.useMutation({
     onSuccess: () => {
       utils.admin.paymentMethods.listAll.invalidate();
-    }
+      toast.success("Metodo de pagamento removido.");
+    },
+    onError: (err) => {
+      toast.error(getAdminMutationErrorMessage(err, "Erro ao remover metodo de pagamento."));
+    },
   });
 
   // 3. ACTIONS
@@ -67,10 +82,16 @@ export function useAdminPaymentMethods() {
   };
 
   const handleToggleActive = (id: string | number, currentStatus: boolean) => {
+    const confirmation = requestStrongConfirmation(
+      "Digite CONFIRMAR para ativar ou pausar metodo de pagamento.",
+      "Informe uma justificativa para alterar a disponibilidade no checkout:",
+    );
+    if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
     // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
     updateMutation.mutate({ 
       id: Number(id), 
-      isActive: !currentStatus 
+      isActive: !currentStatus,
+      ...confirmation,
     });
   };
 
@@ -89,18 +110,40 @@ export function useAdminPaymentMethods() {
       discount_percentage: Number(data.discount_percentage || data.discountPercentage || 0),
     };
 
+    const needsConfirmation = payload.discount_percentage > 10;
+    const confirmation = needsConfirmation
+      ? requestStrongConfirmation(
+          "Digite CONFIRMAR para salvar desconto critico no metodo de pagamento.",
+          "Informe uma justificativa para esta alteracao financeira:",
+        )
+      : null;
+    if (needsConfirmation && !confirmation) {
+      return toast.warning("Confirmacao forte cancelada.");
+    }
+
     if (editingMethod) {
       // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
       updateMutation.mutate({ 
         ...payload, 
-        id: Number(editingMethod.id) 
+        id: Number(editingMethod.id),
+        ...confirmation,
       });
     } else {
       createMutation.mutate({ 
         ...payload, 
-        isActive: true 
+        isActive: true,
+        ...confirmation,
       });
     }
+  };
+
+  const handleDelete = (id: string | number) => {
+    const confirmation = requestStrongConfirmation(
+      "Digite CONFIRMAR para remover canal de recebimento permanentemente.",
+      "Informe uma justificativa para excluir este metodo de pagamento:",
+    );
+    if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+    deleteMutation.mutate({ id: Number(id), ...confirmation });
   };
 
   return {
@@ -115,7 +158,8 @@ export function useAdminPaymentMethods() {
       setEditingMethod, 
       handleEdit, 
       handleToggleActive,
-      handleSave 
+      handleSave,
+      handleDelete,
     },
     data: { methods: (methods as unknown as PaymentMethod[]) || [] },
     mutations: { createMutation, updateMutation, deleteMutation }

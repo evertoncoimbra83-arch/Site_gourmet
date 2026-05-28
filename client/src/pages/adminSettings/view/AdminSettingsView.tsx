@@ -1,27 +1,25 @@
-// client/src/pages/adminSettings/view/AdminSettingsView.tsx
-import React, { ComponentProps, useEffect } from "react";
+import React from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 import { useAdminSettings } from "../logic/useAdminSettings";
 import { useCompanyInfo } from "../logic/useCompanyInfo";
 import { useAccessibilityLogic } from "../logic/useAccessibilityLogic";
 
-import { settingsAreas, defaultAreaId, isSettingsAreaId } from "../config/settingsAreas";
+import {
+  defaultAreaId,
+  isSettingsAreaId,
+  settingsAreas,
+  type SettingsAreaId,
+} from "../config/settingsAreas";
 import { StoreTab } from "../components/tabs/StoreTab";
 import { OperationTab } from "../components/tabs/OperationTab";
 import { SecurityTab } from "../components/tabs/SecurityTab";
-import { IaTab } from "../components/tabs/IaTab";
 import { AppearanceTab } from "../components/tabs/AppearanceTab";
 import { IntegrationsTab } from "../components/tabs/IntegrationsTab";
-
-import { CompanyInfoForm } from "../components/CompanyInfoForm";
-import { CheckoutSuccessSettings } from "../components/CheckoutSuccessSettings";
-import { SecurityConfig } from "../components/GoogleAuthConfig";
-import { AccessibilitySettings } from "../components/AccessibilitySettings";
+import IntegrationPage from "../../admin/IntegrationPage";
 
 export function AdminSettingsView() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -34,162 +32,184 @@ export function AdminSettingsView() {
     companyTab.state.isLoading ||
     accessibilityTab.state.isLoading;
 
+  const isSaving =
+    settingsTab.state.isPending ||
+    companyTab.state.isPending ||
+    accessibilityTab.state.isPending;
+
   const tabFromUrl = searchParams.get("tab");
   const activeTab = isSettingsAreaId(tabFromUrl) ? tabFromUrl : defaultAreaId;
 
-  useEffect(() => {
-    if (!isSettingsAreaId(tabFromUrl)) {
-      const next = new URLSearchParams(searchParams);
-      next.set("tab", defaultAreaId);
-      setSearchParams(next, { replace: true });
-    }
-  }, [searchParams, setSearchParams, tabFromUrl]);
+  const handleTabChange = (tabId: SettingsAreaId) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", tabId);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const handleGlobalSave = async () => {
+    await settingsTab.actions.handleSaveAll();
+    await companyTab.actions.handleSave();
+    await accessibilityTab.actions.handleSave();
+  };
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-32 text-left">
-        <Loader2 className="animate-spin text-[#2D5A3D]" size={40} />
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
-          Sincronizando Ajustes...
+      <div className="flex flex-col items-center justify-center py-40">
+        <Loader2 className="mb-4 animate-spin text-emerald-600" size={40} />
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+          Sincronizando Ecossistema...
         </p>
       </div>
     );
   }
 
-  const handleGlobalSave = async () => {
-    await settingsTab.actions.handleSaveAll();
-    await companyTab.actions.handleSave();
-  };
+  const renderContent = () => {
+    switch (activeTab) {
+      case "store":
+        return <StoreTab companyTab={companyTab as unknown as any} />;
 
-  const handleTabChange = (next: string) => {
-    if (!isSettingsAreaId(next)) return;
-    const params = new URLSearchParams(searchParams);
-    params.set("tab", next);
-    setSearchParams(params, { replace: false });
-  };
-
-  const isPending = settingsTab.state.isPending || companyTab.state.isPending;
-
-  return (
-    <div className="space-y-8 pb-20 text-left animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Header */}
-      <header className="flex flex-col gap-6 rounded-[2rem] border border-slate-200 bg-white p-6 md:p-8 xl:flex-row xl:items-end xl:justify-between">
-        <div className="space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
-            <Settings2 size={14} />
-            Ajustes por área
-          </div>
-          <div>
-            <h1 className="text-3xl font-black uppercase italic tracking-tighter text-slate-900 md:text-4xl">
-              Central de <span className="text-[#2D5A3D]">Ajustes</span>
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-              Organizado por área operacional — loja, operação, segurança, IA,
-              aparência e integrações.
-            </p>
-          </div>
-        </div>
-        <Button
-          onClick={handleGlobalSave}
-          disabled={isPending}
-          className="h-14 rounded-2xl bg-[#2D5A3D] px-8 font-black text-white shadow-xl transition-all active:scale-95 hover:bg-[#1e3b28]"
-        >
-          {isPending ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="animate-spin" size={18} />
-              <span>GRAVANDO...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Save size={18} />
-              <span>SALVAR TUDO</span>
-            </div>
-          )}
-        </Button>
-      </header>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="h-auto w-full justify-start rounded-[2rem] border border-slate-200 bg-slate-100 p-2">
-          <div className="flex w-full gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-3 lg:overflow-visible xl:grid-cols-6">
-            {settingsAreas.map((area) => {
-              const Icon = area.icon;
-              return (
-                <TabsTrigger
-                  key={area.id}
-                  value={area.id}
-                  className={cn(
-                    "h-auto min-h-16 min-w-[220px] rounded-[1.25rem] px-4 py-3 text-left data-[state=active]:bg-white lg:min-w-0",
-                    "data-[state=active]:shadow-sm",
-                  )}
-                >
-                  <div className="flex w-full items-center gap-3">
-                    <Icon size={18} className={area.accent} />
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-900">
-                        {area.label}
-                      </div>
-                      <div className="mt-1 line-clamp-2 text-[10px] font-bold normal-case tracking-normal text-slate-500">
-                        {area.description}
-                      </div>
-                    </div>
-                  </div>
-                </TabsTrigger>
-              );
-            })}
-          </div>
-        </TabsList>
-
-        <TabsContent value="store" className="outline-none">
-          <StoreTab
-            companyTab={{
-              state: companyTab.state as unknown as ComponentProps<typeof CompanyInfoForm>["state"],
-              actions: companyTab.actions as unknown as ComponentProps<typeof CompanyInfoForm>["actions"],
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="operation" className="outline-none">
+      case "operation":
+        return (
           <OperationTab
             settingsTab={{
-              state: { formData: settingsTab.state.formData as unknown as ComponentProps<typeof CheckoutSuccessSettings>["settings"] },
+              state: {
+                formData: settingsTab.state.formData as unknown as any,
+              },
               actions: {
-                updateField: (field, value) =>
-                  settingsTab.actions.updateField(
-                    field as Parameters<typeof settingsTab.actions.updateField>[0],
-                    value as Parameters<typeof settingsTab.actions.updateField>[1],
-                  ),
+                updateField: (field: string, value: unknown) =>
+                  settingsTab.actions.updateField(field as any, value as any),
               },
             }}
           />
-        </TabsContent>
+        );
 
-        <TabsContent value="security" className="outline-none">
-          <SecurityTab />
-        </TabsContent>
-
-        <TabsContent value="ia" className="outline-none">
-          <IaTab
-            settingsTab={{
-              state: settingsTab.state as unknown as ComponentProps<typeof SecurityConfig>["state"],
-              actions: settingsTab.actions as unknown as ComponentProps<typeof SecurityConfig>["actions"],
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="appearance" className="outline-none">
+      case "appearance":
+        return (
           <AppearanceTab
             accessibilityTab={{
-              state: accessibilityTab.state as unknown as ComponentProps<typeof AccessibilitySettings>["state"],
-              actions: accessibilityTab.actions as unknown as ComponentProps<typeof AccessibilitySettings>["actions"],
+              state: {
+                accessibilityData:
+                  accessibilityTab.state.accessibilityData as unknown as any,
+                isLoading: accessibilityTab.state.isLoading,
+              },
+              actions: {
+                updateField: (data: unknown) =>
+                  accessibilityTab.actions.updateField(data as any),
+              },
             }}
           />
-        </TabsContent>
+        );
 
-        <TabsContent value="integrations" className="outline-none">
-          <IntegrationsTab />
-        </TabsContent>
-      </Tabs>
+      case "integrations":
+        return (
+          <IntegrationsTab
+            settingsTab={{
+              state: {
+                formData: settingsTab.state.formData,
+                isPending: settingsTab.state.isPending,
+              },
+              actions: {
+                updateField: settingsTab.actions.updateField,
+                handleSaveAll: settingsTab.actions.handleSaveAll,
+              },
+            }}
+          />
+        );
+
+      case "ia":
+        return <IntegrationPage />;
+
+      case "security":
+        return <SecurityTab />;
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="animate-in space-y-6 pb-20 duration-700 fade-in">
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-100 bg-white/80 px-2 py-4 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-slate-900 p-2 text-white">
+            <Settings2 size={20} />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
+              Configuracoes
+            </h1>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              Painel de Controle Operacional
+            </p>
+          </div>
+        </div>
+
+        <Button
+          onClick={handleGlobalSave}
+          disabled={isSaving}
+          className="h-11 rounded-xl bg-emerald-600 px-6 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-200/50 transition-all hover:bg-emerald-700 active:scale-95"
+        >
+          {isSaving ? (
+            <Loader2 className="animate-spin" size={16} />
+          ) : (
+            <Save size={16} className="mr-2" />
+          )}
+          {isSaving ? "Gravando..." : "Salvar Alteracoes"}
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto pb-1">
+        <div className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 shadow-sm">
+          {settingsAreas.map((area) => {
+            const Icon = area.icon;
+            const isActive = area.id === activeTab;
+
+            return (
+              <button
+                key={area.id}
+                type="button"
+                onClick={() => handleTabChange(area.id)}
+                className={cn(
+                  "flex min-w-[150px] flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left transition-all",
+                  isActive
+                    ? "bg-slate-900 text-white shadow-lg"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                )}
+              >
+                <div
+                  className={cn(
+                    "rounded-xl p-2",
+                    isActive
+                      ? "bg-white/10 text-emerald-300"
+                      : "bg-slate-100 text-slate-500",
+                  )}
+                >
+                  <Icon size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em]">
+                    {area.label}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 line-clamp-2 text-[11px]",
+                      isActive ? "text-slate-300" : "text-slate-400",
+                    )}
+                  >
+                    {area.description}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <main className="w-full min-w-0">
+        <div className="min-h-150 animate-in rounded-2xl border border-slate-200 bg-white p-6 shadow-sm duration-500 fade-in slide-in-from-top-2 md:p-8">
+          {renderContent()}
+        </div>
+      </main>
     </div>
   );
 }

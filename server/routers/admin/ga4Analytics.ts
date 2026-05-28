@@ -1,42 +1,41 @@
 // server/routers/admin/ga4Analytics.ts
-// Busca dados reais do Google Analytics 4 via Data API
-// VERSÃO DE TESTE HARDCODED (Isolando erro de banco de dados)
-
-import { router, adminProcedure } from "../../_core/trpc.js";
+import { router, superAdminProcedure } from "../../_core/trpc.js";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { GoogleAuth } from "google-auth-library";
+import { getDb } from "../../db.js";
+import { appConfigs } from "../../../drizzle/schema/index.js";
+import { eq } from "drizzle-orm";
 import { logger } from "../../logger.js";
 
 const GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 
+// ✅ Lê credenciais do banco — sem hardcode
 async function getGA4Credentials(): Promise<{ propertyId: string; auth: GoogleAuth } | null> {
   try {
-    // 🔥 1. COLOQUE AQUI O SEU PROPERTY ID REAL (AQUELE DE 9 DÍGITOS QUE VOCÊ ACHOU NO ANALYTICS)
-    const propertyId = "250001647"; 
+    const db = await getDb();
 
-    // 🔥 2. COLE O CONTEÚDO DO SEU ARQUIVO JSON INTEIRO AQUI DENTRO (Mantenha as crases ` `)
-    const serviceAccountJson = `
-    {
-      "type": "service_account",
-      "project_id": "...",
-      "private_key_id": "...",
-      "private_key": "...",
-      "client_email": "bi-analytics@gourmetbi.iam.gserviceaccount.com",
-      "client_id": "...",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_x509_cert_url": "...",
-      "universe_domain": "googleapis.com"
-    }
-    `;
+    const [serviceAccountRow, propertyRow] = await Promise.all([
+      db.select().from(appConfigs).where(eq(appConfigs.configKey, "ga_service_account")).limit(1),
+      db.select().from(appConfigs).where(eq(appConfigs.configKey, "ga4_property_id")).limit(1),
+      db.select().from(appConfigs).where(eq(appConfigs.configKey, "google_analytics_id")).limit(1),
+    ]);
 
-    if (!serviceAccountJson || serviceAccountJson.trim() === "" || propertyId === "250001647") {
+    const serviceAccountJson = serviceAccountRow[0]?.configValue?.trim();
+    const propertyId = propertyRow[0]?.configValue?.trim() || "";
+
+    // Sem credenciais reais → não conecta
+    if (!serviceAccountJson || !propertyId) {
       return null;
     }
 
+    // Valida que é JSON de service account
     const credentials = JSON.parse(serviceAccountJson);
+    if (!credentials?.type || credentials.type !== "service_account") {
+      logger.warn("[GA4] Service account JSON inválido — campo 'type' ausente ou incorreto");
+      return null;
+    }
+
     const auth = new GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
@@ -44,7 +43,7 @@ async function getGA4Credentials(): Promise<{ propertyId: string; auth: GoogleAu
 
     return { propertyId, auth };
   } catch (err) {
-    logger.error({ err }, "❌ [GA4 TESTE HARDCODED] Erro Crítico ao carregar credenciais");
+    logger.error({ err }, "[GA4] Erro ao carregar credenciais do banco");
     return null;
   }
 }
@@ -91,16 +90,23 @@ function parseRows(data: Record<string, unknown>, dimensionKey?: string): Record
 }
 
 export const ga4AnalyticsRouter = router({
-  // Verifica status completo: Service Account + Measurement ID
-  checkConnection: adminProcedure.query(async () => {
-    // 1. Checa Service Account
+
+  // Verifica status completo: Service Account + Measurement ID + API
+  checkConnection: superAdminProcedure.query(async () => {
+    const db = await getDb();
     const creds = await getGA4Credentials();
 
-    // 🔥 3. SEU ID DE MEDIÇÃO HARDCODED AQUI
-    const measurementId = "G-W52VV00WRZ"; 
-    const measurementIdValid = true;
+    // Lê Measurement ID do banco
+    const gaIdRow = await db
+      .select()
+      .from(appConfigs)
+      .where(eq(appConfigs.configKey, "google_analytics_id"))
+      .limit(1);
 
-    // 3. Testa a API fazendo uma chamada real
+    const measurementId = gaIdRow[0]?.configValue?.trim() || null;
+    const measurementIdValid = Boolean(measurementId && /^G-[A-Z0-9]+$/i.test(measurementId));
+
+    // Testa chamada real à API
     let apiWorking = false;
     if (creds) {
       try {
@@ -120,8 +126,7 @@ export const ga4AnalyticsRouter = router({
           }
         );
         apiWorking = res.ok;
-      } catch (error) {
-        logger.error({ error }, "❌ [GA4 TESTE HARDCODED] Falha na chamada da API");
+      } catch {
         apiWorking = false;
       }
     }
@@ -136,17 +141,15 @@ export const ga4AnalyticsRouter = router({
   }),
 
   // Resumo geral: sessões, usuários, pageviews
-  getSummary: adminProcedure
+  getSummary: superAdminProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input }) => {
       const creds = await getGA4Credentials();
       if (!creds) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 não configuradas." });
 
       const { auth, propertyId } = creds;
-      const startDate = `${input.days}daysAgo`;
-
       const data = await ga4Request(auth, propertyId, {
-        dateRanges: [{ startDate, endDate: "today" }],
+        dateRanges: [{ startDate: `${input.days}daysAgo`, endDate: "today" }],
         metrics: [
           { name: "sessions" },
           { name: "totalUsers" },
@@ -167,12 +170,11 @@ export const ga4AnalyticsRouter = router({
     }),
 
   // Usuários ativos agora (tempo real)
-  getActiveUsers: adminProcedure.query(async () => {
+  getActiveUsers: superAdminProcedure.query(async () => {
     const creds = await getGA4Credentials();
     if (!creds) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 não configuradas." });
 
     const { auth, propertyId } = creds;
-
     const client = await auth.getClient();
     const token = await client.getAccessToken();
 
@@ -180,10 +182,7 @@ export const ga4AnalyticsRouter = router({
       `${GA4_API_BASE}/properties/${propertyId}:runRealtimeReport`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token.token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token.token}` },
         body: JSON.stringify({
           metrics: [{ name: "activeUsers" }],
           dimensions: [{ name: "unifiedScreenName" }],
@@ -193,7 +192,7 @@ export const ga4AnalyticsRouter = router({
 
     if (!res.ok) {
       const errBody = await res.text();
-      logger.warn({ status: res.status, body: errBody.slice(0, 300) }, "[GA4] Realtime API error — retornando vazio");
+      logger.warn({ status: res.status, body: errBody.slice(0, 300) }, "[GA4] Realtime indisponível — retornando vazio");
       return { total: 0, pages: [] };
     }
 
@@ -212,7 +211,7 @@ export const ga4AnalyticsRouter = router({
   }),
 
   // Páginas mais visitadas
-  getTopPages: adminProcedure
+  getTopPages: superAdminProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input }) => {
       const creds = await getGA4Credentials();
@@ -235,7 +234,7 @@ export const ga4AnalyticsRouter = router({
     }),
 
   // Origens de tráfego
-  getTrafficSources: adminProcedure
+  getTrafficSources: superAdminProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input }) => {
       const creds = await getGA4Credentials();
@@ -256,8 +255,8 @@ export const ga4AnalyticsRouter = router({
       }));
     }),
 
-  // Sessões por dia (gráfico de linha)
-  getSessionsOverTime: adminProcedure
+  // Sessões por dia
+  getSessionsOverTime: superAdminProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input }) => {
       const creds = await getGA4Credentials();

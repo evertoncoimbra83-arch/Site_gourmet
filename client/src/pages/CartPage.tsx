@@ -10,7 +10,7 @@ export default function CartPage() {
    */
   return (
     <>
-      <SEO title="Seu Carrinho | Gourmet Saudável" />
+      <SEO title="Seu Carrinho | Gourmet Saudável" noindex />
       <CartPageView /> 
     </>
   );

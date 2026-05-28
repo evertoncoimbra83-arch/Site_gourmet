@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CheckCircle2, ChevronLeft, Folder, ImageOff, Loader2 } from "lucide-react";
+import { normalizeImageUrl } from "@shared/utils/assets"; // ✅ substitui getFullUrl com localhost hardcoded
 
 interface MediaItem {
   id: string | number;
@@ -54,10 +55,9 @@ export default function MediaLibraryModal({
   const { data: folders = [] } = trpc.admin.media.listFolders.useQuery(undefined, {
     enabled: open,
   });
+
   const { data: media, isLoading } = trpc.admin.media.list.useQuery(
-    {
-      folder: normalizedFolder === "all" ? undefined : normalizedFolder,
-    },
+    { folder: normalizedFolder === "all" ? undefined : normalizedFolder },
     { enabled: open && !!currentFolder },
   );
 
@@ -68,20 +68,6 @@ export default function MediaLibraryModal({
       return a.localeCompare(b);
     });
   }, [folders]);
-
-  const getFullUrl = (url: string) => {
-    if (!url) return "";
-    if (url.startsWith("http")) return url;
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
-    const cleanPath = url
-      .replace(/\\/g, "/")
-      .replace(/^\/?public\//, "")
-      .replace(/^\//, "");
-    const finalPath = cleanPath.startsWith("uploads/")
-      ? cleanPath
-      : `uploads/${cleanPath}`;
-    return `${baseUrl}/${finalPath}`;
-  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -138,15 +124,14 @@ export default function MediaLibraryModal({
           ) : (
             <div className="space-y-4">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                {normalizedFolder === "all"
-                  ? "Todas as imagens"
-                  : `Pasta: ${normalizedFolder}`}
+                {normalizedFolder === "all" ? "Todas as imagens" : `Pasta: ${normalizedFolder}`}
               </p>
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {(media as MediaItem[])?.map((item) => {
                   const imageUrl = item.url || item.filePath || "";
-                  const fullUrl = getFullUrl(imageUrl);
+                  // ✅ normalizeImageUrl em vez de getFullUrl com localhost hardcoded
+                  const fullUrl = normalizeImageUrl(imageUrl) || "";
                   const isSelected = selectedUrl === imageUrl;
 
                   return (
@@ -161,13 +146,10 @@ export default function MediaLibraryModal({
                     >
                       <img
                         src={fullUrl}
-                        className={`h-full w-full object-cover ${
-                          isSelected ? "brightness-75" : ""
-                        }`}
+                        className={`h-full w-full object-cover ${isSelected ? "brightness-75" : ""}`}
                         alt={item.originalFilename || "Midia"}
                         onError={(event: React.SyntheticEvent<HTMLImageElement>) => {
-                          event.currentTarget.src =
-                            "https://placehold.co/400x400?text=Erro+URL";
+                          event.currentTarget.src = "https://placehold.co/400x400?text=Erro+URL";
                         }}
                       />
                       <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-700 shadow-sm">
@@ -175,10 +157,7 @@ export default function MediaLibraryModal({
                       </div>
                       {isSelected && (
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <CheckCircle2
-                            className="fill-emerald-600 text-white"
-                            size={32}
-                          />
+                          <CheckCircle2 className="fill-emerald-600 text-white" size={32} />
                         </div>
                       )}
                     </div>

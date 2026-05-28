@@ -40,6 +40,36 @@ const getBaseUrl = () => {
   return ''; 
 };
 
+const CSRF_COOKIE_NAME = "gourmet_csrf_token";
+
+function readCookie(name: string) {
+  if (typeof document === "undefined") return "";
+  const prefix = `${name}=`;
+  return (
+    document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(prefix))
+      ?.slice(prefix.length) || ""
+  );
+}
+
+async function getCsrfToken() {
+  const existing = readCookie(CSRF_COOKIE_NAME);
+  if (existing) return decodeURIComponent(existing);
+
+  const response = await fetch(`${getBaseUrl()}/api/csrf-token`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) return "";
+  const payload = (await response.json().catch(() => null)) as {
+    csrfToken?: string;
+  } | null;
+  return payload?.csrfToken || readCookie(CSRF_COOKIE_NAME);
+}
+
 export const trpcClient = trpc.createClient({
   links: [
     // 🛡️ Log de Atividades tRPC (REVISADO PARA LIMPEZA)
@@ -72,7 +102,10 @@ export const trpcClient = trpc.createClient({
           localStorage.setItem('gourmet_referral_code', refFromUrl);
         }
 
+        const csrfToken = await getCsrfToken();
+
         return {
+          'x-csrf-token': csrfToken,
           'x-guest-id': guestId || '',
           'x-referral-code': savedReferral || '',
         };

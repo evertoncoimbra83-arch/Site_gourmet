@@ -1,6 +1,7 @@
 // logic/generator/package-adpter.ts
 import { CandidateDish } from "./package-generator-types";
 import { normalizeDishNutrition } from "../../../../../../shared/utils/dishNutritionNormalizer";
+import { safeInteger } from "@/lib/safe-parse";
 
 // ✅ Tipo local — sem importar schema Drizzle no bundle do cliente
 export interface AdminDishForGenerator {
@@ -42,7 +43,7 @@ export function mapAdminDishesToCandidates(allDishes: AdminDishForGenerator[]): 
     // Fazemos o parse do ID para número para evitar o erro 2345
     const nutritionInput = {
       ...dish,
-      id: typeof dish.id === 'string' ? parseInt(dish.id, 10) : dish.id
+      id: typeof dish.id === 'string' ? safeInteger(dish.id) : dish.id
     } as Parameters<typeof normalizeDishNutrition>[0];
 
     const nutrition = normalizeDishNutrition(nutritionInput);

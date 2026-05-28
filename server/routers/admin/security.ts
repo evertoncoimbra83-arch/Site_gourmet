@@ -1,4 +1,4 @@
-import { adminProcedure, createRateLimitMiddleware, router } from "../../_core/trpc.js";
+import { createRateLimitMiddleware, router, superAdminProcedure } from "../../_core/trpc.js";
 import { ENV } from "../../_core/env.js";
 import { globalLimiter, authLimiter, checkoutLimiter } from "../../security/rateLimit.js";
 import {
@@ -284,7 +284,7 @@ function summarizeOverallRisk(checks: SecurityCheck[]): RiskLevel {
 }
 
 export const securityRouter = router({
-  getEnvironmentSecurityReport: adminProcedure.query(async () => {
+  getEnvironmentSecurityReport: superAdminProcedure.query(async () => {
     const checks = getChecks();
     const overallRisk = summarizeOverallRisk(checks);
 

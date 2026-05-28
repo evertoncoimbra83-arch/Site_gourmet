@@ -13,6 +13,7 @@ import {
   categories,
   accompanimentOptions,
 } from "../../../drizzle/schema/index.js";
+import { nanoid } from "nanoid";
 import { logAction } from "../../db/lib/audit.js";
 import { safeJsonParse, safeNumber } from "../../lib/safe-parse.js";
 
@@ -204,16 +205,17 @@ export const adminPackagesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       try {
+        const newId = nanoid();
         const valuesToInsert: typeof packages.$inferInsert = {
           name: input.name,
           slug: input.slug,
-          price: requireMoneyString(input.base_price, "PreÃ§o"),
+          price: requireMoneyString(input.base_price, "Preço"),
           description: input.description || "",
           highlights: input.highlights || "",
           category: input.category || "",
           isPopular: input.is_popular,
           imageUrl: input.image_url || "",
-          salePrice: input.sale_price ? requireMoneyString(input.sale_price, "PreÃ§o promocional") : null,
+          salePrice: input.sale_price ? requireMoneyString(input.sale_price, "Preço promocional") : null,
           displayOrder: input.display_order,
           numberOfOptions: input.number_of_options,
           isActive: input.isActive,
@@ -221,12 +223,11 @@ export const adminPackagesRouter = router({
           status: input.isActive ? "active" : "hidden",
           // @ts-ignore
           config: input.config,
-          id: "",
+          id: newId,
         };
-        const [result] = await db.insert(packages).values(valuesToInsert);
-        const newId = result.insertId;
+        await db.insert(packages).values(valuesToInsert);
         await logAction(ctx, "CREATE_PACKAGE", "packages", {
-          entityId: String(newId),
+          entityId: newId,
           new: { name: input.name },
         });
         return { success: true, id: newId };

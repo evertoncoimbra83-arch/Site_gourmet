@@ -4,6 +4,13 @@ import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { appToast as toast } from "@/lib/app-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, Copy, Loader2, Printer, RefreshCw, Send } from "lucide-react";
 import OrderPrintTemplate, { type OrderData } from "./OrderPrintTemplate";
 import { LabelCanvas } from "./design/LabelCanvas";
@@ -87,7 +94,7 @@ export default function OrderPrintCenter() {
             (content, index) => {
               const value = parseContent(content, index);
               if (value == null) return "";
-              return typeof value === "object" ? JSON.stringify(value) : String(value);
+              return value;
             },
             physicalConfig,
           )
@@ -264,28 +271,60 @@ export default function OrderPrintCenter() {
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-8">
-                {flatLabels.map((_, index) => (
-                  <div
-                    key={String(flatLabels[index].id)}
-                    className="relative shrink-0 overflow-hidden border border-slate-200/50 bg-white shadow-xl print:break-after-page print:shadow-none"
-                    style={{
-                      width: `${activeTemplate.width}mm`,
-                      height: `${activeTemplate.height}mm`,
-                    }}
-                  >
-                    <LabelCanvas
-                      elements={activeTemplate.elements}
-                      setElements={() => {}}
-                      isDesignMode={false}
-                      selectedId={null}
-                      setSelectedId={() => {}}
-                      parseContent={(content: string) => parseContent(content, index)}
-                      zoom={1}
-                      isPrintMode
-                    />
+              <div className="flex flex-col items-center gap-6">
+                {/* Seletor de Modelo de Etiqueta Zebra */}
+                <div className="no-print w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-left space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Modelo de Etiqueta
+                    </label>
+                    <p className="text-[9px] font-semibold text-slate-400">
+                      Escolha o modelo antes de imprimir. A troca de modelo não altera o pedido.
+                    </p>
                   </div>
-                ))}
+                  {templates.length > 0 && selectedTemplateId && (
+                    <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                      <SelectTrigger className="h-10 w-full rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 hover:bg-slate-50 focus:ring-1 focus:ring-emerald-500">
+                        <SelectValue className="text-slate-800" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-800 shadow-2xl">
+                        {templates.map((template) => (
+                          <SelectItem
+                            key={template.id}
+                            value={template.id}
+                            className="cursor-pointer py-2 text-xs font-bold uppercase text-slate-800 focus:bg-slate-100 focus:text-slate-800"
+                          >
+                            {template.name} {template.source === "legacy" ? "(fallback)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-8">
+                  {flatLabels.map((_, index) => (
+                    <div
+                      key={String(flatLabels[index].id)}
+                      className="relative shrink-0 overflow-hidden border border-slate-200/50 bg-white shadow-xl print:break-after-page print:shadow-none"
+                      style={{
+                        width: `${activeTemplate.width}mm`,
+                        height: `${activeTemplate.height}mm`,
+                      }}
+                    >
+                      <LabelCanvas
+                        elements={activeTemplate.elements}
+                        setElements={() => {}}
+                        isDesignMode={false}
+                        selectedId={null}
+                        setSelectedId={() => {}}
+                        parseContent={(content: string) => parseContent(content, index)}
+                        zoom={1}
+                        isPrintMode
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </section>

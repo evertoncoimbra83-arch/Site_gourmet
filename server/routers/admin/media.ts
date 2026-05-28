@@ -10,6 +10,7 @@ import {
   sanitizeMediaFolder,
   validateAndDecodeImageUpload,
 } from "../../lib/upload-security";
+import { safeInteger } from "../../lib/safe-parse";
 import { cloudinary } from "../lib/cloudinary";
 
 // --- INTERFACES DE TIPAGEM ---
@@ -100,15 +101,12 @@ export const adminMediaRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
 
-    console.log("🚀 [DEBUG] Iniciando sincronização total...");
-
     try {
       let allResources: CloudinaryResource[] = [];
       let nextCursor: string | undefined;
       let page = 1;
 
       do {
-        console.log(`   📦 [DEBUG] Buscando página ${page}...`);
         // ✅ AJUSTE: Removida a barra do prefixo para encontrar subpastas e arquivos raiz
         const result = (await cloudinary.api.resources({
           type: "upload",
@@ -117,13 +115,10 @@ export const adminMediaRouter = router({
           next_cursor: nextCursor,
         })) as CloudinaryApiResourcesResponse;
 
-        console.log(`   [DEBUG] Cloudinary retornou ${result.resources?.length || 0} itens nesta página.`);
         allResources = [...allResources, ...(result.resources || [])];
         nextCursor = result.next_cursor;
         page++;
       } while (nextCursor);
-
-      console.log(`   ✅ [DEBUG] Total final capturado: ${allResources.length} arquivos.`);
 
       let newCount = 0;
       let updateCount = 0;
@@ -174,8 +169,6 @@ export const adminMediaRouter = router({
           updateCount++;
         }
       }
-
-      console.log(`🏁 [DEBUG] Fim do Sync. Novos: ${newCount}, Atualizados: ${updateCount}`);
 
       return {
         success: true,
@@ -278,7 +271,7 @@ export const adminMediaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
 
-      const targetId = typeof input.id === "string" ? parseInt(input.id, 10) : input.id;
+      const targetId = typeof input.id === "string" ? safeInteger(input.id) : input.id;
       const [item] = await db.select().from(media).where(eq(media.id, targetId)).limit(1);
 
       if (item && item.filePath) {

@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
+// src/pages/adminSettings/logic/useAdminSettings.ts
+import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
+import { safeJsonParse } from "@/lib/safe-parse";
 
-// --- INTERFACES ---
-interface AdminSettingsData {
+// 1. Interface Única e Verdadeira
+export interface AdminSettingsData {
+  gtmId: string;
   generalMinOrderAmount: string;
   minOrderMessage: string;
   success_order_message: string;
@@ -15,46 +18,33 @@ interface AdminSettingsData {
   googleClientId: string;
   googleClientSecret: string;
   googleLoginEnabled: boolean;
-  // 📈 NOVOS CAMPOS PARA ANALYTICS & BI
   googleAnalyticsId: string;
-  gaServiceAccount: string; 
+  gaServiceAccount: string;
   ga4PropertyId: string;
 }
 
-interface AdminStoreSettingsRouter {
-  get: {
-    useQuery: () => { 
-      data?: Record<string, unknown>; 
-      isLoading: boolean;
-    };
-    invalidate: () => void;
-  };
-  getByKey: {
-    useQuery: (input: { key?: string; configKey?: string }) => { 
-      data?: { value?: string; configValue?: string }; 
-      isLoading: boolean;
-    };
-    invalidate: (input?: unknown) => void;
-  };
-  saveCompanyInfo: {
-    useMutation: () => { 
-      mutateAsync: (data: Record<string, unknown>) => Promise<void>; 
-      isPending: boolean; 
-    };
-  };
-  saveConfig: {
-    useMutation: () => { 
-      mutateAsync: (data: { key?: string; value?: string; configKey?: string; configValue?: string }) => Promise<void>; 
-      isPending: boolean; 
-    };
-  };
+// Interface interna para a hidratação da configuração criptografada do Google
+interface GoogleLoginConfigPayload {
+  enabled?: boolean;
+  clientId?: string;
+  clientSecret?: string;
 }
+
+/**
+ * 2. Técnica de "Bridge Typing" Otimizada
+ */
+type StoreSettingsRouter = {
+  invalidate(): unknown;
+  useQuery: () => { data: any | undefined; isLoading: boolean };
+  useMutation: () => { mutateAsync: (data: unknown) => Promise<void>; isPending: boolean };
+};
 
 export function useAdminSettings() {
   const utils = trpc.useUtils();
-  
-  const adminApi = (trpc.admin as unknown as { storeSettings: AdminStoreSettingsRouter }).storeSettings;
-  const adminUtils = (utils.admin as unknown as { storeSettings: AdminStoreSettingsRouter }).storeSettings;
+
+  // 3. Tipagem por Asserção Controlada (Substitui o ANY de forma segura)
+  const adminProxy = trpc.admin as unknown as { storeSettings: StoreSettingsRouter };
+  const storeSettings = adminProxy.storeSettings;
 
   const [formData, setFormData] = useState<AdminSettingsData>({
     generalMinOrderAmount: "0.00",
@@ -62,75 +52,86 @@ export function useAdminSettings() {
     success_order_message: "",
     partners_json: "[]",
     pickupEnabled: false,
-    pickupLabel: "",
+    pickupLabel: "Retirada no Local",
     pickupInstruction: "",
     geminiApiKey: "",
     googleClientId: "",
     googleClientSecret: "",
     googleLoginEnabled: false,
-    // ✅ Inicialização dos novos campos
     googleAnalyticsId: "",
     gaServiceAccount: "",
-    ga4PropertyId: "250001647"
+    ga4PropertyId: "250001647",
+    gtmId: ""
   });
 
-  const { data: serverData, isLoading } = adminApi.get.useQuery();
-  const saveCompanyMutation = adminApi.saveCompanyInfo.useMutation();
-  const saveConfigMutation = adminApi.saveConfig.useMutation();
+  const { data: serverData, isLoading } = storeSettings.useQuery();
+  const saveMutation = storeSettings.useMutation();
 
   useEffect(() => {
     if (serverData) {
-      setFormData({
-        generalMinOrderAmount: String(serverData.generalMinOrderAmount || "0.00"),
-        minOrderMessage: String(serverData.minOrderMessage || ""),
-        success_order_message: String(serverData.success_order_message || ""),
-        partners_json: String(serverData.partners_json || "[]"),
+      // 🧩 HIDRATAÇÃO INTELIGENTE: Descompacta strings JSON sensíveis do banco de volta para os campos do formulário
+      const googleConfig = safeJsonParse<GoogleLoginConfigPayload>(serverData.googleLoginConfig, {});
+
+      setFormData(prev => ({
+        ...prev,
+        generalMinOrderAmount: serverData.generalMinOrderAmount !== undefined ? String(serverData.generalMinOrderAmount) : prev.generalMinOrderAmount,
+        minOrderMessage: serverData.minOrderMessage || "",
+        success_order_message: serverData.success_order_message || "",
+        partners_json: serverData.partners_json || "[]",
         pickupEnabled: Boolean(serverData.pickupEnabled),
-        pickupLabel: String(serverData.pickupLabel || "Retirada no Local"),
-        pickupInstruction: String(serverData.pickupInstruction || ""),
-        geminiApiKey: String(serverData.geminiApiKey || ""),
-        googleLoginEnabled: Boolean(serverData.googleLoginEnabled),
-        googleClientId: String(serverData.googleClientId || ""),
-        googleClientSecret: String(serverData.googleClientSecret || ""),
-        // ✅ Preenchendo com os dados vindos do Kernel
-        googleAnalyticsId: String(serverData.googleAnalyticsId || ""),
-        gaServiceAccount: String(serverData.gaServiceAccount || ""),
-        ga4PropertyId: String(serverData.ga4PropertyId || "250001647")
-      });
+        pickupLabel: serverData.pickupLabel || "Retirada no Local",
+        pickupInstruction: serverData.pickupInstruction || "",
+        geminiApiKey: serverData.geminiApiKey || "",
+        googleAnalyticsId: serverData.googleAnalyticsId || "",
+        gaServiceAccount: serverData.gaServiceAccount || "",
+        ga4PropertyId: serverData.ga4PropertyId || "",
+        gtmId: serverData.gtmId || "",
+        // Preenche as inputs do Google Login a partir da string unificada do backend
+        googleLoginEnabled: googleConfig?.enabled ?? false,
+        googleClientId: googleConfig?.clientId || "",
+        googleClientSecret: googleConfig?.clientSecret || ""
+      }));
     }
   }, [serverData]);
 
+  // 4. UpdateField com Generics para garantir que 'value' bata com 'field'
+  const updateField = useCallback(<K extends keyof AdminSettingsData>(
+    field: K,
+    value: AdminSettingsData[K]
+  ) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
   const handleSaveAll = async () => {
     try {
-      await saveCompanyMutation.mutateAsync({
-        generalMinOrderAmount: formData.generalMinOrderAmount,
-        minOrderMessage: formData.minOrderMessage,
-        success_order_message: formData.success_order_message,
-        partners_json: formData.partners_json,
-        pickupEnabled: formData.pickupEnabled,
-        pickupLabel: formData.pickupLabel,
-        pickupInstruction: formData.pickupInstruction,
-        geminiApiKey: formData.geminiApiKey,
-        // ✅ Enviando novos campos para o backend
-        googleAnalyticsId: formData.googleAnalyticsId,
-        gaServiceAccount: formData.gaServiceAccount,
-        ga4PropertyId: formData.ga4PropertyId,
+      const {
+        generalMinOrderAmount: _generalMinOrderAmount,
+        minOrderMessage: _minOrderMessage,
+        ...settingsOwnedFields
+      } = formData;
+
+      // Compacta o formulário de volta no padrão DTO esperado pelo Zod do backend
+      const payload = {
+        ...settingsOwnedFields,
         googleLoginConfig: JSON.stringify({
-          enabled: formData.googleLoginEnabled,
-          clientId: formData.googleClientId,
-          clientSecret: formData.googleClientSecret
+          enabled: settingsOwnedFields.googleLoginEnabled,
+          clientId: settingsOwnedFields.googleClientId,
+          clientSecret: settingsOwnedFields.googleClientSecret
         })
+      };
+
+      await saveMutation.mutateAsync(payload);
+
+      toast.success("Kernel Sincronizado!", {
+        description: "Configurações guardadas com sucesso."
       });
 
-      toast.success("Kernel Sincronizado!", { 
-        description: "Configurações, Chaves de IA e BI guardadas com sucesso." 
-      });
-      
-      // ✅ Invalida a rota pública para o site refletir o novo GAID na hora
-      utils.public.getPublicSettings.invalidate(); 
-      adminUtils.get.invalidate();
-      adminUtils.getByKey.invalidate();
-      
+      // Invalidação usando Type Assertion segura para o cache reativo
+      const adminUtils = (utils.admin as unknown as { storeSettings: StoreSettingsRouter }).storeSettings;
+
+      utils.public.getPublicSettings.invalidate();
+      adminUtils.invalidate();
+
     } catch (err) {
       const error = err as Error;
       toast.error("Erro na sincronização", { description: error.message });
@@ -138,17 +139,15 @@ export function useAdminSettings() {
   };
 
   return {
-    state: { 
-      formData, 
-      isLoading, 
-      isPending: saveCompanyMutation.isPending || saveConfigMutation.isPending 
+    state: {
+      formData,
+      isLoading,
+      isPending: saveMutation.isPending
     },
-    actions: { 
-      setFormData, 
+    actions: {
+      setFormData,
       handleSaveAll,
-      updateField: <K extends keyof AdminSettingsData>(field: K, value: AdminSettingsData[K]) => {
-        setFormData((prev) => ({ ...prev, [field]: value }));
-      }
+      updateField
     }
   };
 }

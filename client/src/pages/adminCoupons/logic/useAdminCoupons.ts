@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast"; 
+import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
+import { safeInteger, safeNumber } from "@/lib/safe-parse";
+import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 
 // ✅ Interface exportada para uso na View
 export interface Coupon {
@@ -68,7 +71,8 @@ export function useAdminCoupons() {
       utils.admin.coupons.list.invalidate();
       resetForm();
       toast.success("Cupom criado com sucesso!");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao criar cupom.")),
   });
 
   const updateMutation = trpc.admin.coupons.update.useMutation({
@@ -76,14 +80,16 @@ export function useAdminCoupons() {
       utils.admin.coupons.list.invalidate();
       resetForm();
       toast.success("Cupom atualizado!");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao atualizar cupom.")),
   });
 
   const deleteMutation = trpc.admin.coupons.delete.useMutation({
     onSuccess: () => {
       utils.admin.coupons.list.invalidate();
       toast.info("Cupom excluído.");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao excluir cupom.")),
   });
 
   /* --- 3. ACTIONS --- */
@@ -102,10 +108,10 @@ export function useAdminCoupons() {
       code: formState.code.trim().toUpperCase(),
       description: formState.description || null,
       discountType: formState.discountType,
-      discountValue: parseFloat(String(formState.discountValue)) || 0,
-      minOrderValue: formState.minOrderValue ? parseFloat(String(formState.minOrderValue)) : 0,
-      maxDiscount: formState.maxDiscount ? parseFloat(String(formState.maxDiscount)) : null,
-      usageLimit: formState.usageLimit ? parseInt(String(formState.usageLimit)) : null,
+      discountValue: safeNumber(String(formState.discountValue)),
+      minOrderValue: formState.minOrderValue ? safeNumber(String(formState.minOrderValue)) : 0,
+      maxDiscount: formState.maxDiscount ? safeNumber(String(formState.maxDiscount)) : null,
+      usageLimit: formState.usageLimit ? safeInteger(String(formState.usageLimit)) : null,
       validFrom: formState.validFrom ? new Date(formState.validFrom).toISOString() : null,
       validUntil: formState.validUntil ? new Date(formState.validUntil).toISOString() : null,
       bannerColor: formState.bannerColor,
@@ -113,13 +119,27 @@ export function useAdminCoupons() {
       isActive: formState.isActive,
     };
 
+    const isHighImpact =
+      (payload.discountType === "percentage" && payload.discountValue > 40) ||
+      (payload.discountType === "fixed" && payload.discountValue > 300);
+    const confirmation = isHighImpact
+      ? requestStrongConfirmation("Cupom de alto impacto financeiro.")
+      : null;
+    if (isHighImpact && !confirmation) {
+      return toast.warning("Confirmacao forte cancelada.");
+    }
+
     if (formState.id) {
       updateMutation.mutate({ 
         id: formState.id, 
-        ...payload 
+        ...payload,
+        ...confirmation,
       } as unknown as Parameters<typeof updateMutation.mutate>[0]);
     } else {
-      createMutation.mutate(payload as unknown as Parameters<typeof createMutation.mutate>[0]);
+      createMutation.mutate({
+        ...payload,
+        ...confirmation,
+      } as unknown as Parameters<typeof createMutation.mutate>[0]);
     }
   };
 
@@ -152,14 +172,27 @@ export function useAdminCoupons() {
       });
     },
     handleDelete: (id: string | number) => {
-      if (confirm("Deseja realmente excluir este cupom?")) {
-        deleteMutation.mutate({ id: String(id) });
-      }
+      const confirmation = requestStrongConfirmation("Excluir cupom permanentemente.");
+      if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+      deleteMutation.mutate({ id: String(id), ...confirmation });
     },
     handleToggle: (coupon: Coupon) => {
+      const isHighImpact =
+        (coupon.discountType === "percentage" && coupon.discountValue > 40) ||
+        (coupon.discountType === "fixed" && coupon.discountValue > 300);
+      const confirmation = isHighImpact
+        ? requestStrongConfirmation(
+            "Digite CONFIRMAR para ativar ou pausar cupom de alto impacto.",
+            "Informe uma justificativa para alterar a disponibilidade do cupom:",
+          )
+        : null;
+      if (isHighImpact && !confirmation) {
+        return toast.warning("Confirmacao forte cancelada.");
+      }
       updateMutation.mutate({
         id: String(coupon.id),
         isActive: !coupon.isActive,
+        ...confirmation,
       } as unknown as Parameters<typeof updateMutation.mutate>[0]);
     },
   };

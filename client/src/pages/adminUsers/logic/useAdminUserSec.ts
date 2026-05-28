@@ -64,8 +64,8 @@ export function useAdminUserSec(userId: string | number | null) {
       toast("Erro: ID do usuário não encontrado.");
       return;
     }
-    if (pw.length < 6) {
-      toast("Erro: A senha deve ter no mínimo 6 caracteres.");
+    if (pw.trim().length < 8) {
+      toast("Erro: A senha deve ter no minimo 8 caracteres.");
       return;
     }
     setPwMut.mutate({ 
@@ -96,3 +96,4 @@ export function useAdminUserSec(userId: string | number | null) {
     handleSubmit
   };
 }
+

@@ -10,6 +10,11 @@ import { lucia, promoteCart } from "../../../auth.js";
 import { encrypt, decrypt, piiHash, normalizeDigits } from "../../../encryption.js";
 import { isValidCPF, checkDuplicity } from "./auth.logic.js";
 import { type TrpcContext } from "../../../_core/context.js";
+import {
+  assertPasswordPolicy,
+  normalizeAuthIdentifier,
+  recordAuthEvent,
+} from "./auth-security.js";
 
 // --- HELPERS ---
 
@@ -42,19 +47,39 @@ interface LoginInput {
  */
 export const loginProcedure = async ({ input, ctx }: { input: LoginInput; ctx: TrpcContext }) => {
   const db = await getDb();
-  const identifier = input.identifier.trim().toLowerCase();
+  const identifier = normalizeAuthIdentifier(input.identifier);
   
   const [result] = await db.select({
     id: users.id,
     email: users.email,
     password: users.password,
     needsReset: users.needsPasswordReset,
+    deletedAt: users.deletedAt,
   })
   .from(users)
   .where(eq(users.email, identifier))
   .limit(1);
 
   if (!result || !result.password) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      identifier,
+      reason: "invalid_credentials",
+    });
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+  }
+
+  if (result.deletedAt) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_BLOCKED_DELETED",
+      severity: "critical",
+      userId: result.id,
+      identifier,
+      reason: "soft_deleted_user",
+    });
     throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
   }
 
@@ -64,18 +89,49 @@ export const loginProcedure = async ({ input, ctx }: { input: LoginInput; ctx: T
   }
 
   if (!input.password) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      userId: result.id,
+      identifier,
+      reason: "missing_password",
+    });
     throw new TRPCError({ code: "BAD_REQUEST", message: "Senha é obrigatória." });
   }
 
   const valid = await verify(result.password, input.password);
-  if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+  if (!valid) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      userId: result.id,
+      identifier,
+      reason: "invalid_credentials",
+    });
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+  }
 
   /**
    * ✅ LÓGICA DE SESSÃO DINÂMICA
    */
-  const session = await lucia.createSession(result.id, {});
+  const ipAddress = ctx.req ? (ctx.req.ip || (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1") : "127.0.0.1";
+  const userAgent = ctx.req ? (ctx.req.headers?.["user-agent"] || "unknown") : "unknown";
+  const session = await lucia.createSession(result.id, {
+    ipAddress,
+    userAgent,
+  });
   const sessionCookie = lucia.createSessionCookie(session.id);
   
+  if (ctx.req?.hostname && (
+    ctx.req.hostname === "localhost" || 
+    ctx.req.hostname === "127.0.0.1" || 
+    ctx.req.hostname.startsWith("192.168.24.")
+  )) {
+    sessionCookie.attributes.secure = false;
+  }
+
   // Se NÃO marcou 'Lembrar de mim', a sessão morre ao fechar o navegador
   if (!input.rememberMe) {
     sessionCookie.attributes.maxAge = undefined; 
@@ -92,6 +148,15 @@ export const loginProcedure = async ({ input, ctx }: { input: LoginInput; ctx: T
 
   // Vincula o carrinho de convidado ao usuário logado
   await promoteCart(ctx.guestId || input.guestSessionId, result.id);
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, result.id));
+  recordAuthEvent({
+    ctx,
+    action: "LOGIN_PASSWORD_SUCCESS",
+    severity: "info",
+    userId: result.id,
+    identifier,
+    reason: input.rememberMe ? "remember_me" : "session_cookie",
+  });
   
   return { success: true, status: "SUCCESS" as const };
 };
@@ -101,6 +166,8 @@ export const loginProcedure = async ({ input, ctx }: { input: LoginInput; ctx: T
  */
 export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; ctx: TrpcContext }) => {
   const db = await getDb();
+  const email = normalizeAuthIdentifier(input.email);
+  assertPasswordPolicy(input.password, email);
   
   if (!isValidCPF(input.cpf)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "CPF inválido." });
@@ -108,7 +175,7 @@ export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; 
 
   // Passa o db com a tipagem correta para a lógica de duplicidade
   await checkDuplicity(db as DrizzleDB, { 
-    email: input.email, 
+    email, 
     cpf: input.cpf, 
     phone: input.whatsapp || undefined 
   });
@@ -133,7 +200,7 @@ export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; 
 
       await tx.insert(users).values({
         id: unifiedId,
-        email: input.email.toLowerCase(),
+        email,
         password: hashedPassword,
         name: encrypt(input.name.trim()),
         customerDocument: encrypt(cleanCpf),
@@ -149,8 +216,21 @@ export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; 
       });
     });
 
-    const session = await lucia.createSession(unifiedId, {});
+    const ipAddress = ctx.req ? (ctx.req.ip || (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1") : "127.0.0.1";
+    const userAgent = ctx.req ? (ctx.req.headers?.["user-agent"] || "unknown") : "unknown";
+    const session = await lucia.createSession(unifiedId, {
+      ipAddress,
+      userAgent,
+    });
     const sessionCookie = lucia.createSessionCookie(session.id);
+    
+    if (ctx.req?.hostname && (
+      ctx.req.hostname === "localhost" || 
+      ctx.req.hostname === "127.0.0.1" || 
+      ctx.req.hostname.startsWith("192.168.24.")
+    )) {
+      sessionCookie.attributes.secure = false;
+    }
     
     // Registro padrão: Sessão expira ao fechar o navegador por segurança
     sessionCookie.attributes.maxAge = undefined;
@@ -165,6 +245,13 @@ export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; 
     }
 
     await promoteCart(input.guestSessionId || ctx.guestId, unifiedId);
+    recordAuthEvent({
+      ctx,
+      action: "REGISTER_PASSWORD_SUCCESS",
+      severity: "info",
+      userId: unifiedId,
+      identifier: email,
+    });
     return { success: true };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro ao realizar cadastro.";
@@ -175,14 +262,22 @@ export const registerProcedure = async ({ input, ctx }: { input: RegisterInput; 
 /**
  * 📧 REQUEST RESET
  */
-export const requestPasswordResetProcedure = async ({ input }: { input: { email: string } }) => {
+export const requestPasswordResetProcedure = async ({ input, ctx }: { input: { email: string }; ctx?: TrpcContext }) => {
   const db = await getDb();
-  const email = input.email.toLowerCase().trim();
+  const email = normalizeAuthIdentifier(input.email);
 
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  recordAuthEvent({
+    ctx,
+    action: "RESET_REQUESTED",
+    severity: "warning",
+    userId: user?.id,
+    identifier: email,
+    reason: user ? "account_match" : "no_account_match",
+  });
   
   // Por segurança, sempre retornar sucesso para não expor se o e-mail existe
-  if (!user) return { success: true, message: "Link enviado." }; 
+  if (!user || user.deletedAt) return { success: true, message: "Link enviado." }; 
 
   let firstName = "Cliente";
   if (user.name) {
@@ -232,16 +327,26 @@ export const resetPasswordProcedure = async ({
 }) => {
   const db = await getDb();
   const now = new Date();
+  assertPasswordPolicy(input.password);
 
   const [user] = await db.select()
     .from(users)
     .where(eq(users.resetToken, input.token))
     .limit(1);
 
-  if (!user || !user.resetExpires || new Date(user.resetExpires) < now) {
+  if (!user || user.deletedAt || !user.resetExpires || new Date(user.resetExpires) < now) {
+    recordAuthEvent({
+      ctx,
+      action: "RESET_PASSWORD_FAIL",
+      severity: "warning",
+      userId: user?.id,
+      reason: user?.deletedAt ? "soft_deleted_user" : "invalid_or_expired_token",
+      metadata: { tokenPrefix: input.token.slice(0, 6) },
+    });
     throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado." });
   }
 
+  assertPasswordPolicy(input.password, user.email);
   const hashedPassword = await hash(input.password);
 
   await db.update(users)
@@ -253,8 +358,22 @@ export const resetPasswordProcedure = async ({
     })
     .where(eq(users.id, user.id));
 
-  const session = await lucia.createSession(user.id, {});
+  await lucia.invalidateUserSessions(user.id);
+  const ipAddress = ctx.req ? (ctx.req.ip || (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1") : "127.0.0.1";
+  const userAgent = ctx.req ? (ctx.req.headers?.["user-agent"] || "unknown") : "unknown";
+  const session = await lucia.createSession(user.id, {
+    ipAddress,
+    userAgent,
+  });
   const sessionCookie = lucia.createSessionCookie(session.id);
+  
+  if (ctx.req?.hostname && (
+    ctx.req.hostname === "localhost" || 
+    ctx.req.hostname === "127.0.0.1" || 
+    ctx.req.hostname.startsWith("192.168.24.")
+  )) {
+    sessionCookie.attributes.secure = false;
+  }
   
   // Login gerado no Reset também amarrado ao ciclo de vida do navegador
   sessionCookie.attributes.maxAge = undefined;
@@ -269,6 +388,14 @@ export const resetPasswordProcedure = async ({
   }
 
   await promoteCart(ctx.guestId, user.id);
+  recordAuthEvent({
+    ctx,
+    action: "RESET_SUCCESS",
+    severity: "warning",
+    userId: user.id,
+    identifier: user.email,
+    reason: "password_reset",
+  });
   return { success: true };
 };
 
@@ -276,6 +403,7 @@ export const resetPasswordProcedure = async ({
  * 🚪 LOGOUT (BLINDADO)
  */
 export const logoutProcedure = async ({ ctx }: { ctx: TrpcContext }) => {
+  const userId = ctx.user?.id || null;
   if (ctx.session) {
     await lucia.invalidateSession(ctx.session.id);
   }
@@ -289,6 +417,13 @@ export const logoutProcedure = async ({ ctx }: { ctx: TrpcContext }) => {
       ctx.res.append("Set-Cookie", sessionCookie.serialize());
     }
   }
+  recordAuthEvent({
+    ctx,
+    action: "LOGOUT",
+    severity: "info",
+    userId,
+    reason: ctx.session ? "session_invalidated" : "no_active_session",
+  });
   
   return { success: true };
 };

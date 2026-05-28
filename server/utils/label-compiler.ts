@@ -1,4 +1,5 @@
 // server/utils/label-compiler.ts
+import { safeJsonParse } from "../lib/safe-parse.js";
 
 // 1. Tipagem rigorosa para os elementos da etiqueta
 export interface LabelElement {
@@ -28,8 +29,7 @@ export interface LabelData {
 }
 
 export function compileToZPL(elementsJson: string, data: LabelData): string {
-  // Fazemos o parse e garantimos que o TS trate como um array de elementos
-  const elements = JSON.parse(elementsJson) as LabelElement[];
+  const elements = safeJsonParse<LabelElement[]>(elementsJson, []);
   let zpl = "^XA^CI28"; 
 
   elements.forEach((el) => {

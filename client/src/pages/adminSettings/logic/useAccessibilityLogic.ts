@@ -1,108 +1,150 @@
-// e:/IA/projects/Site_React/client/src/pages/adminSettings/logic/useAccessibilityLogic.ts
-
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
-
-// --- INTERFACES ---
+import {
+  applyAccessibilityToDOM,
+  clampFontScale,
+  persistAccessibilityPreferences,
+} from "@/_core/hooks/useAccessibility";
 
 interface AccessibilityData {
   favicon: string;
   highContrast: boolean;
   dyslexicFont: boolean;
+  fontScale: number;
   vLibrasActive: boolean;
 }
 
 interface AccessibilitySettings {
   highContrast?: boolean;
-  highContrastActive?: boolean; // Adicionado para suportar ambas as nomenclaturas
+  highContrastActive?: boolean;
   dyslexicFont?: boolean;
+  fontScale?: number;
   vLibrasActive?: boolean;
 }
 
-// Interface para forçar a tipagem do retorno da query e evitar TS2339
-interface PublicSettingsResponse {
+interface AdminStoreSettingsResponse {
   favicon?: string;
   accessibility?: AccessibilitySettings;
-  [key: string]: unknown;
 }
+
+type StoreSettingsRouter = {
+  invalidate(): unknown;
+  get: {
+    useQuery: () => {
+      data: AdminStoreSettingsResponse | undefined;
+      isLoading: boolean;
+    };
+  };
+  upsert: {
+    useMutation: () => {
+      mutateAsync: (data: Record<string, unknown>) => Promise<unknown>;
+      isPending: boolean;
+    };
+  };
+};
 
 export function useAccessibilityLogic() {
   const utils = trpc.useUtils();
+  const adminProxy = trpc.admin as unknown as {
+    storeSettings: Omit<StoreSettingsRouter, "invalidate">;
+  };
+  const adminUtils = (utils.admin as unknown as {
+    storeSettings: Pick<StoreSettingsRouter, "invalidate">;
+  }).storeSettings;
+
+  const storeSettings = adminProxy.storeSettings;
+  const { data: settings, isLoading } = storeSettings.get.useQuery();
 
   const [accessibilityData, setAccessibilityData] = useState<AccessibilityData>({
     favicon: "",
     highContrast: false,
     dyslexicFont: false,
+    fontScale: 1,
     vLibrasActive: false,
   });
 
-  /**
-   * ✅ LEITURA PÚBLICA
-   */
-  const { data: settingsRaw, isLoading } = trpc.public.getPublicSettings.useQuery(undefined, {
-    retry: false, 
-    staleTime: 1000 * 60 * 5, 
-  });
+  const mutation = storeSettings.upsert.useMutation();
 
-  // ✅ Cast seguro para evitar o erro de propriedade inexistente no Union Type
-  const settings = settingsRaw as PublicSettingsResponse | undefined;
-
-  /**
-   * 🛡️ ESCRITA
-   */
-  const mutation = trpc.admin.storeSettings.upsert.useMutation({
-    onSuccess: () => {
-      utils.public.getPublicSettings.invalidate();
-      toast.success("Interface atualizada!");
-    },
-    onError: (err) => {
-      toast.error("Erro ao salvar: " + err.message);
-    }
-  });
-
-  // ✅ SINCRONIZAÇÃO
   useEffect(() => {
-    if (settings) {
-      const acc = settings.accessibility || {};
-      
-      setAccessibilityData({
-        favicon: settings.favicon || "",
-        // Aceita tanto highContrast quanto highContrastActive do backend
-        highContrast: !!(acc.highContrast || acc.highContrastActive),
-        dyslexicFont: !!acc.dyslexicFont,
-        vLibrasActive: !!acc.vLibrasActive, 
-      });
-    }
+    if (!settings) return;
+
+    const acc = settings.accessibility || {};
+
+    setAccessibilityData({
+      favicon: settings.favicon || "",
+      highContrast: !!(acc.highContrast ?? acc.highContrastActive),
+      dyslexicFont: !!acc.dyslexicFont,
+      fontScale: clampFontScale(acc.fontScale),
+      vLibrasActive: !!acc.vLibrasActive,
+    });
   }, [settings]);
 
-  /**
-   * ✅ AÇÃO
-   */
   const updateField = (updates: Partial<AccessibilityData>) => {
-    const newData = { ...accessibilityData, ...updates };
-    setAccessibilityData(newData);
-    
-    // ✅ Enviamos para o 'upsert' garantindo a estrutura que o backend espera
-    mutation.mutate({
-      favicon: newData.favicon,
+    setAccessibilityData((prev) => ({
+      ...prev,
+      ...updates,
+      fontScale:
+        updates.fontScale !== undefined
+          ? clampFontScale(updates.fontScale)
+          : prev.fontScale,
+    }));
+  };
+
+  const handleSave = async () => {
+    const payload = {
+      favicon: accessibilityData.favicon,
       accessibility: {
-        highContrastActive: newData.highContrast,
-        vLibrasActive: newData.vLibrasActive,
-        dyslexicFont: newData.dyslexicFont 
+        highContrast: accessibilityData.highContrast,
+        highContrastActive: accessibilityData.highContrast,
+        dyslexicFont: accessibilityData.dyslexicFont,
+        fontScale: clampFontScale(accessibilityData.fontScale),
+        vLibrasActive: accessibilityData.vLibrasActive,
       },
-      // Chaves raiz para compatibilidade redundante
-      vLibrasActive: newData.vLibrasActive,
-      highContrastActive: newData.highContrast
-    } as Record<string, unknown>); 
+      highContrast: accessibilityData.highContrast,
+      highContrastActive: accessibilityData.highContrast,
+      dyslexicFont: accessibilityData.dyslexicFont,
+      fontScale: clampFontScale(accessibilityData.fontScale),
+      vLibrasActive: accessibilityData.vLibrasActive,
+    };
+
+    try {
+      await mutation.mutateAsync(payload);
+
+      applyAccessibilityToDOM({
+        highContrast: accessibilityData.highContrast,
+        dyslexicFont: accessibilityData.dyslexicFont,
+        fontScale: accessibilityData.fontScale,
+      });
+
+      persistAccessibilityPreferences({
+        highContrast: accessibilityData.highContrast,
+        dyslexicFont: accessibilityData.dyslexicFont,
+        fontScale: accessibilityData.fontScale,
+      });
+
+      utils.public.getPublicSettings.invalidate();
+      utils.public.getStoreSettings.invalidate();
+      adminUtils.invalidate();
+
+      toast.success("Preferencias de acessibilidade salvas.");
+    } catch (error) {
+      const err = error as Error;
+      toast.error("Erro ao salvar acessibilidade", {
+        description: err.message,
+      });
+    }
   };
 
   return {
-    state: { 
-      accessibilityData, 
-      isLoading, 
-      isPending: mutation.isPending 
+    state: {
+      accessibilityData,
+      isLoading,
+      isPending: mutation.isPending,
     },
-    actions: { updateField }
+    actions: {
+      updateField,
+      handleSave,
+    },
   };
 }

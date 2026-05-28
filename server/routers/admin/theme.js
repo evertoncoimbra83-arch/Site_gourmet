@@ -1,13 +1,12 @@
-// server/routers/admin/theme.ts
-
 import { z } from "zod";
-import { router, adminProcedure } from "../../_core/trpc.js";
+import { router, superAdminProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { storeSettings } from "../../../drizzle/schema/index.js";
 import { eq } from "drizzle-orm";
+import { AuditLogService } from "../../services/AuditLogService.js";
 
 export const adminThemeRouter = router({
-  get: adminProcedure.query(async () => {
+  get: superAdminProcedure.query(async () => {
     const db = await getDb();
     const [settings] = await db
       .select()
@@ -27,17 +26,48 @@ export const adminThemeRouter = router({
   }),
 
   // ✅ CORREÇÃO: Nomeado como 'save' e aceitando o objeto dinâmico do frontend
-  save: adminProcedure
+  save: superAdminProcedure
     .input(z.record(z.string(), z.any())) 
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       
+      const [oldSettings] = await db
+        .select()
+        .from(storeSettings)
+        .where(eq(storeSettings.id, "1"))
+        .limit(1);
+      
+      const oldTheme = oldSettings?.siteTheme 
+        ? (typeof oldSettings.siteTheme === 'string' ? JSON.parse(oldSettings.siteTheme) : oldSettings.siteTheme)
+        : null;
+
       await db.update(storeSettings)
         .set({ 
           siteTheme: input, 
           updatedAt: new Date() 
         }) 
         .where(eq(storeSettings.id, "1"));
+
+      const forwarded = ctx.req?.headers?.["x-forwarded-for"];
+      const ipAddress = ctx.req?.ip || (typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : null) || "127.0.0.1";
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ipAddress,
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "theme",
+        action: "SAVE_THEME",
+        severity: "warning",
+        entityType: "theme",
+        entityId: "1",
+        entityLabel: "Tema da Marca",
+        oldValues: oldTheme,
+        newValues: input
+      });
 
       return { 
         success: true,

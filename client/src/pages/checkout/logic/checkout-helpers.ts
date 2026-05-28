@@ -27,7 +27,7 @@ interface PricingSizeUI {
 interface ParsedOptions {
   _type?: string;
   selectedSizeName?: string;
-  size?: PricingSizeUI; // Estrutura para o motor de pricing
+  size?: PricingSizeUI;
   meals?: CartItemMeal[];
   selectedAccs?: CartItemOption[];
   selectedAccompaniments?: CartItemOption[];
@@ -94,7 +94,6 @@ export function formatMoney(value: number | string): string {
 
 /**
  * 🍱 Transforma os itens brutos do carrinho em dados amigáveis para a View.
- * ✅ Agora utiliza o motor central de pricing para evitar produtos zerados.
  */
 export function processCartItems(items: RawCartItem[], money: (v: number) => string) {
   if (!items || !Array.isArray(items)) return [];
@@ -102,7 +101,6 @@ export function processCartItems(items: RawCartItem[], money: (v: number) => str
   return items.map((item) => {
     const options = parseOptions(item.options);
     
-    // ✅ Calcula o preço unitário real usando o domínio (Base + Tamanho + Extras)
     const unitPrice = calculateItemUnitPrice(item.price, {
       size: options.size,
       accompaniments: options.selectedAccs || options.selectedAccompaniments || []
@@ -140,13 +138,15 @@ export function computePaymentDiscount(
   selectedPaymentId: string | number | null,
   subtotal: number
 ) {
+  // ✅ FIX 1: guard contra null/undefined — tRPC pode retornar dados inesperados
+  if (!Array.isArray(paymentMethods)) return 0;
+
   const method = paymentMethods.find(
     (m) => String(m.id) === String(selectedPaymentId)
   );
   
   const perc = toNumber(method?.discountPercentage ?? method?.discount_percentage);
   
-  // ✅ Usa o motor de pricing centralizado
   return calculateDiscountValue(subtotal, { type: 'percentage', value: perc });
 }
 
@@ -158,7 +158,6 @@ export function computeFinalTotal(opts: {
   shippingCost: number;
   discountTotal: number;
 }) {
-  // ✅ Usa o motor de pricing centralizado
   return calculateGrandTotal(opts.subtotal, opts.shippingCost, opts.discountTotal);
 }
 
@@ -168,6 +167,9 @@ export function computeFinalTotal(opts: {
  * 💳 Categoriza métodos entre Padrão (PIX/Cartão) e Benefícios (VR/VA)
  */
 export function categorizePaymentMethods(methods: PaymentMethodBase[]) {
+  // ✅ FIX 2: guard contra null/undefined — evita crash se API retornar vazio
+  if (!Array.isArray(methods)) return { standard: [], benefits: [] };
+
   const standard: PaymentMethodBase[] = [];
   const benefits: PaymentMethodBase[] = [];
 

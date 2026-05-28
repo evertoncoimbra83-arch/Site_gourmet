@@ -14,6 +14,7 @@ import { Loader2, Save, Image as ImageIcon, Wallet, PlusCircle, Camera } from "l
 
 // ✅ Import atualizado para o componente global de nuvem
 import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // --- INTERFACES ---
@@ -103,7 +104,7 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
       icon: formData.icon,
       brand_name: formData.brandName,
       brand_logo_url: formData.brandLogoUrl, // ✅ Enviamos a URL completa (Cloudinary amigável)
-      discount_percentage: parseFloat(formData.discountPercentage) || 0,
+      discount_percentage: safeNumber(formData.discountPercentage),
     };
     
     onSubmit(payload);

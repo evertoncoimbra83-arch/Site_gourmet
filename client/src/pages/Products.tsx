@@ -10,6 +10,7 @@ import ProductDrawer from "./products/view/ProductDrawer";
 
 // Componentes Globais / UI
 import { SEO } from "@/components/SEO";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { Utensils as UtensilsIcon } from "lucide-react";
 
@@ -27,6 +28,7 @@ export default function ProductsPage() {
     filteredProducts,
     handleOpenDish,
     handleCloseDish,
+    handleSelectCategory,
   } = useProductsLogic();
 
   return (
@@ -36,8 +38,9 @@ export default function ProductsPage() {
       animate={{ opacity: 1 }}
     >
       <SEO 
-        title="Cardápio Saudável | Gourmet Saudável" 
-        description="Explore nosso catálogo completo de refeições gourmet." 
+        title="Cardápio de Marmitas Saudáveis e Fitness" 
+        description="Explore nosso cardápio completo de marmitas congeladas saudáveis, fitness e low carb feitas com ingredientes selecionados e contagem de macros precisa." 
+        path="/produtos"
       />
 
       {/* 1. CABEÇALHO (Busca e Filtros) */}
@@ -52,7 +55,7 @@ export default function ProductsPage() {
         {/* 2. NAVEGAÇÃO DE CATEGORIAS */}
         <div className="flex items-center gap-3 overflow-x-auto pb-8 pt-2 no-scrollbar snap-x snap-mandatory">
           <button
-            onClick={() => actions.setSelectedCategory(null)}
+            onClick={() => handleSelectCategory(null)}
             className={cn(
               "snap-center h-12 md:h-14 px-6 md:px-8 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-3 border-2 shrink-0 shadow-sm",
               (state.selectedCategory === null) 
@@ -64,11 +67,11 @@ export default function ProductsPage() {
           </button>
           
           {(state.catList as unknown as Category[] | undefined)
-            ?.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0))
+            ?.sort((a, b) => safeNumber(a.displayOrder) - safeNumber(b.displayOrder))
             .map((cat) => (
             <button
               key={`cat-${cat.id}`}
-              onClick={() => actions.setSelectedCategory(cat.id)}
+              onClick={() => handleSelectCategory(cat.id)}
               className={cn(
                 "snap-center h-12 md:h-14 px-6 md:px-8 rounded-xl md:rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-3 border-2 shrink-0 shadow-sm",
                 Number(state.selectedCategory) === Number(cat.id) 

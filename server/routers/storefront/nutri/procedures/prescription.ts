@@ -11,7 +11,7 @@ import {
   // ✅ IMPORTAÇÃO DO TIPO ESTRITO DO DRIZZLE
   type SnapshotMeal as DbSnapshotMeal 
 } from "../../../../../drizzle/schema/index.js";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { v4 as uuidv4 } from "uuid";
 import { safeJsonParse, safeNumber } from "../../../../../server/lib/safe-parse.js";
@@ -368,16 +368,16 @@ export const prescriptionProcedures = {
           name: item.dishName || "Prato",
           priceAtCreation: safeNumber(item.fixedPrice),
           multiplier: item.multiplier || "1.00",
-          allowedAccompaniments: accs, 
-          nutritionalData: { 
-            baseMacros: macros, 
-            allowedAccompaniments: accs 
-          },
-        });
-      });
-      return { ...presc, meals: Array.from(mealMap.values()) };
-    }));
-  }),
+                allowedAccompaniments: accs, 
+                nutritionalData: { 
+                  baseMacros: macros, 
+                  allowedAccompaniments: accs 
+                },
+              });
+            });
+            return { ...presc, meals: Array.from(mealMap.values()) };
+          }));
+        }),
 
   /**
    * APAGAR PRESCRIÇÃO
@@ -432,5 +432,200 @@ export const prescriptionProcedures = {
         });
         return { ...presc, meals: Array.from(mealMap.values()) };
       }));
+    }),
+
+  /**
+   * DUPLICA UMA PRESCRIÇÃO E RECALCULA PREÇOS COM O CATÁLOGO VIGENTE
+   */
+  duplicatePrescription: protectedProcedure
+    .input(z.object({
+      prescriptionId: z.string(),
+      targetClientId: z.string()
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      
+      // 1. Busca a prescrição original
+      const [originalPresc] = await db
+        .select()
+        .from(prescriptions)
+        .where(eq(prescriptions.id, input.prescriptionId))
+        .limit(1);
+        
+      if (!originalPresc) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Dieta de origem não encontrada."
+        });
+      }
+
+      // 2. Busca os itens da prescrição original
+      const originalItems = await db
+        .select()
+        .from(prescriptionItems)
+        .where(eq(prescriptionItems.prescriptionId, input.prescriptionId));
+
+      // 3. Coleta todos os dishId únicos para buscar preços e macros atualizados
+      const dishIds = Array.from(new Set(originalItems.map(item => item.dishId)));
+      if (dishIds.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A dieta selecionada está vazia."
+        });
+      }
+
+      // Busca dados atuais do catálogo
+      const catalogData = await db
+        .select({
+          dishId: dishes.id,
+          basePrice: dishes.basePrice,
+          energyKcal: dishes.energyKcal,
+          proteins: dishes.proteins,
+          carbs: dishes.carbs,
+          fatTotal: dishes.fatTotal,
+        })
+        .from(dishes)
+        .where(inArray(dishes.id, dishIds));
+
+      const sizeData = await db
+        .select({
+          sizeId: dishSizes.id,
+          price: dishSizes.price,
+          priceModifier: dishSizes.priceModifier,
+        })
+        .from(dishSizes);
+
+      // Acompanhamentos para recalculamento
+      const allDbAccs = await db.select().from(accompanimentOptions);
+
+      // Transação para inserção consistente
+      const newPrescriptionId = uuidv4();
+      
+      return await db.transaction(async (tx) => {
+        // Sanitizar observações clínicas pessoais ao copiar para outro paciente
+        let cleanTechnicalInsight = originalPresc.technicalInsight || "";
+        if (originalPresc.clientId !== input.targetClientId) {
+          cleanTechnicalInsight = ""; // Limpa para outro paciente
+        }
+
+        // Parse e atualização dos preços das refeições no dietSnapshot original
+        let parsedSnapshot: any[] = [];
+        if (originalPresc.dietSnapshot) {
+          if (typeof originalPresc.dietSnapshot === "string") {
+            parsedSnapshot = safeJsonParse<any[]>(originalPresc.dietSnapshot, []);
+          } else {
+            parsedSnapshot = originalPresc.dietSnapshot as any[];
+          }
+        }
+
+        const updatedSnapshot = parsedSnapshot.map((meal: any) => {
+          return {
+            ...meal,
+            dishes: (meal.dishes || []).map((dish: any) => {
+              const matchedDish = catalogData.find(d => Number(d.dishId) === Number(dish.dishId));
+              const matchedSize = sizeData.find(s => Number(s.sizeId) === Number(dish.sizeId));
+
+              const basePrice = matchedDish ? safeNum(matchedDish.basePrice) : 0;
+              const sizePrice = matchedSize ? safeNum(matchedSize.price) : 0;
+              const modifier = matchedSize ? safeNum(matchedSize.priceModifier, 1) : 1;
+
+              const newUnitPrice = sizePrice > 0 ? sizePrice : basePrice * (modifier === 0 ? 1 : modifier);
+
+              return {
+                ...dish,
+                priceAtCreation: newUnitPrice,
+                price: newUnitPrice
+              };
+            })
+          };
+        });
+
+        // 4. Copiar Capa da Prescrição
+        await tx.insert(prescriptions).values({
+          id: newPrescriptionId,
+          clientId: input.targetClientId,
+          professionalId: originalPresc.professionalId,
+          planName: `${originalPresc.planName} (Cópia)`,
+          status: "active",
+          technicalInsight: cleanTechnicalInsight,
+          totalKcalTarget: originalPresc.totalKcalTarget,
+          discountPercentage: originalPresc.discountPercentage,
+          dietSnapshot: JSON.stringify(updatedSnapshot) as any,
+        });
+
+        // 5. Mapeia e insere os novos itens recalculando preços e macros com o catálogo ativo
+        const newItems = originalItems.map(item => {
+          const matchedDish = catalogData.find(d => Number(d.dishId) === Number(item.dishId));
+          const matchedSize = sizeData.find(s => Number(s.sizeId) === Number(item.sizeId));
+
+          const basePrice = matchedDish ? safeNum(matchedDish.basePrice) : 0;
+          const sizePrice = matchedSize ? safeNum(matchedSize.price) : 0;
+          const modifier = matchedSize ? safeNum(matchedSize.priceModifier, 1) : 1;
+
+          // newUnitPrice: se o preço do tamanho for definido (>0), usa ele. Caso contrário, basePrice * modifier
+          const newUnitPrice = sizePrice > 0 ? sizePrice : basePrice * (modifier === 0 ? 1 : modifier);
+
+          // Recalcular macros
+          const baseKcal = matchedDish ? safeNum(matchedDish.energyKcal) : 0;
+          const baseProt = matchedDish ? safeNum(matchedDish.proteins) : 0;
+          const baseCarb = matchedDish ? safeNum(matchedDish.carbs) : 0;
+          const baseFat = matchedDish ? safeNum(matchedDish.fatTotal) : 0;
+
+          let totalKcal = baseKcal;
+          let totalProtein = baseProt;
+          let totalCarbs = baseCarb;
+          let totalFat = baseFat;
+
+          // Acompanhamentos
+          const selectedAccsRaw = safeJsonParse<AccompanimentItem[]>(item.accompanimentsJson, []);
+          const enrichedAccs = selectedAccsRaw.map(acc => {
+            const dbAcc = allDbAccs.find(a => Number(a.id) === Number(acc.id));
+            if (dbAcc) {
+              totalKcal += safeNum(dbAcc.energyKcal);
+              totalProtein += safeNum(dbAcc.proteins);
+              totalCarbs += safeNum(dbAcc.carbs);
+              totalFat += safeNum(dbAcc.fatTotal);
+            }
+            return {
+              ...acc,
+              energyKcal: dbAcc?.energyKcal || 0,
+              proteins: dbAcc?.proteins || 0,
+              carbs: dbAcc?.carbs || 0,
+              fatTotal: dbAcc?.fatTotal || 0,
+            };
+          });
+
+          const finalMacros = {
+            kcal: totalKcal,
+            protein: totalProtein,
+            carbs: totalCarbs,
+            fat: totalFat
+          };
+
+          return {
+            id: uuidv4(),
+            prescriptionId: newPrescriptionId,
+            dishId: item.dishId,
+            sizeId: item.sizeId,
+            dishName: item.dishName,
+            mealName: item.mealName,
+            order: item.order,
+            fixedPrice: String(newUnitPrice),
+            multiplier: item.multiplier || "1.00",
+            accompanimentsJson: JSON.stringify(enrichedAccs),
+            macrosJson: JSON.stringify(finalMacros),
+          };
+        });
+
+        if (newItems.length > 0) {
+          await tx.insert(prescriptionItems).values(newItems);
+        }
+
+        return {
+          success: true,
+          newPrescriptionId,
+          message: "Os preços foram atualizados conforme o catálogo vigente."
+        };
+      });
     }),
 };

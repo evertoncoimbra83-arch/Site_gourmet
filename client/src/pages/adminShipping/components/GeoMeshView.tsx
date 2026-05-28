@@ -36,14 +36,59 @@ export function GeoMeshView() {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (Array.isArray(json)) {
-          // ✅ AQUI: Chamamos sem passar o json, conforme a nova assinatura da action.
-          // Se o servidor for ler de um arquivo local fixo ou se você for
-          // usar esse JSON apenas visualmente, o erro TS2554 desaparecerá.
-          actions.handleImportMesh();
+        
+        if (!Array.isArray(json)) {
+          throw new Error("O arquivo JSON deve conter um array de objetos.");
         }
-      } catch { 
-        toast.error("Erro ao ler JSON. Formato inválido."); 
+        
+        const validatedRows = [];
+        for (let i = 0; i < json.length; i++) {
+          const item = json[i];
+          if (!item || typeof item !== "object") {
+            throw new Error(`Item no índice ${i} não é um objeto válido.`);
+          }
+          
+          const row = item as Record<string, unknown>;
+          const cep = String(row.cep || row.zipCode || "").trim().replace(/\D/g, "");
+          const cidade = String(row.cidade || row.city || "").trim();
+          const bairro = String(row.bairro || row.neighborhood || "Centro").trim();
+          const lat = row.lat !== undefined ? row.lat : row.latitude;
+          const lng = row.lng !== undefined ? row.lng : row.longitude;
+          
+          if (!cep) {
+            throw new Error(`Item no índice ${i} está com o CEP/zipCode ausente.`);
+          }
+          if (cep.length !== 8) {
+            throw new Error(`Item no índice ${i} está com o CEP/zipCode inválido (deve conter 8 dígitos, ex: 13200000).`);
+          }
+          if (!cidade) {
+            throw new Error(`Item no índice ${i} está com a Cidade/city ausente.`);
+          }
+          
+          const parsedLat = parseFloat(String(lat));
+          const parsedLng = parseFloat(String(lng));
+          
+          if (isNaN(parsedLat) || isNaN(parsedLng)) {
+            throw new Error(`Item no índice ${i} está com coordenadas lat/lng inválidas.`);
+          }
+          
+          validatedRows.push({
+            cep,
+            cidade,
+            bairro,
+            lat: parsedLat,
+            lng: parsedLng,
+          });
+        }
+        
+        if (validatedRows.length === 0) {
+          throw new Error("Nenhum CEP válido foi encontrado no arquivo.");
+        }
+
+        actions.handleImportMesh(validatedRows);
+      } catch (err: unknown) { 
+        const message = err instanceof Error ? err.message : "Erro desconhecido";
+        toast.error("Formato inválido: " + message); 
       }
     };
     reader.readAsText(file);

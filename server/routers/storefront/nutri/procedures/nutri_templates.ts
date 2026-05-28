@@ -88,21 +88,15 @@ export const templateProcedures = {
           (group.options || []).map((opt) => {
             
             const rawMacros = opt.nutritionalData?.baseMacros || opt.macros || {};
-            let tKcal = safeNum(rawMacros.kcal || rawMacros.energyKcal);
-            let tProt = safeNum(rawMacros.protein || rawMacros.proteins);
-            let tCarb = safeNum(rawMacros.carbs);
-            let tFat = safeNum(rawMacros.fat || rawMacros.fatTotal);
+            const tKcal = safeNum(rawMacros.kcal || rawMacros.energyKcal);
+            const tProt = safeNum(rawMacros.protein || rawMacros.proteins);
+            const tCarb = safeNum(rawMacros.carbs);
+            const tFat = safeNum(rawMacros.fat || rawMacros.fatTotal);
 
             const selectedAccsRaw = opt.allowedAccompaniments || [];
             
             const enrichedAccs = selectedAccsRaw.map(acc => {
               const dbAcc = allDbAccs.find(a => Number(a.id) === Number(acc.id));
-              if (dbAcc) {
-                tKcal += safeNum(dbAcc.energyKcal);
-                tProt += safeNum(dbAcc.proteins);
-                tCarb += safeNum(dbAcc.carbs);
-                tFat += safeNum(dbAcc.fatTotal);
-              }
               return {
                 ...acc,
                 energyKcal: dbAcc?.energyKcal || 0,
@@ -147,7 +141,6 @@ export const templateProcedures = {
         totalKcalTarget: safeNum(input.data.totalKcalTarget),
         technicalInsight: input.data.technicalInsight || "",
         content: JSON.stringify(dietSnapshot), 
-        nutritionalInfo: JSON.stringify(input.data.macros || {}),
       };
 
       if (input.id && input.id !== "NEW") {

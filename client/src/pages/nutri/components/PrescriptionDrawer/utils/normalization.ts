@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { safeJsonParse, safeNumber } from "@/lib/safe-parse";
 import type { FullPrescription, PrescriptionMeal, PrescriptionOption } from "../../../../../../../server/routers/storefront/nutri/types";
 
 export interface CatalogItem {
@@ -10,7 +11,8 @@ export interface CatalogItem {
 
 export function normalizePrescriptionData(
   p: unknown, 
-  catalog: CatalogItem[] = []
+  catalog: CatalogItem[] = [],
+  forceRecalculatePrices = false
 ): FullPrescription {
   if (!p) return { planName: "Plano Alimentar", meals: [] } as unknown as FullPrescription;
 
@@ -22,9 +24,15 @@ export function normalizePrescriptionData(
   if (Array.isArray(data.meals)) {
     rawMeals = data.meals;
   } else if (data.dietSnapshot) {
-    rawMeals = typeof data.dietSnapshot === 'string' ? JSON.parse(data.dietSnapshot) : data.dietSnapshot as unknown[];
+    rawMeals =
+      typeof data.dietSnapshot === "string"
+        ? safeJsonParse<unknown[]>(data.dietSnapshot, [])
+        : (data.dietSnapshot as unknown[]);
   } else if (data.content) {
-    rawMeals = typeof data.content === 'string' ? JSON.parse(data.content) : data.content as unknown[];
+    rawMeals =
+      typeof data.content === "string"
+        ? safeJsonParse<unknown[]>(data.content, [])
+        : (data.content as unknown[]);
   } else if (Array.isArray(p)) {
     rawMeals = p;
   }
@@ -43,10 +51,10 @@ export function normalizePrescriptionData(
       // ✅ Prioriza macros já calculados (que agora o backend envia)
       const macrosSource = (o.macros as Record<string, unknown>) || (nutriData.baseMacros as Record<string, unknown>) || o || {};
       const macros = {
-        kcal: Number(macrosSource.kcal || macrosSource.energyKcal || 0),
-        protein: Number(macrosSource.protein || macrosSource.proteins || 0),
-        carbs: Number(macrosSource.carbs || 0),
-        fat: Number(macrosSource.fat || macrosSource.fatTotal || 0),
+        kcal: safeNumber(macrosSource.kcal ?? macrosSource.energyKcal),
+        protein: safeNumber(macrosSource.protein ?? macrosSource.proteins),
+        carbs: safeNumber(macrosSource.carbs),
+        fat: safeNumber(macrosSource.fat ?? macrosSource.fatTotal),
       };
 
       const finalAccs = Array.isArray(o.allowedAccompaniments) 
@@ -55,21 +63,35 @@ export function normalizePrescriptionData(
           ? nutriData.allowedAccompaniments 
           : [];
 
-      const sId = o.sizeId !== undefined ? Number(o.sizeId) : nutriData.sizeId ? Number(nutriData.sizeId) : null;
-      const weight = o.mainDishWeight !== undefined ? Number(o.mainDishWeight) : nutriData.mainDishWeight !== undefined ? Number(nutriData.mainDishWeight) : 200;
+      const sId = o.sizeId !== undefined ? safeNumber(o.sizeId, Number.NaN) : nutriData.sizeId ? safeNumber(nutriData.sizeId, Number.NaN) : null;
+      const weight = o.mainDishWeight !== undefined ? safeNumber(o.mainDishWeight, 200) : nutriData.mainDishWeight !== undefined ? safeNumber(nutriData.mainDishWeight, 200) : 200;
 
       const catalogItem = catalog.find((c) => String(c.id) === String(o.dishId));
       const availableSizes = (catalogItem?.availableSizes as unknown[]) || (o.availableSizes as unknown[]) || [];
 
       // ✅ IMPORTANTE: Preservar os campos de preço
-      const priceAtCreation = Number(o.priceAtCreation || o.fixedPrice || o.price || 0);
+      const priceAtCreation = safeNumber(o.priceAtCreation ?? o.fixedPrice ?? o.price);
       
       // Tenta recuperar o preço base do catálogo, se falhar usa o preço da criação
-      const basePrice = catalogItem ? Number(catalogItem.basePrice || catalogItem.base_price || 0) : priceAtCreation;
+      const basePrice = catalogItem ? safeNumber(catalogItem.basePrice ?? catalogItem.base_price) : priceAtCreation;
+
+      // Recalcular com o catálogo vigente se forceRecalculatePrices for ativo
+      let finalPrice = priceAtCreation;
+      if (forceRecalculatePrices && catalogItem) {
+        const matchedSize = (availableSizes as any[]).find((s) => Number(s.id) === Number(sId));
+        const catalogBasePrice = safeNumber(catalogItem.basePrice ?? catalogItem.base_price);
+        if (matchedSize) {
+          const sizePrice = safeNumber(matchedSize.price);
+          const modifier = safeNumber(matchedSize.price_modifier ?? matchedSize.priceModifier, 1);
+          finalPrice = sizePrice > 0 ? sizePrice : catalogBasePrice * (modifier === 0 ? 1 : modifier);
+        } else {
+          finalPrice = catalogBasePrice;
+        }
+      }
 
       // 🔥 TRAVA DE SEGURANÇA (RESCUE LOGIC) 🔥
       // Corrige dietas corrompidas onde o 'price' foi salvo no 'multiplier' (ex: 8.00)
-      const rawMultiplier = Number(o.multiplier || 1);
+      const rawMultiplier = safeNumber(o.multiplier, 1);
       const safeMultiplier = rawMultiplier > 5 ? 1 : rawMultiplier; // Se for bizarro (>5), reseta para 1
 
       return {
@@ -82,8 +104,8 @@ export function normalizePrescriptionData(
         
         multiplier: String(safeMultiplier), // ✅ Fator limpo e seguro
         basePrice: basePrice, // ✅ Injeta para não quebrar a edição de tamanho
-        priceAtCreation: priceAtCreation,
-        price: priceAtCreation, 
+        priceAtCreation: finalPrice,
+        price: finalPrice, 
         
         isDefault: o.isDefault === true || String(o.isDefault) === "true",
         macros: macros,

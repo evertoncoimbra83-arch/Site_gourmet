@@ -1,4 +1,5 @@
 import React, { useMemo } from "react"; // ✅ Adicionado React
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { PieChart } from "lucide-react"; // ✅ Removido AlertCircle (não usado)
 
@@ -30,7 +31,7 @@ export const NutritionSummaryBar = ({
 }: NutritionSummaryBarProps) => {
 
   const stats = useMemo(() => {
-    const p = (v: string | number | undefined | null) => parseFloat(String(v || 0).replace(",", "."));
+    const p = (v: string | number | undefined | null) => safeNumber(String(v || 0).replace(",", "."));
 
     // 1. Macros do Prato Principal
     let totalKcal = p(data?.kcal || data?.energyKcal || data?.energy_kcal);

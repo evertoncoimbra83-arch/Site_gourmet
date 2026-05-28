@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ShieldCheck, Mail, Lock, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
 import { rotateGuestId } from "@/lib/guest";
+import { SEO } from "@/components/SEO";
 
 export default function FirstAccess() {
   const navigate = useNavigate();
@@ -99,8 +100,8 @@ export default function FirstAccess() {
     if (!token.trim()) {
       return toast.warning("O código de verificação é obrigatório.");
     }
-    if (password.length < 6) {
-      return toast.warning("Sua senha deve ter pelo menos 6 caracteres.");
+    if (password.trim().length < 8) {
+      return toast.warning("Sua senha deve ter pelo menos 8 caracteres.");
     }
     if (password !== confirmPassword) {
       return toast.warning("As senhas digitadas não são iguais.");
@@ -114,6 +115,7 @@ export default function FirstAccess() {
 
   return (
     <div className="w-full max-w-md mx-auto space-y-6 animate-in fade-in zoom-in-95 duration-500 px-4">
+      <SEO title="Nova Senha | Gourmet Saudável" noindex />
       
       {/* HEADER VISUAL */}
       <div className="text-center space-y-2">
@@ -203,7 +205,7 @@ export default function FirstAccess() {
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                   <Input 
                     type="password"
-                    placeholder="Mínimo 6 dígitos" 
+                    placeholder="Minimo 8 caracteres" 
                     className="h-12 pl-11 bg-slate-50 border-slate-100 rounded-xl font-bold focus:bg-white transition-all focus:ring-emerald-500"
                     value={formData.password}
                     onChange={e => setFormData({...formData, password: e.target.value})}
@@ -247,3 +249,5 @@ export default function FirstAccess() {
     </div>
   );
 }
+
+

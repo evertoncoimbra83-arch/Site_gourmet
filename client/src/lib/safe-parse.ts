@@ -32,3 +32,17 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
     return fallback;
   }
 }
+
+export function safeNumber(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function safeInteger(value: unknown, fallback = 0): number {
+  const parsed = safeNumber(value, Number.NaN);
+  return Number.isInteger(parsed) ? parsed : fallback;
+}

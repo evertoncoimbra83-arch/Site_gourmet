@@ -4,9 +4,10 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import crypto from "crypto";
 import { logger } from "../logger.js";
-import { redisConnection } from "../lib/redis.js";
 
 const CSRF_TTL_SECONDS = 24 * 60 * 60; // 24h
+const CSRF_COOKIE_NAME = "gourmet_csrf_token";
+const CSRF_HEADER_NAME = "x-csrf-token";
 
 export function setupSecurityHeaders(app: Express) {
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -71,64 +72,55 @@ export function setupSecurityHeaders(app: Express) {
 }
 
 export function setupCsrfProtection(app: Express) {
-  const fallbackMap = new Map<string, { token: string; expires: number }>();
-
-  const storeToken = async (sessionId: string, token: string) => {
-    const key = `csrf:${sessionId}`;
-    try {
-      await redisConnection.set(key, token, "EX", CSRF_TTL_SECONDS);
-    } catch {
-      fallbackMap.set(sessionId, { token, expires: Date.now() + CSRF_TTL_SECONDS * 1000 });
-    }
+  const cookieOptions = {
+    httpOnly: false,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: CSRF_TTL_SECONDS * 1000,
   };
 
-  const getToken = async (sessionId: string): Promise<string | null> => {
-    const key = `csrf:${sessionId}`;
-    try {
-      return await redisConnection.get(key);
-    } catch {
-      const entry = fallbackMap.get(sessionId);
-      if (!entry || entry.expires < Date.now()) return null;
-      return entry.token;
-    }
+  const issueToken = (req: Request, res: Response) => {
+    const existing = getCookieValue(req, CSRF_COOKIE_NAME);
+    const token =
+      existing && /^[a-f0-9]{64}$/i.test(existing)
+        ? existing
+        : crypto.randomBytes(32).toString("hex");
+    res.cookie(CSRF_COOKIE_NAME, token, cookieOptions);
+    return token;
   };
 
-  const deleteToken = async (sessionId: string) => {
-    const key = `csrf:${sessionId}`;
-    try {
-      await redisConnection.del(key);
-    } catch {
-      fallbackMap.delete(sessionId);
-    }
-  };
+  app.get("/api/csrf-token", (req: Request, res: Response) => {
+    const token = issueToken(req, res);
+    res.json({ csrfToken: token });
+  });
 
-  app.use(async (req: Request, res: Response, next: NextFunction) => {
-    const sessionId = (req.cookies?.session as string) || "";
-
-    if (req.method === "GET" && sessionId) {
-      const token = crypto.randomBytes(32).toString("hex");
-      await storeToken(sessionId, token);
-      res.locals.csrfToken = token;
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      if (req.path.startsWith("/trpc")) {
+        issueToken(req, res);
+      }
       return next();
     }
 
     if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
+      if (hasBearerAuthorization(req)) {
+        return next();
+      }
+
+      const headerToken = req.headers[CSRF_HEADER_NAME];
       const token =
+        (Array.isArray(headerToken) ? headerToken[0] : headerToken) ||
         req.body?.csrfToken ||
-        req.headers["x-csrf-token"] ||
         req.query?.csrfToken;
+      const cookieToken = getCookieValue(req, CSRF_COOKIE_NAME);
 
-      const stored = sessionId ? await getToken(sessionId) : null;
-
-      if (!token || !stored || stored !== token) {
+      if (!token || !cookieToken || cookieToken !== token) {
         logger.warn(
-          { sessionId, method: req.method, path: req.path, ip: getClientIp(req) },
-          "[SECURITY] Falha na validacao do Token CSRF"
+          { method: req.method, path: req.path, ip: getClientIp(req) },
+          "[SECURITY] Falha na validacao do Token CSRF",
         );
         return res.status(403).json({ error: "CSRF token validation failed" });
       }
-
-      await deleteToken(sessionId);
     }
 
     next();
@@ -233,6 +225,22 @@ function getClientIp(req: Request): string {
 function isLocalRequest(req: Request) {
   const clientIp = getClientIp(req);
   return clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost";
+}
+
+function getCookieValue(req: Request, name: string): string | null {
+  const parsedCookie = (req as Request & { cookies?: Record<string, unknown> }).cookies?.[name];
+  if (typeof parsedCookie === "string") return parsedCookie;
+
+  const cookieHeader = req.headers.cookie || "";
+  const cookies = cookieHeader.split(";").map((part) => part.trim());
+  const prefix = `${name}=`;
+  const match = cookies.find((part) => part.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+}
+
+function hasBearerAuthorization(req: Request): boolean {
+  const authorization = req.headers.authorization;
+  return typeof authorization === "string" && authorization.startsWith("Bearer ");
 }
 
 export function setupAllSecurityMiddleware(app: Express) {

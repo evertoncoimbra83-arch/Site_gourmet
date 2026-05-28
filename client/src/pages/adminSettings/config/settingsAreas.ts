@@ -1,38 +1,28 @@
-// client/src/pages/adminSettings/config/settingsAreas.ts
+import type { ElementType } from "react";
 import {
-  BarChart3,
-  Bot,
   BrainCircuit,
   CreditCard,
-  LayoutTemplate,
-  Mail,
-  MapPin,
-  MonitorCog,
-  PackageCheck,
   Palette,
   ServerCog,
   ShieldAlert,
-  ShoppingBag,
   Sparkles,
   Store,
   Truck,
-  Wand2,
-  Workflow,
 } from "lucide-react";
 
 export type SettingsAreaId =
   | "store"
   | "operation"
-  | "security"
-  | "ia"
   | "appearance"
-  | "integrations";
+  | "integrations"
+  | "ia"
+  | "security";
 
 export interface SettingsShortcut {
   title: string;
   description: string;
   href: string;
-  icon: React.ElementType;
+  icon: ElementType;
   badge?: string;
 }
 
@@ -40,7 +30,7 @@ export interface SettingsArea {
   id: SettingsAreaId;
   label: string;
   description: string;
-  icon: React.ElementType;
+  icon: ElementType;
   accent: string;
   badges?: string[];
   shortcuts?: SettingsShortcut[];
@@ -50,127 +40,54 @@ export const settingsAreas: SettingsArea[] = [
   {
     id: "store",
     label: "Loja",
-    description: "Dados públicos, contato, retirada e identidade base da operação.",
+    description:
+      "Identidade da marca, contatos e dados principais da operacao.",
     icon: Store,
     accent: "text-emerald-600",
-    badges: ["Base da loja", "Contato"],
-    shortcuts: [
-      {
-        title: "Logística Geral",
-        description: "Horários, retirada e regras por loja ficam na área dedicada.",
-        href: "/admin/shipping",
-        icon: MapPin,
-      },
-      {
-        title: "Biblioteca de Mídia",
-        description: "Gerencie logo e arquivos visuais usados na loja.",
-        href: "/admin/media",
-        icon: Sparkles,
-      },
-    ],
+    badges: ["Identidade", "Atendimento"],
+    shortcuts: [],
   },
   {
     id: "operation",
-    label: "Operação",
-    description: "Fluxos de pedido, checkout, entrega, pagamento e regras comerciais.",
-    icon: PackageCheck,
+    label: "Operacao",
+    description:
+      "Mensagens de checkout e configuracoes operacionais do pos-pedido.",
+    icon: CreditCard,
     accent: "text-amber-600",
-    badges: ["Pedidos", "Hub"],
+    badges: ["Vendas", "Checkout"],
     shortcuts: [
       {
-        title: "Entrega e Frete",
-        description: "Regras de frete, malha e pontos de retirada.",
-        href: "/admin/shipping",
-        icon: Truck,
-      },
-      {
-        title: "Métodos de Pagamento",
-        description: "Cadastre e ordene meios de pagamento ativos.",
+        title: "Meios de Pagamento",
+        description: "Configure cartoes, Pix e bandeiras aceitas.",
         href: "/admin/payment-methods",
         icon: CreditCard,
       },
       {
-        title: "Fidelidade",
-        description: "Configuração comercial do clube e histórico dos clientes.",
-        href: "/admin/loyalty",
-        icon: Workflow,
-      },
-      {
-        title: "Regras de Desconto",
-        description: "Ofertas, cupons e regras comerciais existentes.",
-        href: "/admin/offers",
-        icon: ShoppingBag,
-      },
-    ],
-  },
-  {
-    id: "security",
-    label: "Segurança",
-    description: "Diagnóstico, modo de emergência, backups, ambiente e auditoria.",
-    icon: ShieldAlert,
-    accent: "text-rose-600",
-    badges: ["Admin only", "Produção"],
-    shortcuts: [
-      {
-        title: "Logs do Sistema",
-        description: "Auditoria operacional e inspeção de eventos administrativos.",
-        href: "/admin/logs",
-        icon: MonitorCog,
-      },
-    ],
-  },
-  {
-    id: "ia",
-    label: "IA & Automação",
-    description: "Chaves de IA, BI, conectores automáticos e workers do ecossistema.",
-    icon: BrainCircuit,
-    accent: "text-blue-600",
-    badges: ["Workers", "Automação"],
-    shortcuts: [
-      {
-        title: "Integração IA",
-        description: "Área dedicada para o bridge e rotinas externas.",
-        href: "/admin/integration",
-        icon: Bot,
-        badge: "BETA",
-      },
-      {
-        title: "Etiquetas & Produção",
-        description: "Fila operacional e automações de impressão.",
-        href: "/admin/labels/editor/production",
-        icon: Wand2,
-      },
-      {
-        title: "BI & Analytics",
-        description: "Acompanhe saúde e efeitos das automações em painéis dedicados.",
-        href: "/admin/analytics",
-        icon: BarChart3,
+        title: "Logística & Fretes",
+        description: "Configure taxas e perímetros de entrega.",
+        href: "/admin/shipping",
+        icon: Truck,
       },
     ],
   },
   {
     id: "appearance",
-    label: "Aparência",
-    description: "Tema, vitrines, favicon, mídia e experiência visual do site.",
+    label: "Aparencia",
+    description:
+      "Acessibilidade, favicon e atalhos para identidade visual da loja.",
     icon: Palette,
     accent: "text-violet-600",
-    badges: ["Tema", "Visual"],
+    badges: ["Branding", "UI"],
     shortcuts: [
       {
-        title: "Tema do Site",
-        description: "Cores, branding visual e aparência da interface pública.",
+        title: "Cores e Tema",
+        description: "Personalize a paleta e o estilo global da vitrine.",
         href: "/admin/theme",
         icon: Palette,
       },
       {
-        title: "Vitrines da Home",
-        description: "Gerencie a curadoria visual da página inicial.",
-        href: "/admin/showcases",
-        icon: LayoutTemplate,
-      },
-      {
-        title: "Biblioteca de Mídia",
-        description: "Arquivos de logo, banners e ativos reutilizáveis.",
+        title: "Arquivos e Midia",
+        description: "Gerencie logos, icones e imagens da operacao.",
         href: "/admin/media",
         icon: Sparkles,
       },
@@ -178,44 +95,49 @@ export const settingsAreas: SettingsArea[] = [
   },
   {
     id: "integrations",
-    label: "Integrações",
-    description: "Serviços externos de e-mail, mídia, analytics e conectores.",
+    label: "Integracoes",
+    description:
+      "Centralize GTM, GA4, OAuth Google e servicos externos relacionados.",
     icon: ServerCog,
     accent: "text-cyan-700",
-    badges: ["Hub", "Serviços externos"],
+    badges: ["Google", "OAuth"],
+    shortcuts: [],
+  },
+  {
+    id: "ia",
+    label: "Inteligencia Artificial",
+    description:
+      "Recursos de IA, Gemini e o acesso administrativo do GourmetIA Bridge.",
+    icon: BrainCircuit,
+    accent: "text-blue-600",
+    badges: ["Gemini", "Bridge"],
     shortcuts: [
       {
-        title: "E-mail Transacional",
-        description: "SMTP, layouts e conectividade de mensagens.",
-        href: "/admin/mail",
-        icon: Mail,
-      },
-      {
-        title: "Cloudinary e Arquivos",
-        description: "Mídia e ativos externos já usados pela aplicação.",
-        href: "/admin/media",
-        icon: Sparkles,
-      },
-      {
-        title: "Integração IA",
-        description: "Conectores externos e sincronismos dedicados.",
+        title: "GourmetIA Bridge",
+        description: "Abra a tela de token e rotacao de chave administrativa.",
         href: "/admin/integration",
-        icon: Bot,
-        badge: "BETA",
-      },
-      {
-        title: "Analytics",
-        description: "Painéis e monitoramento associados às integrações.",
-        href: "/admin/analytics",
-        icon: BarChart3,
+        icon: BrainCircuit,
+        badge: "PRO",
       },
     ],
+  },
+  {
+    id: "security",
+    label: "Seguranca",
+    description:
+      "Backups, diagnosticos e protecao de credenciais da administracao.",
+    icon: ShieldAlert,
+    accent: "text-rose-600",
+    badges: ["Backups", "Auditoria"],
+    shortcuts: [],
   },
 ];
 
 export const defaultAreaId: SettingsAreaId = "store";
-export const settingsAreaIds = settingsAreas.map((a) => a.id);
+export const settingsAreaIds = settingsAreas.map((area) => area.id);
 
-export function isSettingsAreaId(value: string | null): value is SettingsAreaId {
+export function isSettingsAreaId(
+  value: string | null,
+): value is SettingsAreaId {
   return value !== null && settingsAreaIds.includes(value as SettingsAreaId);
 }

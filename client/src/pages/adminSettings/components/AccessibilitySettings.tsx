@@ -1,18 +1,25 @@
-import React from "react"; // ✅ Adicionado para escopo JSX
+import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Accessibility, Eye, Type, Contrast, Loader2, Globe } from "lucide-react";
-
-// Import do ImagePicker corrigido conforme o contexto anterior
-import ImagePicker from "../../adminDishes/components/ImagePicker"; 
-
-// --- INTERFACES ---
+import { Slider } from "@/components/ui/slider";
+import {
+  Accessibility,
+  Type,
+  Contrast,
+  Loader2,
+  Globe,
+  ZoomIn,
+  Languages,
+} from "lucide-react";
+import ImagePicker from "../../adminDishes/components/ImagePicker";
+import { clampFontScale } from "@/_core/hooks/useAccessibility";
 
 interface AccessibilityData {
   favicon: string;
-  accessibilityHighContrast: boolean;
-  accessibilityDyslexicFont: boolean;
+  highContrast: boolean;
+  dyslexicFont: boolean;
+  fontScale: number;
   vLibrasActive: boolean;
 }
 
@@ -26,126 +33,167 @@ interface AccessibilitySettingsProps {
   };
 }
 
-export function AccessibilitySettings({ state, actions }: AccessibilitySettingsProps) {
+export function AccessibilitySettings({
+  state,
+  actions,
+}: AccessibilitySettingsProps) {
   const { accessibilityData, isLoading } = state;
 
   if (isLoading) {
     return (
-      <div className="h-64 flex items-center justify-center bg-white rounded-[2.5rem] border border-slate-100 text-left">
+      <div className="flex h-64 items-center justify-center rounded-[2.5rem] border border-slate-100 bg-white text-left">
         <Loader2 className="animate-spin text-indigo-500" size={32} />
       </div>
     );
   }
 
   return (
-    <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden border border-slate-100 text-left">
-      <CardHeader className="p-10 bg-slate-50/40 border-b border-slate-100 text-left">
+    <Card className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white text-left shadow-sm">
+      <CardHeader className="border-b border-slate-100 bg-slate-50/40 p-10 text-left">
         <div className="flex items-center gap-4 text-left">
-          <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
+          <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
             <Accessibility size={28} />
           </div>
           <div className="text-left">
-            <CardTitle className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-none text-left">
+            <CardTitle className="text-left text-2xl font-black uppercase italic leading-none tracking-tighter text-slate-900">
               Interface <span className="text-indigo-500">& Acessibilidade</span>
             </CardTitle>
-            <p className="text-[11px] font-bold uppercase text-slate-400 tracking-[0.2em] mt-1 text-left">
-              Favicon, Inclusão e Experiência
+            <p className="mt-1 text-left text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+              Favicon, Inclusao e Experiencia
             </p>
           </div>
         </div>
       </CardHeader>
-      
-      <CardContent className="p-10 space-y-6 text-left">
-        
-        {/* SEÇÃO FAVICON */}
-        <div className="p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100/50 space-y-4 text-left">
-            <div className="flex items-center gap-3 mb-2 text-left">
-                <div className="p-2 bg-white rounded-xl text-indigo-500 shadow-sm">
-                    <Globe size={18} />
-                </div>
-                <div className="text-left">
-                    <Label className="text-xs font-black uppercase tracking-widest text-slate-800 text-left">
-                        Favicon do Site
-                    </Label>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight text-left">
-                        Ícone exibido na aba do navegador (Recomendado: 32x32px)
-                    </p>
-                </div>
-            </div>
 
-            <div className="max-w-xs text-left">
-                <ImagePicker 
-                    label="Upload do Ícone (.png ou .ico)"
-                    value={accessibilityData?.favicon || ""}
-                    onChange={(url: string) => {
-                        actions.updateField({ favicon: url });
-                    }}
-                />
+      <CardContent className="space-y-6 p-10 text-left">
+        <div className="space-y-4 rounded-[2rem] border border-slate-100/50 bg-slate-50/50 p-6 text-left">
+          <div className="mb-2 flex items-center gap-3 text-left">
+            <div className="rounded-xl bg-white p-2 text-indigo-500 shadow-sm">
+              <Globe size={18} />
             </div>
+            <div className="text-left">
+              <Label className="text-left text-xs font-black uppercase tracking-widest text-slate-800">
+                Favicon do Site
+              </Label>
+              <p className="text-left text-[10px] font-bold uppercase tracking-tight text-slate-400">
+                Icone exibido na aba do navegador
+              </p>
+            </div>
+          </div>
+
+          <div className="max-w-xs text-left">
+            <ImagePicker
+              label="Upload do icone (.png ou .ico)"
+              value={accessibilityData.favicon || ""}
+              onChange={(url: string) => {
+                actions.updateField({ favicon: url });
+              }}
+            />
+          </div>
         </div>
 
-        <div className="border-t border-slate-100 my-4"></div>
+        <div className="my-4 border-t border-slate-100"></div>
 
-        {/* ALTO CONTRASTE */}
-        <div className="flex items-center justify-between p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100/50 transition-all hover:bg-slate-100/80 group text-left">
+        <div className="group flex items-center justify-between rounded-[2rem] border border-slate-100/50 bg-slate-50/50 p-6 text-left transition-all hover:bg-slate-100/80">
           <div className="flex items-center gap-5 text-left">
-            <div className="p-4 bg-white rounded-2xl shadow-sm text-indigo-500 group-hover:scale-110 transition-transform">
+            <div className="rounded-2xl bg-white p-4 text-indigo-500 shadow-sm transition-transform group-hover:scale-110">
               <Contrast size={20} />
             </div>
             <div className="space-y-1 text-left">
-              <Label className="text-xs font-black uppercase tracking-widest text-slate-800 cursor-pointer text-left">
+              <Label className="cursor-pointer text-left text-xs font-black uppercase tracking-widest text-slate-800">
                 Alto Contraste
               </Label>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight text-left">Melhora a legibilidade para baixa visão</p>
+              <p className="text-left text-[10px] font-bold uppercase tracking-tight text-slate-400">
+                Aplica a classe global de contraste elevado
+              </p>
             </div>
           </div>
-          <Switch 
-            checked={!!accessibilityData.accessibilityHighContrast} 
-            onCheckedChange={(val) => actions.updateField({ accessibilityHighContrast: val })} 
-            className="data-[state=checked]:bg-indigo-600 scale-110"
+          <Switch
+            checked={!!accessibilityData.highContrast}
+            onCheckedChange={(val) =>
+              actions.updateField({ highContrast: val })
+            }
+            className="scale-110 data-[state=checked]:bg-indigo-600"
           />
         </div>
 
-        {/* OPEN DYSLEXIC */}
-        <div className="flex items-center justify-between p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100/50 transition-all hover:bg-slate-100/80 group text-left">
+        <div className="group flex items-center justify-between rounded-[2rem] border border-slate-100/50 bg-slate-50/50 p-6 text-left transition-all hover:bg-slate-100/80">
           <div className="flex items-center gap-5 text-left">
-            <div className="p-4 bg-white rounded-2xl shadow-sm text-indigo-500 group-hover:scale-110 transition-transform">
+            <div className="rounded-2xl bg-white p-4 text-indigo-500 shadow-sm transition-transform group-hover:scale-110">
               <Type size={20} />
             </div>
             <div className="space-y-1 text-left">
-              <Label className="text-xs font-black uppercase tracking-widest text-slate-800 cursor-pointer text-left">
+              <Label className="cursor-pointer text-left text-xs font-black uppercase tracking-widest text-slate-800">
                 Fonte OpenDyslexic
               </Label>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight text-left">Fonte desenhada para facilitar a leitura</p>
+              <p className="text-left text-[10px] font-bold uppercase tracking-tight text-slate-400">
+                Ativa a familia tipografica assistiva em todo o app
+              </p>
             </div>
           </div>
-          <Switch 
-            checked={!!accessibilityData.accessibilityDyslexicFont} 
-            onCheckedChange={(val) => actions.updateField({ accessibilityDyslexicFont: val })} 
-            className="data-[state=checked]:bg-indigo-600 scale-110"
+          <Switch
+            checked={!!accessibilityData.dyslexicFont}
+            onCheckedChange={(val) =>
+              actions.updateField({ dyslexicFont: val })
+            }
+            className="scale-110 data-[state=checked]:bg-indigo-600"
           />
         </div>
 
-        {/* VLIBRAS */}
-        <div className="flex items-center justify-between p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100/50 transition-all hover:bg-slate-100/80 group text-left">
+        <div className="space-y-4 rounded-[2rem] border border-slate-100/50 bg-slate-50/50 p-6 text-left">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-5 text-left">
+              <div className="rounded-2xl bg-white p-4 text-indigo-500 shadow-sm">
+                <ZoomIn size={20} />
+              </div>
+              <div className="space-y-1 text-left">
+                <Label className="text-left text-xs font-black uppercase tracking-widest text-slate-800">
+                  Escala da Fonte
+                </Label>
+                <p className="text-left text-[10px] font-bold uppercase tracking-tight text-slate-400">
+                  Ajusta a escala global do texto entre 90% e 150%
+                </p>
+              </div>
+            </div>
+            <span className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-black text-indigo-600">
+              {Math.round(clampFontScale(accessibilityData.fontScale) * 100)}%
+            </span>
+          </div>
+
+          <Slider
+            value={[clampFontScale(accessibilityData.fontScale)]}
+            min={0.9}
+            max={1.5}
+            step={0.05}
+            onValueChange={([value]) =>
+              actions.updateField({ fontScale: clampFontScale(value) })
+            }
+            aria-label="Escala da fonte"
+          />
+        </div>
+
+        <div className="group flex items-center justify-between rounded-[2rem] border border-slate-100/50 bg-slate-50/50 p-6 text-left transition-all hover:bg-slate-100/80">
           <div className="flex items-center gap-5 text-left">
-            <div className="p-4 bg-white rounded-2xl shadow-sm text-indigo-500 group-hover:scale-110 transition-transform">
-              <Eye size={20} />
+            <div className="rounded-2xl bg-white p-4 text-indigo-500 shadow-sm transition-transform group-hover:scale-110">
+              <Languages size={20} />
             </div>
             <div className="space-y-1 text-left">
-              <Label className="text-xs font-black uppercase tracking-widest text-slate-800 cursor-pointer text-left">
+              <Label className="cursor-pointer text-left text-xs font-black uppercase tracking-widest text-slate-800">
                 Libras (VLibras)
               </Label>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight text-left">Avatar de tradução para Linguagem de Sinais</p>
+              <p className="text-left text-[10px] font-bold uppercase tracking-tight text-slate-400">
+                Carrega o widget oficial do VLibras quando a flag estiver ativa
+              </p>
             </div>
           </div>
-          <Switch 
-            checked={!!accessibilityData.vLibrasActive} 
-            onCheckedChange={(val) => actions.updateField({ vLibrasActive: val })} 
-            className="data-[state=checked]:bg-indigo-600 scale-110"
+          <Switch
+            checked={!!accessibilityData.vLibrasActive}
+            onCheckedChange={(val) =>
+              actions.updateField({ vLibrasActive: val })
+            }
+            className="scale-110 data-[state=checked]:bg-indigo-600"
           />
         </div>
-
       </CardContent>
     </Card>
   );

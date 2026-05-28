@@ -33,6 +33,17 @@ export function checkoutMachine(
       }
       break;
 
+    case 'address_editing':
+      if (event.type === 'ADDRESS_UPDATED') {
+        return {
+          ...state,
+          currentState: 'shipping_validating',
+          errorMessage: undefined,
+          history: [...state.history, 'address_editing'],
+        };
+      }
+      break;
+
     case 'shipping_validating':
       if (event.type === 'SHIPPING_VALIDATE_SUCCESS') return { ...state, currentState: 'shipping_ready', isBusy: false };
       if (event.type === 'SHIPPING_VALIDATE_FAILURE') return { ...state, currentState: 'address_editing', errorMessage: event.payload.message, isBusy: false };

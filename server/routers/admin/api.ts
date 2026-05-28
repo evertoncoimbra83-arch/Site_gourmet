@@ -1,14 +1,19 @@
 // server/routers/admin/api.ts
 import { randomBytes } from "node:crypto";
-import { adminProcedure, internalProcedure, router } from "../../_core/trpc.js";
+import { internalProcedure, router, superAdminProcedure } from "../../_core/trpc.js";
 import { z } from "zod";
 import { appConfigs, orders, orderItems, dishes, packages, categories, loyaltyHistory, users } from "../../../drizzle/schema/index.js";
 import { biFinancialFacts, biDishIntelligence } from "../../../drizzle/schema/analytics.js";
 import { encrypt } from "../../encryption.js";
 import { desc, eq, gte, lte, and, sql, count, sum } from "drizzle-orm";
+import { safeJsonParse, safeNumber } from "../../lib/safe-parse.js";
 
 function createIntegrationToken() {
   return `gia_${randomBytes(24).toString("hex")}`;
+}
+
+function toSafeNumber(value: unknown, fallback = 0): number {
+  return safeNumber(value, fallback);
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -32,7 +37,7 @@ export const adminApiRouter = router({
   // 🔑 TOKEN — geração pelo admin, leitura pelo sistema interno
   // ══════════════════════════════════════════════════════════════
 
-  generateToken: adminProcedure.mutation(async ({ ctx }) => {
+  generateToken: superAdminProcedure.mutation(async ({ ctx }) => {
     const token = createIntegrationToken();
     const encryptedToken = encrypt(token) || token;
 
@@ -80,15 +85,15 @@ export const adminApiRouter = router({
 
     return dishRows.map(d => ({
       ...d,
-      id:         Number(d.id),
-      categoryId: d.categoryId ? Number(d.categoryId) : null,
-      price:      Number(d.price ?? 0),
-      energyKcal: Number(d.energyKcal ?? 0),
-      proteins:   Number(d.proteins ?? 0),
-      carbs:      Number(d.carbs ?? 0),
-      fatTotal:   Number(d.fatTotal ?? 0),
-      fiber:      Number(d.fiber ?? 0),
-      sodium:     Number(d.sodium ?? 0),
+      id:         toSafeNumber(d.id),
+      categoryId: d.categoryId ? toSafeNumber(d.categoryId) : null,
+      price:      toSafeNumber(d.price),
+      energyKcal: toSafeNumber(d.energyKcal),
+      proteins:   toSafeNumber(d.proteins),
+      carbs:      toSafeNumber(d.carbs),
+      fatTotal:   toSafeNumber(d.fatTotal),
+      fiber:      toSafeNumber(d.fiber),
+      sodium:     toSafeNumber(d.sodium),
     }));
   }),
 
@@ -113,9 +118,9 @@ export const adminApiRouter = router({
 
     return rows.map(p => ({
       ...p,
-      price:     Number(p.price ?? 0),
-      salePrice: p.salePrice ? Number(p.salePrice) : null,
-      config:    typeof p.config === "string" ? JSON.parse(p.config) : p.config,
+      price:     toSafeNumber(p.price),
+      salePrice: p.salePrice ? toSafeNumber(p.salePrice) : null,
+      config:    safeJsonParse<Record<string, unknown>>(p.config, {}),
     }));
   }),
 
@@ -148,15 +153,15 @@ export const adminApiRouter = router({
           )
         );
 
-      const totalRev  = Number(result.totalRevenue  ?? 0);
-      const totalOrd  = Number(result.totalOrders   ?? 0);
+      const totalRev  = toSafeNumber(result.totalRevenue);
+      const totalOrd  = toSafeNumber(result.totalOrders);
 
       return {
         period: { start: start.toISOString(), end: end.toISOString() },
         totalOrders:    totalOrd,
         totalRevenue:   totalRev,
-        totalDiscount:  Number(result.totalDiscount ?? 0),
-        totalShipping:  Number(result.totalShipping ?? 0),
+        totalDiscount:  toSafeNumber(result.totalDiscount),
+        totalShipping:  toSafeNumber(result.totalShipping),
         averageTicket:  totalOrd > 0 ? +(totalRev / totalOrd).toFixed(2) : 0,
       };
     }),
@@ -189,8 +194,8 @@ export const adminApiRouter = router({
 
       return rows.map(r => ({
         day:     r.day,
-        orders:  Number(r.orders),
-        revenue: Number(r.revenue ?? 0),
+        orders:  toSafeNumber(r.orders),
+        revenue: toSafeNumber(r.revenue),
       }));
     }),
 
@@ -232,8 +237,8 @@ export const adminApiRouter = router({
       return rows.map(r => ({
         dishId:   r.dishId,
         dishName: r.dishName ?? "Prato removido",
-        quantity: Number(r.quantity ?? 0),
-        revenue:  Number(r.revenue ?? 0),
+        quantity: toSafeNumber(r.quantity),
+        revenue:  toSafeNumber(r.revenue),
       }));
     }),
 
@@ -265,8 +270,8 @@ export const adminApiRouter = router({
 
       return rows.map(r => ({
         method:  r.method,
-        orders:  Number(r.orders),
-        revenue: Number(r.revenue ?? 0),
+        orders:  toSafeNumber(r.orders),
+        revenue: toSafeNumber(r.revenue),
       }));
     }),
 
@@ -304,7 +309,7 @@ export const adminApiRouter = router({
         );
 
       // Fallback para orders direto se BI não tiver dados
-      if (!biFacts.orderCount || Number(biFacts.orderCount) === 0) {
+      if (!biFacts.orderCount || toSafeNumber(biFacts.orderCount) === 0) {
         const [fallback] = await ctx.db
           .select({
             grossTotal:  sum(orders.subtotal),
@@ -326,28 +331,28 @@ export const adminApiRouter = router({
         return {
           source: "orders" as const,
           period: { start: start.toISOString(), end: end.toISOString() },
-          grossTotal:      Number(fallback.grossTotal ?? 0),
-          netTotal:        Number(fallback.netTotal ?? 0),
-          totalDiscount:   Number(fallback.discount ?? 0),
-          discountLoyalty: Number(fallback.loyalty ?? 0),
-          deliveryFee:     Number(fallback.shipping ?? 0),
-          orderCount:      Number(fallback.orderCount ?? 0),
+          grossTotal:      toSafeNumber(fallback.grossTotal),
+          netTotal:        toSafeNumber(fallback.netTotal),
+          totalDiscount:   toSafeNumber(fallback.discount),
+          discountLoyalty: toSafeNumber(fallback.loyalty),
+          deliveryFee:     toSafeNumber(fallback.shipping),
+          orderCount:      toSafeNumber(fallback.orderCount),
         };
       }
 
       return {
         source: "bi_facts" as const,
         period: { start: start.toISOString(), end: end.toISOString() },
-        grossTotal:      Number(biFacts.grossTotal ?? 0),
-        netTotal:        Number(biFacts.netTotal ?? 0),
-        deliveryFee:     Number(biFacts.deliveryFee ?? 0),
-        discountCoupon:  Number(biFacts.discountCoupon ?? 0),
-        discountLoyalty: Number(biFacts.discountLoyalty ?? 0),
-        discountAuto:    Number(biFacts.discountAuto ?? 0),
-        totalDiscount:   Number(biFacts.discountCoupon ?? 0)
-                       + Number(biFacts.discountLoyalty ?? 0)
-                       + Number(biFacts.discountAuto ?? 0),
-        orderCount:      Number(biFacts.orderCount ?? 0),
+        grossTotal:      toSafeNumber(biFacts.grossTotal),
+        netTotal:        toSafeNumber(biFacts.netTotal),
+        deliveryFee:     toSafeNumber(biFacts.deliveryFee),
+        discountCoupon:  toSafeNumber(biFacts.discountCoupon),
+        discountLoyalty: toSafeNumber(biFacts.discountLoyalty),
+        discountAuto:    toSafeNumber(biFacts.discountAuto),
+        totalDiscount:   toSafeNumber(biFacts.discountCoupon)
+                       + toSafeNumber(biFacts.discountLoyalty)
+                       + toSafeNumber(biFacts.discountAuto),
+        orderCount:      toSafeNumber(biFacts.orderCount),
       };
     }),
 
@@ -393,9 +398,9 @@ export const adminApiRouter = router({
 
       return {
         period: { start: start.toISOString(), end: end.toISOString() },
-        totalCustomers:  Number(total.count),
-        newInPeriod:     Number(newUsers.count),
-        buyersInPeriod:  Number(buyers.count),
+        totalCustomers:  toSafeNumber(total.count),
+        newInPeriod:     toSafeNumber(newUsers.count),
+        buyersInPeriod:  toSafeNumber(buyers.count),
       };
     }),
 
@@ -426,8 +431,8 @@ export const adminApiRouter = router({
       const byType: Record<string, { points: number; transactions: number }> = {};
       for (const r of rows) {
         byType[r.type ?? "unknown"] = {
-          points:       Number(r.total ?? 0),
-          transactions: Number(r.count ?? 0),
+          points:       toSafeNumber(r.total),
+          transactions: toSafeNumber(r.count),
         };
       }
 

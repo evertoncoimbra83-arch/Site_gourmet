@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, adminProcedure } from "../../_core/trpc.js"; 
+import { router, superAdminProcedure } from "../../_core/trpc.js"; 
 
 import * as Coupon from "../../coupon.js";
 import * as AdminPaymentMethods from "../../admin-payment-methods.js";
@@ -16,9 +16,9 @@ type PaymentUpdateInput = Parameters<typeof AdminPaymentMethods.updatePaymentMet
  * 🎫 Roteador de Cupons
  */
 const adminCouponsRouter = router({
-    list: adminProcedure.query(async () => await Coupon.listCoupons()),
+    list: superAdminProcedure.query(async () => await Coupon.listCoupons()),
     
-    create: adminProcedure
+    create: superAdminProcedure
         .input(z.object({ 
             code: z.string().min(1).toUpperCase(), 
             description: z.string().nullish(), 
@@ -49,7 +49,7 @@ const adminCouponsRouter = router({
             };
         }),
     
-    update: adminProcedure
+    update: superAdminProcedure
         .input(z.object({ 
             id: z.union([z.string(), z.number()]), 
             code: z.string().optional(),
@@ -69,7 +69,7 @@ const adminCouponsRouter = router({
             };
         }),
     
-    delete: adminProcedure
+    delete: superAdminProcedure
         .input(z.object({ id: z.union([z.string(), z.number()]), code: z.string().optional() })) 
         .mutation(async ({ input }) => {
             // ✅ CORREÇÃO TS2345: ID convertido para string
@@ -87,9 +87,9 @@ const adminCouponsRouter = router({
  * 💳 Roteador de Métodos de Pagamento
  */
 const adminPaymentMethodsRouter = router({
-    listAll: adminProcedure.query(async () => await AdminPaymentMethods.listAllPaymentMethods()),
+    listAll: superAdminProcedure.query(async () => await AdminPaymentMethods.listAllPaymentMethods()),
     
-    create: adminProcedure
+    create: superAdminProcedure
         .input(z.object({ 
             name: z.string(), 
             type: z.enum(["card", "cash", "meal_card", "pix"]), 
@@ -103,7 +103,7 @@ const adminPaymentMethodsRouter = router({
             };
         }),
 
-    update: adminProcedure
+    update: superAdminProcedure
         .input(z.object({ 
             id: z.union([z.string(), z.number()]), 
             name: z.string().optional(), 
@@ -126,11 +126,11 @@ const adminPaymentMethodsRouter = router({
  * 📊 Roteador de Relatórios
  */
 const adminReportsRouter = router({
-    getDashboardSummary: adminProcedure
+    getDashboardSummary: superAdminProcedure
         .input(z.object({ timeframe: z.enum(["day", "week", "month"]) }))
         .query(async ({ input }) => await AdminReports.getDashboardSummary(input.timeframe)),
         
-    getPaymentMethodReport: adminProcedure
+    getPaymentMethodReport: superAdminProcedure
         .input(z.object({ 
             startDate: z.coerce.date(), 
             endDate: z.coerce.date() 
@@ -142,9 +142,9 @@ const adminReportsRouter = router({
  * 🖼️ Roteador de Mídia
  */
 const adminMediaRouter = router({
-    list: adminProcedure.query(async () => await MediaLibrary.listMediaLibrary()),
+    list: superAdminProcedure.query(async () => await MediaLibrary.listMediaLibrary()),
     
-    upload: adminProcedure
+    upload: superAdminProcedure
         .input(z.object({ filename: z.string(), mimeType: z.string(), base64Data: z.string() }))
         .mutation(async ({ input, ctx }) => { 
             const fileBuffer = Buffer.from(input.base64Data, "base64"); 

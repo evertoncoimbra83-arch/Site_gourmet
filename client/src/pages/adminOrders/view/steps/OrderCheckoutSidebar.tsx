@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
+import { safeNumber } from "@/lib/safe-parse";
+import { normalizeImageUrl } from "@shared/utils/assets";
 import { cn } from "@/lib/utils";
 
 // --- HELPERS DE TIPO ---
@@ -131,8 +133,6 @@ interface PaymentMethod {
   discountPercentage?: string | null;
   discount_percentage?: string | null;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 const IconMap: Record<string, React.ElementType> = {
   "credit-card": CreditCard,
@@ -293,13 +293,6 @@ export default function AdminOrderCreate() {
     }
   };
 
-  const getImageUrl = (url: string | null | undefined) => {
-    if (!url) return "";
-    if (url.startsWith('http') || url.startsWith('data:')) return url;
-    const cleanPath = url.replace(/^\/+/, '').replace(/^uploads\//, '');
-    return `${API_BASE_URL}/uploads/${cleanPath}`;
-  };
-
   if (!draftId || draftId === "undefined" || draftId === "null" || loadingWizard) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-slate-50">
@@ -401,8 +394,8 @@ export default function AdminOrderCreate() {
               {paymentMethods.map((m: PaymentMethod) => {
                 const isSelected = String(orderData.paymentMethod) === String(m.id);
                 const IconComp = IconMap[m.icon || ""] || IconMap.default;
-                const brandLogo = getImageUrl(m.brand_logo_url || m.brandLogoUrl);
-                const discount = parseFloat(String(m.discountPercentage || m.discount_percentage || "0").replace(',', '.'));
+                const brandLogo = normalizeImageUrl(m.brand_logo_url || m.brandLogoUrl) || "";
+                const discount = safeNumber(String(m.discountPercentage || m.discount_percentage || "0").replace(',', '.'));
 
                 return (
                   <button

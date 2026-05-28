@@ -10,6 +10,7 @@ import {
   AccordionTrigger 
 } from "@/components/ui/accordion";
 import { Edit2, Trash2, Loader2, Zap, Plus, LayoutGrid } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 
 // ✅ Interface unificada para remover todos os 'any'
@@ -33,7 +34,7 @@ export function AdminDiscountRulesView() {
   const formatValue = (rule: DiscountRuleItem) => {
     const type = rule.type || 'percentage';
     const rawValue = rule.value ?? 0;
-    const numValue = parseFloat(String(rawValue));
+    const numValue = safeNumber(String(rawValue));
 
     if (isNaN(numValue)) return type === "percentage" ? "0%" : "0.00R$";
 

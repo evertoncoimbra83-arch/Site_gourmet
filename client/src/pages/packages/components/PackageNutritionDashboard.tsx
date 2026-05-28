@@ -1,9 +1,11 @@
 // client/src/pages/packages/components/PackageNutritionDashboard.tsx
 
 import React, { useMemo, useState } from "react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, PieChart } from "lucide-react";
+import { calculateMealNutrition } from "@shared/domain/nutrition/nutrition";
 
 // ✅ Importação do componente e da tipagem exata que ele espera
 import { NutritionInfo, type NutritionData } from "../components/NutritionInfo";
@@ -43,13 +45,6 @@ export default function PackageNutritionDashboard({
   const [showFullNutrition, setShowFullNutrition] = useState(false);
 
   const { nutrition } = useMemo(() => {
-    const p = (v: unknown): number => {
-      if (!v) return 0;
-      const parsed = parseFloat(String(v).replace(",", "."));
-      return isNaN(parsed) ? 0 : parsed;
-    };
-
-    // Todos os campos preenchidos obrigatoriamente
     const emptyNutrition: StrictNutrition = {
       energyKcal: 0,
       energyKj: 0,
@@ -67,55 +62,27 @@ export default function PackageNutritionDashboard({
     };
 
     if (!dish) return { nutrition: emptyNutrition };
+    const mealNutrition = calculateMealNutrition(
+      {
+        ...dish,
+        mainDishWeight:
+          safeNumber(
+            (dish.mainDishWeight as string | number | undefined) ??
+              (dish.main_dish_weight as string | number | undefined) ??
+              defaultWeight,
+            safeNumber(defaultWeight, 300),
+          ),
+      },
+      selectedAccs,
+    );
 
-    const dInfo = (dish.nutritional_info || dish.nutritionalInfo || {}) as Record<string, unknown>;
-    const baseWeight = Number(defaultWeight) || 300;
-    const dFactor = baseWeight / 100;
-
-    // Prato base calculado
-    const base: StrictNutrition = {
-      energyKcal: p(dInfo.kcal || dInfo.energyKcal) * dFactor,
-      energyKj: p(dInfo.kj || dInfo.energyKj) * dFactor,
-      carbs: p(dInfo.carbs) * dFactor,
-      proteins: p(dInfo.proteins || dInfo.protein) * dFactor,
-      fatTotal: p(dInfo.fats || dInfo.fatTotal) * dFactor,
-      fatSaturated: p(dInfo.fatSaturated || dInfo.fat_saturated) * dFactor,
-      fatTrans: p(dInfo.fatTrans || dInfo.fat_trans) * dFactor,
-      fiber: p(dInfo.fiber) * dFactor,
-      sodium: p(dInfo.sodium) * dFactor,
-      addedSugars: p(dInfo.addedSugars || dInfo.added_sugars) * dFactor,
-      calcium: p(dInfo.calcium) * dFactor,
-      iron: p(dInfo.iron) * dFactor,
-      yieldWeight: baseWeight,
+    return {
+      nutrition: {
+        ...emptyNutrition,
+        ...mealNutrition,
+      },
     };
-
-    // Soma dos acompanhamentos
-    const totalNutrition = selectedAccs.reduce<StrictNutrition>((acc, curr) => {
-      const aInfo = (curr?.nutritional_info || curr?.nutritionalInfo || {}) as Record<string, unknown>;
-      const parentGroup = groups.find(g => String(g.id) === String(curr.groupId));
-      
-      const weight = Number(parentGroup?.defaultGrammage ?? curr?.defaultGrammage ?? 100);
-      const aFactor = weight / 100;
-
-      return {
-        energyKcal: acc.energyKcal + (p(aInfo.kcal || aInfo.energyKcal) * aFactor),
-        energyKj: acc.energyKj + (p(aInfo.kj || aInfo.energyKj) * aFactor),
-        carbs: acc.carbs + (p(aInfo.carbs) * aFactor),
-        proteins: acc.proteins + (p(aInfo.proteins || aInfo.protein) * aFactor),
-        fatTotal: acc.fatTotal + (p(aInfo.fats || aInfo.fatTotal) * aFactor),
-        fatSaturated: acc.fatSaturated + (p(aInfo.fatSaturated || aInfo.fat_saturated) * aFactor),
-        fatTrans: acc.fatTrans + (p(aInfo.fatTrans || aInfo.fat_trans) * aFactor),
-        fiber: acc.fiber + (p(aInfo.fiber) * aFactor),
-        sodium: acc.sodium + (p(aInfo.sodium) * aFactor),
-        addedSugars: acc.addedSugars + (p(aInfo.addedSugars || aInfo.added_sugars) * aFactor),
-        calcium: acc.calcium + (p(aInfo.calcium) * aFactor),
-        iron: acc.iron + (p(aInfo.iron) * aFactor),
-        yieldWeight: acc.yieldWeight + weight,
-      };
-    }, base);
-
-    return { nutrition: totalNutrition };
-  }, [dish, selectedAccs, groups, defaultWeight]);
+  }, [dish, selectedAccs, defaultWeight, groups]);
 
   if (!dish) return null;
 

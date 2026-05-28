@@ -1,14 +1,21 @@
 import { z } from "zod";
-import { router, adminProcedure } from "../../_core/trpc.js";
+import { router, adminProcedure, superAdminProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { storeSettings, appConfigs, shippingSettings } from "../../../drizzle/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { encrypt, decrypt } from "../../encryption.js";
-import { generateDatabaseBackup } from "../../backup.js";
 import { logAction } from "../../db/lib/audit.js";
 import { logger } from "../../logger.js"; 
 import * as StoreLogic from "../../storeSettings.js";
+import { AuditLogService } from "../../services/AuditLogService.js";
+import {
+  assertConfirmationReason,
+  assertStrongConfirmation,
+} from "./operational-hardening.js";
+import { spawn } from "node:child_process";
+import { createWriteStream, promises as fs } from "node:fs";
+import { getDatabaseCredentials, resolveBackupPath, buildTimestamp } from "./backups.js";
 
 // --- INTERFACES ---
 interface SettingsInput {
@@ -225,16 +232,178 @@ export const adminStoreSettingsRouter = router({
   update: saveSettingsLogic,
   saveCompanyInfo: saveSettingsLogic,
 
+  toggleEmergency: superAdminProcedure
+    .input(z.union([
+      z.boolean(),
+      z.object({
+        enabled: z.boolean(),
+        confirmationToken: z.string().optional(),
+        confirmationReason: z.string().optional(),
+      }),
+    ]))
+    .mutation(async ({ ctx, input }) => {
+      if (typeof input === "boolean") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Modo emergencia exige confirmacao forte.",
+        });
+      }
+      assertStrongConfirmation(input, "Alternancia do modo emergencia");
+      assertConfirmationReason(input, "Alternancia do modo emergencia");
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const generalSettingsBefore = await StoreLogic.getStoreSettings();
+
+      await db.update(storeSettings)
+        .set({ emergencyMode: input.enabled, updatedAt: new Date() })
+        .where(eq(storeSettings.id, "1"));
+
+      const generalSettingsAfter = await StoreLogic.getStoreSettings();
+
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "settings",
+        action: "TOGGLE_EMERGENCY",
+        severity: "critical",
+        entityType: "settings",
+        entityId: "global",
+        entityLabel: "Configurações Globais (Modo Emergência)",
+        oldValues: { emergencyMode: generalSettingsBefore.emergencyMode },
+        newValues: {
+          emergencyMode: generalSettingsAfter.emergencyMode,
+          confirmationReason: input.confirmationReason?.trim(),
+        }
+      });
+
+      return { success: true, newState: input.enabled };
+    }),
+
   /**
-   * ✅ DOWNLOAD DE BACKUP
+   * ✅ DOWNLOAD DE BACKUP SEGURO (STREAM COM SELEÇÃO DE TABELAS)
    */
-  downloadBackup: adminProcedure.mutation(async () => {
-    const sqlContent = await generateDatabaseBackup();
-    return { 
-      sql: sqlContent, 
-      filename: `backup_gourmet_${new Date().toISOString().split('T')[0]}.sql` 
-    };
-  }),
+  downloadBackup: superAdminProcedure
+    .input(z.object({
+      selectedTables: z.array(z.string()).optional()
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const timestamp = buildTimestamp();
+      const filename = `infrastructure_backup_${timestamp}.sql.gz`;
+      const targetPath = resolveBackupPath(filename);
+      const credentials = getDatabaseCredentials();
+
+      await new Promise<void>((resolve, reject) => {
+        const dumpArgs = [
+          "-h", credentials.host,
+          "-P", credentials.port,
+          "-u", credentials.user,
+          credentials.database
+        ];
+        
+        if (input.selectedTables && input.selectedTables.length > 0) {
+          const validTableNames = input.selectedTables.filter(t => /^[a-zA-Z0-9_]+$/.test(t));
+          dumpArgs.push(...validTableNames);
+        }
+
+        const dump = spawn("mysqldump", dumpArgs, {
+          env: { ...process.env, MYSQL_PWD: credentials.password },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+
+        const gzip = spawn("gzip", ["-c"], {
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+
+        const output = createWriteStream(targetPath, { flags: "wx" });
+
+        let dumpClosed = false;
+        let gzipClosed = false;
+        let outputFinished = false;
+        let dumpStderr = "";
+        let settled = false;
+
+        const finalize = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+
+          dump.stdout?.unpipe();
+          gzip.stdout?.unpipe();
+          output.close();
+
+          if (error) {
+            try { dump.kill("SIGTERM"); } catch {}
+            try { gzip.kill("SIGTERM"); } catch {}
+            fs.rm(targetPath, { force: true }).finally(() => reject(error));
+            return;
+          }
+          resolve();
+        };
+
+        dump.on("error", () => finalize(new Error("Falha ao iniciar mysqldump.")));
+        gzip.on("error", () => finalize(new Error("Falha ao iniciar gzip.")));
+        output.on("error", () => finalize(new Error("Falha ao escrever arquivo de backup.")));
+
+        dump.stderr.on("data", (chunk: Buffer) => { dumpStderr += chunk.toString("utf8"); });
+
+        dump.stdout.pipe(gzip.stdin);
+        gzip.stdout.pipe(output);
+
+        output.on("finish", () => {
+          outputFinished = true;
+          if (dumpClosed && gzipClosed) finalize();
+        });
+
+        dump.on("close", (code) => {
+          dumpClosed = true;
+          if (code !== 0) {
+            gzip.kill("SIGTERM");
+            finalize(new Error(dumpStderr || "mysqldump falhou."));
+          } else if (gzipClosed && outputFinished) {
+            finalize();
+          }
+        });
+
+        gzip.on("close", (code) => {
+          gzipClosed = true;
+          if (code !== 0) {
+            finalize(new Error("gzip falhou."));
+          } else if (dumpClosed && outputFinished) {
+            finalize();
+          }
+        });
+      });
+
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "backup",
+        action: "INFRASTRUCTURE_BACKUP",
+        severity: "critical",
+        entityType: "var/backups",
+        entityId: filename,
+        entityLabel: `Backup de Infraestrutura: ${filename}`,
+        newValues: {
+          filename,
+          tables: input.selectedTables || ["all_tables"]
+        }
+      });
+
+      return { filename, success: true };
+    }),
 
   // ✅ Lista todas as tabelas do banco — usado pelo InfrastructureCard
   listTables: adminProcedure.query(async () => {

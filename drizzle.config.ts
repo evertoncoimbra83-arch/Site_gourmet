@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
@@ -5,6 +6,6 @@ export default defineConfig({
   out: "./drizzle-migrations",         // ✅ Mude o 'out' para uma pasta nova para evitar confusão
   dialect: "mysql",
   dbCredentials: {
-    url: "mysql://gourmetadmin:Gourmet2026StrongServer@IP_DO_SERVIDOR:3306/gourmet_saudavel",
+    url: process.env.DATABASE_URL || "mysql://root:root@192.168.24.2:3306/gourmet_saudavel",
   },
 });

@@ -1,6 +1,6 @@
 // client/src/pages/checkout/logic/useCheckoutViewModel.ts
 
-import { useMemo, useEffect, useState } from "react"; 
+import { useMemo, useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { appToast as toast } from "@/lib/app-toast";
 import { trpc } from "@/_core/trpc";
@@ -9,9 +9,9 @@ import { useCheckoutStore } from "@/_core/store/useCheckoutStore";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { validateCPF } from "@/lib/utils";
 
-import type { CheckoutViewModel, AddressItem, CheckoutCartItem } from "./CheckoutViewModel";
+import type { CheckoutViewModel, AddressItem } from "./CheckoutViewModel";
 import { CheckoutService } from "./checkoutService";
-import { formatMoney, computeDeliveryStatus } from "./checkout-helpers";
+import { formatMoney } from "./checkout-helpers";
 import { useValidateShipping } from "./useValidateShipping";
 import { extractCustomerData } from "@shared/domain/checkout/customer";
 
@@ -21,37 +21,45 @@ import {
   normalizeGourmetOptions 
 } from "../../../../../shared/domain/math/pricing";
 
+interface StoreSettings {
+  pickupAddress?: string;
+  pickupHours?: string;
+  generalMinOrderAmount?: number | string;
+}
+
 interface PaymentMethod {
   id: string | number;
   name: string;
   discountPercentage?: number | string | null;
 }
 
-interface StoreSettings {
-  generalMinOrderAmount?: number | string;
-  pickupAddress?: string;
-  pickupHours?: string;
-}
+function useCheckoutStoreHydration() {
+  const [hasHydrated, setHasHydrated] = useState(() =>
+    useCheckoutStore.persist.hasHydrated(),
+  );
 
-interface OrderResponse {
-  orderId?: string | number;
-}
+  useEffect(() => {
+    const syncHydration = () => {
+      setHasHydrated(useCheckoutStore.persist.hasHydrated());
+    };
 
-interface RawAcc {
-  name?: string;
-  label?: string;
-}
+    syncHydration();
 
-interface RawMeal {
-  dishName?: string;
-  label?: string;
-  accompaniments?: RawAcc[];
-  selectedAccompaniments?: RawAcc[];
-}
+    const unsubscribeHydrate = useCheckoutStore.persist.onHydrate(() => {
+      setHasHydrated(false);
+    });
+    const unsubscribeFinishHydration =
+      useCheckoutStore.persist.onFinishHydration(() => {
+        setHasHydrated(true);
+      });
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+    return () => {
+      unsubscribeHydrate();
+      unsubscribeFinishHydration();
+    };
+  }, []);
+
+  return hasHydrated;
 }
 
 export function useCheckoutViewModel(): CheckoutViewModel {
@@ -60,6 +68,7 @@ export function useCheckoutViewModel(): CheckoutViewModel {
   const store = useCheckoutStore();
   const { user: authUser, loading: authLoading } = useAuth();
   const [isCompletingOrder, setIsCompletingOrder] = useState(false);
+  const storeHydrated = useCheckoutStoreHydration();
 
   const { data: storeSettingsRaw } = trpc.public.getStoreSettings.useQuery();
   const { data: addrRaw, isLoading: addrLoading } = trpc.store.addresses.list.useQuery(undefined, { enabled: !!authUser });
@@ -69,7 +78,8 @@ export function useCheckoutViewModel(): CheckoutViewModel {
   const addresses = useMemo(() => (addrRaw as AddressItem[]) || [], [addrRaw]);
   const paymentMethods = useMemo(() => (paymentsRaw as unknown as PaymentMethod[]) || [], [paymentsRaw]);
   const customerData = useMemo(() => extractCustomerData(authUser), [authUser]);
-  const cartSubtotal = toNumber(cart.totals?.subtotal);
+  const cartSubtotal = Number(cart.totals?.subtotal || 0);
+
   const shippingValidation = useValidateShipping({
     selectedAddressId: store.selectedAddressId,
     selectedShippingType: store.selectedShippingType,
@@ -77,28 +87,26 @@ export function useCheckoutViewModel(): CheckoutViewModel {
     addresses,
   });
 
+  const handleOrderSuccess = useCallback((orderId: string | number) => {
+    const cleanOrderId = String(orderId);
+    const completedCartId = cart.cartId ? String(cart.cartId) : "";
+    const successUrl = `/sucesso?orderId=${encodeURIComponent(cleanOrderId)}${completedCartId ? `&cartId=${encodeURIComponent(completedCartId)}` : ""}`;
+
+    setIsCompletingOrder(true);
+    navigate(successUrl, {
+      replace: true,
+      state: { orderId: cleanOrderId, cartId: completedCartId || null },
+    });
+
+    setTimeout(() => {
+      store.reset();
+      cart.clearCart();
+    }, 100);
+  }, [cart, navigate, store]);
+
   const placeOrderMutation = trpc.store.checkout.placeOrder.useMutation({
-    onSuccess: (res: unknown) => {
-      const data = res as OrderResponse; 
-      const orderId = data?.orderId;
-      if (orderId) {
-        const cleanOrderId = String(orderId);
-        const completedCartId = cart.cartId ? String(cart.cartId) : "";
-        const successUrl =
-          `/sucesso?orderId=${encodeURIComponent(cleanOrderId)}` +
-          (completedCartId ? `&cartId=${encodeURIComponent(completedCartId)}` : "");
-
-        setIsCompletingOrder(true);
-        navigate(successUrl, {
-          replace: true,
-          state: { orderId: cleanOrderId, cartId: completedCartId || null },
-        });
-
-        window.setTimeout(() => {
-          store.reset();
-          cart.clearCart();
-        }, 0);
-      }
+    onSuccess: (res: { orderId?: string | number } | undefined) => {
+      if (res?.orderId) handleOrderSuccess(res.orderId);
     },
     onError: (err) => {
       setIsCompletingOrder(false);
@@ -107,91 +115,36 @@ export function useCheckoutViewModel(): CheckoutViewModel {
   });
 
   useEffect(() => {
-    if (customerData) {
-      if (!store.customerName && customerData.name) store.setField("customerName", customerData.name as never);
-      if (!store.customerCpf && customerData.cpf) store.setField("customerCpf", customerData.cpf as never);
-      if (!store.customerPhone && customerData.phone) store.setField("customerPhone", customerData.phone as never);
-    }
-  }, [customerData, store]);
+    if (!storeHydrated) return;
 
-  useEffect(() => {
-    if (!addrLoading && addresses.length > 0 && !store.selectedAddressId) {
-      const def = addresses.find(a => a.isDefault) || addresses[0];
-      store.setField("selectedAddressId", String(def.id) as never);
+    if (customerData && !addrLoading) {
+      if (!store.customerName && customerData.name) store.setField("customerName" as never, customerData.name as never);
+      if (!store.customerCpf && customerData.cpf) store.setField("customerCpf" as never, customerData.cpf as never);
+      if (!store.customerPhone && customerData.phone) store.setField("customerPhone" as never, customerData.phone as never);
     }
-  }, [addresses, addrLoading, store]);
+  }, [customerData, store, addrLoading, storeHydrated]);
 
   const viewModel = useMemo((): CheckoutViewModel => {
-    const subtotal = cartSubtotal;
     const selectedMethod = paymentMethods.find(p => String(p.id) === String(store.selectedPaymentId));
-
-    const paymentDiscount = calculateDiscountValue(subtotal, { 
+    const paymentDiscount = calculateDiscountValue(cartSubtotal, { 
       type: 'percentage', 
-      value: toNumber(selectedMethod?.discountPercentage) 
+      value: Number(selectedMethod?.discountPercentage || 0) 
     });
 
     const shippingCost = store.selectedShippingType === "pickup" ? 0 : shippingValidation.shippingCost;
-
-    const totalDiscounts = paymentDiscount + toNumber(cart.totals?.loyaltyDiscount) + toNumber(cart.totals?.autoDiscount) + toNumber(cart.totals?.couponDiscount);
+    const totalDiscounts = paymentDiscount + 
+      Number(cart.totals?.loyaltyDiscount || 0) + 
+      Number(cart.totals?.autoDiscount || 0) + 
+      Number(cart.totals?.couponDiscount || 0);
     
-    const finalTotal = calculateGrandTotal(subtotal, shippingCost, totalDiscounts);
+    const finalTotal = calculateGrandTotal(cartSubtotal, shippingCost, totalDiscounts);
+    const minAmount = shippingValidation.minOrderValue || Number(storeSettings.generalMinOrderAmount || 50);
 
-    const MIN_ORDER_VALUE = shippingValidation.minOrderValue > 0
-      ? shippingValidation.minOrderValue
-      : toNumber(storeSettings.generalMinOrderAmount, 50);
-
-    const deliveryStatus = computeDeliveryStatus({
-      subtotal,
-      minOrderAmount: MIN_ORDER_VALUE,
-      isZipValid:
-        store.selectedShippingType === "pickup"
-          ? true
-          : shippingValidation.isLoading
-            ? null
-            : !shippingValidation.isZipOutOfArea && !shippingValidation.isCityDenied,
-      selectedShippingType: store.selectedShippingType
-    });
-
-    const isBelowMinManual = store.selectedShippingType === "delivery" && subtotal < MIN_ORDER_VALUE;
-    const isBelowMin = deliveryStatus.isBelowMin || isBelowMinManual;
-    const isDeliveryBlocked = deliveryStatus.isDeliveryBlocked || isBelowMinManual;
-
-    let errorMessage: string | undefined = undefined;
-    if (isDeliveryBlocked) {
-      if (isBelowMin) errorMessage = `Pedido mínimo para entrega é ${formatMoney(MIN_ORDER_VALUE)}`;
-      else if (deliveryStatus.isZipOutOfArea) errorMessage = "Entrega indisponível para este CEP, escolha retirada ou outro endereço.";
-      else errorMessage = "Entrega indisponível para este pedido";
-    }
-
-    const checkoutItems: CheckoutCartItem[] = cart.items.map(item => {
-      const opts = normalizeGourmetOptions(item.options);
-      const rawOptions = item.options as Record<string, unknown>;
-      const selectedAccs = Array.isArray(rawOptions?.selectedAccs) ? rawOptions.selectedAccs as RawAcc[] : [];
-      const normAccs = Array.isArray(opts.accompaniments) ? opts.accompaniments as RawAcc[] : [];
-      const rawAccs = normAccs.length > 0 ? normAccs : selectedAccs;
-
-      return {
-        id: String(item.id),
-        name: item.name,
-        quantity: item.quantity,
-        displayPrice: item.price,
-        priceFormatted: formatMoney(item.price * item.quantity),
-        displaySize: opts.size?.name || null,
-        isPackage: item.itemType === "package",
-        packageMeals: (opts.meals || []).map((m: unknown) => {
-          const meal = m as RawMeal;
-          const mealAccs = meal.accompaniments || meal.selectedAccompaniments || [];
-          return {
-            dishName: meal.dishName || meal.label || "Marmita",
-            accompaniments: mealAccs.map(a => String(a.name || a.label || ""))
-          };
-        }),
-        accompaniments: rawAccs.map(a => String(a.name || a.label || ""))
-      };
-    });
+    const isBelowMin = store.selectedShippingType === "delivery" && cartSubtotal < minAmount;
+    const errorMessage = isBelowMin ? `Pedido mínimo: ${formatMoney(minAmount)}` : shippingValidation.isZipOutOfArea ? "CEP fora da área" : undefined;
 
     return {
-      isLoading: authLoading || addrLoading,
+      isLoading: !storeHydrated || authLoading || addrLoading,
       isSubmitting: placeOrderMutation.isPending || isCompletingOrder,
       currentStep: 1,
       customer: {
@@ -206,9 +159,9 @@ export function useCheckoutViewModel(): CheckoutViewModel {
         selectedAddressId: store.selectedAddressId ? String(store.selectedAddressId) : null,
         shippingCost,
         shippingCostFormatted: formatMoney(shippingCost),
-        canContinue: store.selectedShippingType === "pickup" ? true : shippingValidation.canContinue && !isDeliveryBlocked,
+        canContinue: store.selectedShippingType === "pickup" || (shippingValidation.canContinue && !isBelowMin),
         errorMessage,
-        canDeliver: !isBelowMin && !deliveryStatus.isZipOutOfArea && !shippingValidation.isCityDenied
+        canDeliver: !isBelowMin && !shippingValidation.isZipOutOfArea
       },
       payment: {
         methods: paymentMethods.map(p => ({
@@ -219,38 +172,55 @@ export function useCheckoutViewModel(): CheckoutViewModel {
         selectedId: store.selectedPaymentId ? String(store.selectedPaymentId) : null
       },
       summary: {
-        items: checkoutItems,
-        subtotal,
-        subtotalFormatted: formatMoney(subtotal),
+        items: cart.items.map(item => {
+          const opts = normalizeGourmetOptions(item.options) as Record<string, unknown>;
+          
+          return {
+            id: String(item.id),
+            name: item.name,
+            quantity: item.quantity,
+            displayPrice: item.price,
+            priceFormatted: formatMoney(item.price * item.quantity),
+            displaySize: (opts.size as Record<string, unknown>)?.name as string || null,
+            isPackage: item.itemType === "package",
+            packageMeals: (Array.isArray(opts.meals) ? opts.meals : []).map(m => {
+              const meal = m as Record<string, unknown>;
+              const accs = (Array.isArray(meal.accompaniments) ? meal.accompaniments : 
+                            Array.isArray(meal.selectedAccompaniments) ? meal.selectedAccompaniments : 
+                            []) as Record<string, unknown>[];
+
+              return {
+                dishName: String(meal.dishName || meal.label || "Marmita"),
+                accompaniments: accs.map(a => String(a.name || a.label || ""))
+              };
+            }),
+            accompaniments: (Array.isArray(opts.accompaniments) ? opts.accompaniments : [])
+              .map(a => String((a as Record<string, unknown>).name || (a as Record<string, unknown>).label || ""))
+          };
+        }),
+        subtotal: cartSubtotal,
+        subtotalFormatted: formatMoney(cartSubtotal),
         discounts: [
           ...(cart.totals?.autoDiscount ? [{ label: "Combo", valueFormatted: `-${formatMoney(cart.totals.autoDiscount)}` }] : []),
-          ...(paymentDiscount ? [{ label: `Desconto ${selectedMethod?.name}`, valueFormatted: `-${formatMoney(paymentDiscount)}` }] : []),
+          ...(paymentDiscount ? [{ label: `Desconto ${selectedMethod?.name || 'Pagamento'}`, valueFormatted: `-${formatMoney(paymentDiscount)}` }] : []),
           ...(cart.totals?.loyaltyDiscount ? [{ label: "Fidelidade", valueFormatted: `-${formatMoney(cart.totals.loyaltyDiscount)}` }] : []),
-          // ✅ Cupom aplicado no carrinho
-          ...(cart.totals?.couponDiscount && !cart.totals?.couponError
-            ? [{ label: cart.totals.couponCode ? `Cupom ${cart.totals.couponCode}` : "Cupom", valueFormatted: `-${formatMoney(cart.totals.couponDiscount)}` }]
-            : [])
+          ...(cart.totals?.couponDiscount ? [{ label: `Cupom ${cart.totals.couponCode || ''}`, valueFormatted: `-${formatMoney(cart.totals.couponDiscount)}` }] : [])
         ],
         total: finalTotal,
         totalFormatted: formatMoney(finalTotal),
         notes: store.notes,
         storeInfo: {
-          address: storeSettings.pickupAddress || "Avenida Samuel Martins, 881 - Vila Progresso, Jundiaí - SP",
-          hours: storeSettings.pickupHours
+          address: storeSettings.pickupAddress || "Endereço da Loja",
+          hours: storeSettings.pickupHours || "Horário Comercial"
         }
       },
       actions: {
-        setField: (f: string, v: string | number | boolean | null) => store.setField(f as never, v as never),
-        setShippingType: (t: "delivery" | "pickup") => store.setField("selectedShippingType", t),
-        setAddress: (id: string) => store.setField("selectedAddressId", id),
-        setPayment: (id: string) => store.setField("selectedPaymentId", id),
-        setNotes: (n: string) => store.setField("notes", n),
+        setField: (f, v) => store.setField(f as never, v as never),
+        setShippingType: (t) => store.setField("selectedShippingType", t),
+        setAddress: (id) => store.setField("selectedAddressId", id),
+        setPayment: (id) => store.setField("selectedPaymentId", id),
+        setNotes: (n) => store.setField("notes", n),
         placeOrder: async () => {
-          if (isDeliveryBlocked && store.selectedShippingType === "delivery") {
-            toast.error(errorMessage || "Opção de entrega inválida.");
-            return;
-          }
-
           if (!validateCPF(store.customerCpf)) {
             toast.warning("CPF inválido");
             return;
@@ -264,20 +234,15 @@ export function useCheckoutViewModel(): CheckoutViewModel {
             selectedPaymentId: store.selectedPaymentId || "",
             selectedShippingType: store.selectedShippingType,
             selectedAddressId: store.selectedAddressId,
-            shippingCost,
-            cartDiscounts: toNumber(cart.totals?.autoDiscount) + toNumber(cart.totals?.couponDiscount),
-            paymentDiscount,
-            loyaltyDiscount: toNumber(cart.totals?.loyaltyDiscount),
             usesLoyalty: !!cart.usesLoyalty,
-            finalTotal,
             notes: store.notes
           });
           
-          placeOrderMutation.mutate(payload as never);
+          await placeOrderMutation.mutateAsync(payload as never);
         }
       }
     };
-  }, [cart, store, authUser, addresses, paymentMethods, storeSettings, authLoading, addrLoading, placeOrderMutation, isCompletingOrder, cartSubtotal, shippingValidation]);
+  }, [cart, store, authUser, addresses, paymentMethods, storeSettings, authLoading, addrLoading, placeOrderMutation, isCompletingOrder, cartSubtotal, shippingValidation, handleOrderSuccess, storeHydrated]);
 
   return viewModel;
 }

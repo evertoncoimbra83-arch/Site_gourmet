@@ -7,6 +7,7 @@ import { DishSelector } from "./DishSelector";
 import { AccompanimentConfigurator } from "./AccompanimentConfigurator";
 import { TRPCBaseItem, TRPCGroupMeta, PackageSlot } from "../view/PackageDrawer";
 import { AccompanimentOption, AccompanimentGroupRule } from "../logic/packageMachine.types";
+import { safeNumber } from "@/lib/safe-parse";
 
 interface RawSlotGroup {
   id?: string | number;
@@ -47,6 +48,7 @@ interface PackageMealSlotProps {
       requiresAccompaniments: boolean;
       accompanimentGroups: AccompanimentGroupRule[];
       nutrition?: Record<string, unknown>;
+      slotIndex: number; // ✅ posição fixa no array
     }) => void;
     removeMeal: (index: number) => void;
     updateAccompaniments: (index: number, accs: AccompanimentOption[]) => void;
@@ -189,7 +191,7 @@ export function PackageMealSlot({
 
                       const parseValue = (v: unknown): number => {
                         if (v === undefined || v === null || v === "") return 0;
-                        const parsed = parseFloat(String(v).replace(",", "."));
+                        const parsed = safeNumber(String(v).replace(",", "."));
                         return isNaN(parsed) ? 0 : parsed;
                       };
 
@@ -203,6 +205,7 @@ export function PackageMealSlot({
                         name: String(dish.name),
                         requiresAccompaniments: hasGroups,
                         accompanimentGroups: rules,
+                        slotIndex: index, // ✅ posição fixa
                         nutrition: {
                           energyKcal: safeExtract("kcal", "energy_kcal"),
                           proteins: safeExtract("proteins"),

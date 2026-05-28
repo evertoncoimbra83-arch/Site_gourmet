@@ -1,4 +1,4 @@
-// e:/IA/projects/Site_React/client/src/pages/adminUsers/components/UserTabs/AddressesTab.tsx
+"use client"
 
 import React, { useState, useEffect } from "react";
 import { MapPin, Trash2, Plus, Loader2, Star, ArrowLeft, Check, Search } from "lucide-react";
@@ -21,10 +21,8 @@ interface UserAddress {
   isDefault?: boolean | number;
 }
 
-// ✅ Interface para Bypass de Tipagem (Sync com backend)
 interface UsersAdminApi {
   addAddress: { useMutation: (opts: Record<string, unknown>) => { mutate: (data: Record<string, unknown>) => void, isPending: boolean } };
-  // Fallback caso o nome mude para listAddresses ou similar no router real
   getUserAddresses: { invalidate: (input: { userId: string }) => void };
 }
 
@@ -42,13 +40,11 @@ export function AddressesTab({ userId }: { userId: string }) {
     zipCode: ''
   });
 
-  // ✅ BYPASS: Aplicando cast para evitar erro TS2339 enquanto o nome no router não é sincronizado
   const usersAdminApi = (trpc.admin.users as unknown as UsersAdminApi);
 
   const addAddressMutation = usersAdminApi.addAddress.useMutation({
     onSuccess: () => {
       toast.success("Endereço adicionado com sucesso!");
-      // ✅ Invalidação usando a interface de bypass
       usersAdminApi.getUserAddresses.invalidate({ userId }); 
       setView('list');
       setFormData({ street: '', number: '', neighborhood: '', city: '', state: '', zipCode: '' });
@@ -91,7 +87,7 @@ export function AddressesTab({ userId }: { userId: string }) {
 
   const onSave = async () => {
     if (!formData.street || !formData.number || !formData.zipCode || !formData.state) {
-      toast.error("Preencha todos os campos obrigatórios (Rua, Número, CEP e UF).");
+      toast.error("Preencha todos os campos obrigatórios.");
       return;
     }
     
@@ -113,22 +109,23 @@ export function AddressesTab({ userId }: { userId: string }) {
   if (view === 'form') {
     return (
       <div className="space-y-6 animate-in slide-in-from-right duration-300">
-        <div className="flex items-center gap-4 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => setView('list')} className="rounded-full">
-            <ArrowLeft size={20} />
+        <div className="flex items-center gap-4 mb-2">
+          <Button variant="ghost" size="icon" onClick={() => setView('list')} className="rounded-full h-8 w-8">
+            <ArrowLeft size={18} />
           </Button>
           <h3 className="text-lg font-black italic uppercase tracking-tighter text-slate-900">
             Novo <span className="text-emerald-600">Endereço</span>
           </h3>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-left">
-          <div className="col-span-2 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">CEP</label>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-sm text-left">
+          
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">CEP</label>
             <div className="relative">
               <Input 
                 placeholder="00000-000" 
-                className="rounded-xl border-slate-100 pr-10"
+                className="rounded-xl border-slate-100 h-11 pr-10"
                 value={formData.zipCode}
                 onChange={e => setFormData({...formData, zipCode: e.target.value})}
               />
@@ -138,48 +135,48 @@ export function AddressesTab({ userId }: { userId: string }) {
             </div>
           </div>
 
-          <div className="col-span-2" />
+          <div className="hidden md:block md:col-span-4" />
 
-          <div className="col-span-3 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Rua</label>
+          <div className="md:col-span-5 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rua / Logradouro</label>
             <Input 
-              className="rounded-xl border-slate-100"
+              className="rounded-xl border-slate-100 h-11"
               value={formData.street}
               onChange={e => setFormData({...formData, street: e.target.value})}
             />
           </div>
           
-          <div className="col-span-1 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Nº</label>
+          <div className="md:col-span-1 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nº</label>
             <Input 
-              className="rounded-xl border-slate-100"
+              className="rounded-xl border-slate-100 h-11"
               value={formData.number}
               onChange={e => setFormData({...formData, number: e.target.value})}
             />
           </div>
 
-          <div className="col-span-2 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Bairro</label>
+          <div className="md:col-span-3 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Bairro</label>
             <Input 
-              className="rounded-xl border-slate-100"
+              className="rounded-xl border-slate-100 h-11"
               value={formData.neighborhood}
               onChange={e => setFormData({...formData, neighborhood: e.target.value})}
             />
           </div>
 
-          <div className="col-span-1 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Cidade</label>
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cidade</label>
             <Input 
-              className="rounded-xl border-slate-100"
+              className="rounded-xl border-slate-100 h-11"
               value={formData.city}
               onChange={e => setFormData({...formData, city: e.target.value})}
             />
           </div>
 
-          <div className="col-span-1 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">UF</label>
+          <div className="md:col-span-1 space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">UF</label>
             <Input 
-              className="rounded-xl border-slate-100 uppercase"
+              className="rounded-xl border-slate-100 h-11 uppercase text-center"
               maxLength={2}
               value={formData.state}
               onChange={e => setFormData({...formData, state: e.target.value})}
@@ -188,7 +185,7 @@ export function AddressesTab({ userId }: { userId: string }) {
         </div>
 
         <Button 
-          className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest rounded-2xl gap-2 shadow-lg shadow-emerald-100"
+          className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest rounded-2xl gap-2 shadow-lg shadow-emerald-100 transition-all active:scale-[0.98]"
           onClick={onSave}
           disabled={addAddressMutation.isPending || isSearchingCep}
         >
@@ -203,38 +200,42 @@ export function AddressesTab({ userId }: { userId: string }) {
     <div className="space-y-4 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-lg font-black italic uppercase tracking-tighter text-slate-900">Endereços</h3>
-        <Button size="sm" onClick={() => setView('form')} className="gap-2 bg-slate-900 rounded-full px-4 hover:bg-emerald-600 transition-colors">
+        <Button size="sm" onClick={() => setView('form')} className="gap-2 bg-slate-900 rounded-full px-4 h-9 hover:bg-emerald-600 transition-colors">
           <Plus size={16} /> Novo
         </Button>
       </div>
 
       {addresses && addresses.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        // 👇 AQUI ESTÁ A CORREÇÃO: Removido xl:grid-cols-2. Agora é apenas flex-col ou grid-cols-1 fixo.
+        <div className="flex flex-col gap-4">
           {(addresses as UserAddress[]).map((addr) => (
-            <Card key={addr.id} className="border-slate-100 shadow-sm rounded-2xl relative overflow-hidden text-left">
+            <Card key={addr.id} className="border-slate-100 shadow-sm rounded-2xl relative overflow-hidden group">
               {Number(addr.isDefault) === 1 && (
-                <div className="absolute top-2 right-10 bg-emerald-100 text-emerald-700 p-1 rounded-full">
-                  <Star size={12} fill="currentColor" />
+                <div className="absolute top-0 right-0 bg-emerald-500 text-white px-2 py-1 rounded-bl-xl shadow-sm z-10">
+                  <Star size={10} fill="currentColor" />
                 </div>
               )}
-              <CardContent className="p-4 flex justify-between items-start">
-                <div className="flex gap-3">
-                  <div className="mt-1 p-2 bg-slate-50 rounded-xl text-slate-400">
-                    <MapPin size={18} />
+              <CardContent className="p-4 md:p-5 flex justify-between items-center gap-3">
+                <div className="flex gap-3 md:gap-4 flex-1 min-w-0">
+                  <div className="p-2.5 bg-slate-50 rounded-xl text-slate-400 shrink-0 self-start">
+                    <MapPin size={20} />
                   </div>
-                  <div className="text-left">
-                    <p className="font-bold text-sm text-slate-900 leading-tight">
+                  <div className="text-left space-y-0.5 min-w-0 flex-1">
+                    <p className="font-bold text-[13px] md:text-[14px] text-slate-900 leading-tight truncate">
                       {addr.street}, {addr.number}
                     </p>
-                    <p className="text-xs text-slate-500">
-                      {addr.neighborhood} — {addr.city}/{addr.state}
+                    <p className="text-xs font-medium text-slate-500 truncate">
+                      {addr.neighborhood}
+                    </p>
+                    <p className="text-[10px] md:text-[11px] font-bold uppercase text-slate-400 truncate">
+                      {addr.city}/{addr.state} — {addr.zipCode}
                     </p>
                   </div>
                 </div>
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="text-slate-300 hover:text-red-500 transition-colors" 
+                  className="text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all rounded-full shrink-0" 
                   onClick={() => handleDelete(addr.id as string)} 
                   disabled={isDeleting}
                 >
@@ -245,9 +246,9 @@ export function AddressesTab({ userId }: { userId: string }) {
           ))}
         </div>
       ) : (
-        <div className="p-12 border-2 border-dashed border-slate-100 rounded-[2rem] text-center">
-          <MapPin className="mx-auto text-slate-200 mb-2" size={32} />
-          <p className="text-sm text-slate-400">Nenhum endereço cadastrado.</p>
+        <div className="p-16 border-2 border-dashed border-slate-100 rounded-[2.5rem] text-center bg-slate-50/30">
+          <MapPin className="mx-auto text-slate-200 mb-3" size={36} />
+          <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Nenhum endereço cadastrado</p>
         </div>
       )}
     </div>

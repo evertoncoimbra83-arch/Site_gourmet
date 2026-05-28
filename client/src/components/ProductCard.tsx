@@ -3,21 +3,35 @@ import React from "react"; // ✅ Adicionado React para corrigir escopo JSX
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { UtensilsCrossed, Scale, ChevronRight } from "lucide-react";
+import { safeNumber } from "@/lib/safe-parse";
 
 type ProductCardProps = {
   product: {
-    id: number;
+    id: number | string;
     name: string;
-    image: string;
-    kcal?: number | null;
-    description?: string; 
-    sizes?: { id: number; name: string }[]; 
+    image?: string | null;
+    imageUrl?: string | null;
+    kcal?: number | string | null;
+    nutritional_info?: {
+      kcal?: number | string | null;
+    } | null;
+    description?: string | null; 
+    sizes?: { id: number | string; name: string }[]; 
+    price?: string | number | null;
+    salePrice?: string | number | null;
   };
   onClick?: () => void;
 };
 
 export function ProductCard({ product, onClick }: ProductCardProps) {
   const availableSizes = product.sizes || [];
+  const imgUrl = product.imageUrl || product.image || "https://placehold.co/500x500?text=Natural";
+  const kcal = safeNumber(product.kcal ?? product.nutritional_info?.kcal);
+  
+  const price = safeNumber(product.price);
+  const salePrice = safeNumber(product.salePrice);
+  const hasDiscount = salePrice > 0 && salePrice < price;
+  const finalPrice = hasDiscount ? salePrice : price;
 
   return (
     <div 
@@ -28,21 +42,24 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
       {/* AREA DA IMAGEM COM OVERLAY GRADIENTE */}
       <div className="relative aspect-[4/3] md:aspect-square bg-slate-50 overflow-hidden">
         <img
-          src={product.image}
+          src={imgUrl}
           alt={product.name}
+          loading="lazy"
+          width="300"
+          height="300"
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         
         {/* BADGE DE KCAL FLUTUANTE */}
-        {product.kcal && (
+        {kcal > 0 ? (
           <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 border border-slate-100">
             <UtensilsCrossed size={10} className="text-emerald-500" />
             <span className="text-[10px] font-black text-slate-700 uppercase italic">
-              {product.kcal} kcal
+              {kcal} kcal
             </span>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* CONTEÚDO DO CARD */}
@@ -81,6 +98,27 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
             )}
           </div>
         </div>
+
+        {/* SEÇÃO DE PREÇO */}
+        {finalPrice > 0 && (
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex flex-col">
+              {hasDiscount && (
+                <span className="text-[10px] text-slate-400 line-through font-medium leading-none mb-1">
+                  R$ {price.toFixed(2)}
+                </span>
+              )}
+              <span className="text-xl font-black text-slate-900 italic leading-none">
+                R$ {finalPrice.toFixed(2)}
+              </span>
+            </div>
+            {hasDiscount && (
+              <Badge className="bg-rose-500 text-white font-black text-[9px] uppercase tracking-widest px-2.5 py-0.5 rounded-full border-none shadow-sm">
+                -{Math.round(((price - salePrice) / price) * 100)}%
+              </Badge>
+            )}
+          </div>
+        )}
 
         {/* BOTÃO DE AÇÃO PREMIUM */}
         <Button

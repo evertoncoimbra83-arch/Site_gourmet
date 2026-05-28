@@ -84,7 +84,11 @@ export default function Packages() {
 
   return (
     <motion.div className="min-h-screen bg-[#F8FAFC] pb-32" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <SEO title="Monte seu Plano" description="Combos de marmitas personalizadas." path="/pacotes" />
+      <SEO 
+        title="Kits e Combos de Marmitas Saudáveis Semanais" 
+        description="Monte seu plano de alimentação com nossos combos e kits semanais de marmitas congeladas saudáveis. Personalize seus pratos e acompanhe sua nutrição de forma prática." 
+        path="/pacotes" 
+      />
 
       {/* --- HERO PREMIUM --- */}
       <section className="bg-slate-950 text-white pt-28 pb-32 px-6 relative overflow-hidden text-center">
@@ -186,7 +190,14 @@ export default function Packages() {
 
                       <div className={cn("relative w-full overflow-hidden shrink-0", isPopular ? "h-56 mt-8" : "h-56")}>
                         {imageSrc ? (
-                          <img src={imageSrc} alt={pkg.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                          <img 
+                            src={imageSrc} 
+                            alt={pkg.name} 
+                            loading="lazy"
+                            width="640"
+                            height="360"
+                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                          />
                         ) : (
                           /* ✅ Lettering do nome quando não há foto */
                           <div style={{

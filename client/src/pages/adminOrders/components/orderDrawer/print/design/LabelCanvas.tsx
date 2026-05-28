@@ -93,13 +93,15 @@ export function LabelCanvas({
                 backgroundColor: el.backgroundColor || "transparent",
                 textAlign: el.textAlign || "left",
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 justifyContent: el.textAlign === "center" ? "center" : el.textAlign === "right" ? "flex-end" : "flex-start",
                 width: "100%", height: "100%",
                 lineHeight: isMultiLineText ? "1.2" : "1.1", // Ajusta altura da linha se for a tabela texto
                 whiteSpace: "pre-wrap", 
                 fontFamily: isMultiLineText ? "monospace" : "inherit", // Fonte alinhada só na tabela texto
                 padding: el.type === "box" ? 0 : "0 2px",
+                overflow: "hidden",
+                wordBreak: "break-word",
               }}
             >
               {el.type !== "box" && String(displayContent || "")}
@@ -107,7 +109,34 @@ export function LabelCanvas({
           );
         };
 
-        if (isViewOnly) return <div key={el.id} style={boxStyle} className="pointer-events-none">{renderContent()}</div>;
+        if (isPrintMode) {
+          return (
+            <div key={el.id} style={boxStyle} className="pointer-events-none">
+              {renderContent()}
+            </div>
+          );
+        }
+
+        if (!isDesignMode) {
+          return (
+            <div
+              key={el.id}
+              style={boxStyle}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedId(el.id);
+              }}
+              className={cn(
+                "cursor-pointer transition-all",
+                isSelected
+                  ? "ring-2 ring-emerald-500 bg-emerald-50/10 shadow-lg z-[999]"
+                  : "hover:ring-1 hover:ring-slate-300"
+              )}
+            >
+              {renderContent()}
+            </div>
+          );
+        }
 
         return (
           <Rnd

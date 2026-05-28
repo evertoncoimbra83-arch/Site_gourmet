@@ -77,6 +77,7 @@ export function OrdersTabCard({ order }: { order: Order }) {
                 size="sm"
                 variant="ghost"
                 onClick={(e) => e.stopPropagation()}
+                aria-label={`Rastrear pedido ${order.id}`}
                 className="hidden md:flex gap-2 rounded-full font-black text-[9px] uppercase tracking-widest text-emerald-600 hover:bg-emerald-50"
               >
                 <ExternalLink size={14} />

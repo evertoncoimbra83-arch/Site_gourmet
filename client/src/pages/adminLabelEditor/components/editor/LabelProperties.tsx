@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Box, FlipHorizontal, Image as ImageIcon, Trash2, Type, X } from "lucide-react";
 import type { LabelElement } from "./LabelCanvas";
@@ -20,7 +21,7 @@ export function LabelProperties({
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
         <p className="text-[10px] font-black uppercase tracking-tighter text-slate-400">
-          Selecione um item
+          Selecione um elemento da etiqueta para editar rapidamente.
         </p>
       </div>
     );
@@ -148,15 +149,25 @@ export function LabelProperties({
         </div>
 
         {selectedElement.type === "text" && (
-          <div className="space-y-1">
-            <p className="ml-1 text-[8px] font-black uppercase text-slate-400">
-              Conteúdo do Texto
+          <div className="space-y-1.5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
+            <p className="ml-1 text-[8px] font-black uppercase tracking-wider text-emerald-600">
+              Ajuste rápido de impressão
             </p>
-            <Input
-              className="h-8 border-none bg-white text-xs font-bold"
+            <Textarea
+              className="min-h-[60px] border-none bg-white text-xs font-bold shadow-sm resize-y"
               value={selectedElement.content}
               onChange={(event) => updateElement({ content: event.target.value })}
             />
+            {/\{\{[^}]+\}\}/gi.test(selectedElement.content || "") && (
+              <p className="ml-1 text-[8px] font-semibold text-amber-600 leading-normal">
+                ⚠️ Você está editando uma variável dinâmica. Substituir por texto fixo removerá o preenchimento automático.
+              </p>
+            )}
+            {selectedElement.content?.toUpperCase().includes("{{COMPOSICAO}}") && !selectedElement.content?.toUpperCase().includes("{{COMPOSICAO_LINHAS}}") && (
+              <div className="ml-1 mt-1 text-[8px] font-semibold text-blue-600 border-t border-blue-100 pt-1">
+                💡 Dica: Use <code className="font-mono font-bold text-blue-800 bg-blue-100/60 px-1 rounded">{"{{COMPOSICAO_LINHAS}}"}</code> para quebrar o prato e acompanhamentos em linhas.
+              </div>
+            )}
           </div>
         )}
       </div>

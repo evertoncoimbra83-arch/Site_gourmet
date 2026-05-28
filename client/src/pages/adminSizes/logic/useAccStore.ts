@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 
@@ -101,7 +102,7 @@ export const useAccStore = create<AccState>((set, get) => ({
   
   setComposition: (data) => {
     const parse = (v: string | number | undefined | null) => {
-      const n = parseFloat(String(v || "0").replace(',', '.'));
+      const n = safeNumber(String(v || "0").replace(',', '.'));
       return isNaN(n) ? 0 : n;
     };
 
@@ -127,13 +128,13 @@ export const useAccStore = create<AccState>((set, get) => ({
   },
 
   setPortionGrammage: (grammage) => {
-    set({ portionGrammage: Number(grammage) || 100 });
+    set({ portionGrammage: safeNumber(grammage, 100) });
     get().calculateTotals(); 
   },
 
   addItem: (item) => {
     const parse = (v: string | number | undefined | null) => {
-      const n = parseFloat(String(v || "0").replace(',', '.'));
+      const n = safeNumber(String(v || "0").replace(',', '.'));
       return isNaN(n) ? 0 : n;
     };
     
@@ -168,7 +169,7 @@ export const useAccStore = create<AccState>((set, get) => ({
     if (!composition || composition.length === 0) return;
 
     const rawTotals = composition.reduce((acc, curr) => {
-      const q = parseFloat(String(curr.quantity || "0").replace(',', '.'));
+      const q = safeNumber(String(curr.quantity || "0").replace(',', '.'));
       const f = q / 100; 
 
       return {

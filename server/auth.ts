@@ -60,12 +60,15 @@ export const lucia = new Lucia(adapter, {
       role: attributes.role ?? "user",
       referralCode: attributes.referralCode ?? null,
       needsPasswordReset: Number(attributes.needsPasswordReset) === 1 || attributes.needsPasswordReset === true, 
+      deletedAt: attributes.deletedAt ?? null,
     };
   },
   getSessionAttributes: (attributes) => {
     return {
       referralCode: attributes.referralCode ?? null,
       guestId: attributes.guestId ?? null,
+      userAgent: attributes.userAgent ?? null,
+      ipAddress: attributes.ipAddress ?? null,
     };
   },
 });
@@ -174,13 +177,16 @@ declare module "lucia" {
   interface DatabaseUserAttributes {
     email: string;
     name: string | null;
-    role: "admin" | "user";
+    role: "admin" | "user" | "super_admin" | "operator" | "nutri";
     needsPasswordReset: number | boolean | null; 
     referralCode?: string | null;
+    deletedAt?: Date | null;
   }
 
   interface DatabaseSessionAttributes {
     referralCode?: string | null;
     guestId?: string | null;
+    userAgent?: string | null;
+    ipAddress?: string | null;
   }
 }

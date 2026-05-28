@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/_core/trpc";
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 export interface DishFormData {
@@ -158,7 +159,7 @@ export function useDishDrawer(dish: Record<string, unknown> | null, open: boolea
 
   const applyTacoCalculations = () => {
     const totals = composition.reduce((acc, curr) => {
-      const parseVal = (v: unknown) => parseFloat(String(v || "0").replace(',', '.')) || 0;
+      const parseVal = (v: unknown) => safeNumber(String(v || "0").replace(',', '.'));
 
       const quantity = parseVal(curr.quantity);
       const factor = quantity / 100;

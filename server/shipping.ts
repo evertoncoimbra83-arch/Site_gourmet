@@ -1,6 +1,7 @@
 import { eq, asc } from "drizzle-orm";
 import { getDb } from "./db"; 
 import { shippingRules } from "../drizzle/schema"; 
+import { safeInteger, safeNumber } from "./lib/safe-parse";
 
 // Tipos base baseados no schema do Drizzle
 export type ShippingZone = typeof shippingRules.$inferSelect;
@@ -29,12 +30,12 @@ export async function listActiveZones(): Promise<ShippingZone[]> {
  */
 export async function findZoneByZipCode(zipCode: string): Promise<ShippingZone | null> {
     const activeZones = await listActiveZones();
-    const zipCodeNumeric = parseInt(zipCode.replace(/\D/g, ""), 10);
+    const zipCodeNumeric = safeInteger(zipCode.replace(/\D/g, ""));
     
     const matchingZone = activeZones.find(zone => {
         if (zone.zipCodeStart && zone.zipCodeEnd) {
-            const start = parseInt(zone.zipCodeStart.replace(/\D/g, ""), 10);
-            const end = parseInt(zone.zipCodeEnd.replace(/\D/g, ""), 10);
+            const start = safeInteger(zone.zipCodeStart.replace(/\D/g, ""));
+            const end = safeInteger(zone.zipCodeEnd.replace(/\D/g, ""));
             return zipCodeNumeric >= start && zipCodeNumeric <= end;
         }
         return false; 
@@ -54,7 +55,7 @@ export async function calculateShippingCost(zipCode: string): Promise<{ cost: nu
     }
 
     return { 
-        cost: parseFloat(String(zone.shippingCost || "0")), 
+        cost: safeNumber(String(zone.shippingCost || "0")), 
         name: zone.name || "Entrega padrão"
     };
 }

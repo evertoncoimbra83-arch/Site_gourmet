@@ -1,28 +1,49 @@
 const FULL_REDACT = "[redacted]";
 
-const REDACTED_KEYS = new Set([
+const CPF_KEYS = new Set(["cpf", "document", "documento", "doc", "rg", "customerdocument"]);
+const PHONE_KEYS = new Set(["phone", "telefone", "celular", "mobile", "customerphone"]);
+const ZIP_KEYS = new Set(["cep", "zip", "zipcode"]);
+const SECRET_KEYS = new Set([
   "password",
+  "senha",
   "token",
   "secret",
-  "currentPassword",
-  "newPassword",
-  "customerDocument",
-  "document",
-  "cpf",
-  "customerPhone",
-  "phone",
-  "mobile",
-  "receiverName",
-  "shippingAddress",
+  "apikey",
+  "api_key",
+  "authorization",
+  "cookie",
+  "currentpassword",
+  "newpassword",
+]);
+const ADDRESS_KEYS = new Set([
   "address",
+  "endereco",
+  "shippingaddress",
   "street",
+  "rua",
   "number",
+  "numero",
   "complement",
   "neighborhood",
-  "zipCode",
-  "zip",
-  "cep",
+  "receivername",
 ]);
+const PAYMENT_KEYS = new Set(["card", "cartao", "cvv", "pixkey", "chavepix", "chave_pix"]);
+const REDACTED_KEYS = new Set([
+  ...CPF_KEYS,
+  ...PHONE_KEYS,
+  ...ZIP_KEYS,
+  ...SECRET_KEYS,
+  ...ADDRESS_KEYS,
+  ...PAYMENT_KEYS,
+  "email",
+]);
+
+function normalizeKey(key: string): string {
+  return key
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
 
 function maskDigits(
   value: string,
@@ -64,15 +85,17 @@ export function maskZipCode(value: unknown): string {
 function redactByKey(key: string, value: unknown): unknown {
   if (value == null) return value;
 
-  if (key === "customerDocument" || key === "document" || key === "cpf") {
+  const normalizedKey = normalizeKey(key);
+
+  if (CPF_KEYS.has(normalizedKey)) {
     return maskCpf(value);
   }
 
-  if (key === "customerPhone" || key === "phone" || key === "mobile") {
+  if (PHONE_KEYS.has(normalizedKey)) {
     return maskPhone(value);
   }
 
-  if (key === "zipCode" || key === "zip" || key === "cep") {
+  if (ZIP_KEYS.has(normalizedKey)) {
     return maskZipCode(value);
   }
 
@@ -89,7 +112,7 @@ export function redactSensitiveData(value: unknown): unknown {
     const output: Record<string, unknown> = {};
 
     for (const [key, fieldValue] of Object.entries(input)) {
-      output[key] = REDACTED_KEYS.has(key)
+      output[key] = REDACTED_KEYS.has(normalizeKey(key))
         ? redactByKey(key, fieldValue)
         : redactSensitiveData(fieldValue);
     }

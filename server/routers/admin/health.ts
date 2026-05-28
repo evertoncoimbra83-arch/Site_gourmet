@@ -1,10 +1,10 @@
-import { adminProcedure, router } from "../../_core/trpc.js";
+import { operatorProcedure, router } from "../../_core/trpc.js";
 import { sql } from "drizzle-orm";
 // ✅ Importação corrigida para exportação nomeada
 import { redisConnection } from "../../lib/redis.js"; 
 
 export const healthRouter = router({
-  checkStatus: adminProcedure.query(async ({ ctx }) => {
+  checkStatus: operatorProcedure.query(async ({ ctx }) => {
     const start = Date.now();
 
     // 1. Banco de Dados (.10)

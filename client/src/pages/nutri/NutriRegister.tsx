@@ -85,31 +85,32 @@ export default function NutriRegister() {
   };
 
   const handleSubmit = () => {
-    if (!formData.crn || !formData.address.zipCode || !formData.address.number) {
-      return toast.error("Preencha todos os campos obrigatórios (*)");
+    if (!formData.name || !formData.crn) {
+      return toast.error("Nome Completo e CRN são obrigatórios (*)");
     }
     
+    const hasAddress = !!(formData.address.zipCode || formData.address.street || formData.address.number);
+    const offices = hasAddress ? [{
+      label: "Consultório Principal",
+      zipCode: formData.address.zipCode,
+      street: formData.address.street,
+      number: formData.address.number,
+      neighborhood: formData.address.neighborhood,
+      city: formData.address.city,
+      state: formData.address.state,
+      isDefault: true
+    }] : [];
+
     registerMutation.mutate({
       name: formData.name,
       email: formData.email,
-      // ✅ FIX 2: Garantido que seja uma string ('') caso formData.password seja falso.
-      // Isso resolve o erro "Type 'string | undefined' is not assignable to type 'string'".
       password: formData.password || "",
       document: "PENDING",
       phone: "000000000",
       crn: formData.crn,
       specialty: formData.specialty,
       bio: formData.bio,
-      offices: [{
-        label: "Consultório Principal",
-        zipCode: formData.address.zipCode,
-        street: formData.address.street,
-        number: formData.address.number,
-        neighborhood: formData.address.neighborhood,
-        city: formData.address.city,
-        state: formData.address.state,
-        isDefault: true
-      }]
+      offices
     });
   };
 
@@ -178,15 +179,15 @@ export default function NutriRegister() {
                   <Input label="Área de Especialidade" icon={<Briefcase size={18}/>} placeholder="Ex: Nutrição Esportiva, Funcional..." value={formData.specialty} onChange={(v) => setFormData({...formData, specialty: v})} />
                 </div>
                 <div className="relative">
-                  <Input label="CEP de Atendimento *" icon={<MapPin size={18}/>} placeholder="00000-000" value={formData.address.zipCode} onChange={(v) => setFormData({...formData, address: {...formData.address, zipCode: v}})} onBlur={handleZipCodeBlur} />
+                  <Input label="CEP de Atendimento" icon={<MapPin size={18}/>} placeholder="00000-000" value={formData.address.zipCode} onChange={(v) => setFormData({...formData, address: {...formData.address, zipCode: v}})} onBlur={handleZipCodeBlur} />
                   {isSearchingZip && <Loader2 className="absolute right-3 bottom-4 animate-spin text-emerald-500" size={16} />}
                 </div>
                 <div className="md:col-span-2">
-                  <Input label="Rua / Logradouro *" icon={<Building2 size={18}/>} placeholder="Endereço do consultório" value={formData.address.street} onChange={(v) => setFormData({...formData, address: {...formData.address, street: v}})} />
+                  <Input label="Rua / Logradouro" icon={<Building2 size={18}/>} placeholder="Endereço do consultório" value={formData.address.street} onChange={(v) => setFormData({...formData, address: {...formData.address, street: v}})} />
                 </div>
-                <Input label="Número *" icon={<Hash size={18}/>} placeholder="Ex: 102" value={formData.address.number} onChange={(v) => setFormData({...formData, address: {...formData.address, number: v}})} />
-                <Input label="Cidade *" placeholder="Cidade" value={formData.address.city} onChange={(v) => setFormData({...formData, address: {...formData.address, city: v}})} />
-                <Input label="Estado *" placeholder="UF" value={formData.address.state} onChange={(v) => setFormData({...formData, address: {...formData.address, state: v}})} />
+                <Input label="Número" icon={<Hash size={18}/>} placeholder="Ex: 102" value={formData.address.number} onChange={(v) => setFormData({...formData, address: {...formData.address, number: v}})} />
+                <Input label="Cidade" placeholder="Cidade" value={formData.address.city} onChange={(v) => setFormData({...formData, address: {...formData.address, city: v}})} />
+                <Input label="Estado" placeholder="UF" value={formData.address.state} onChange={(v) => setFormData({...formData, address: {...formData.address, state: v}})} />
               </div>
             </section>
 
@@ -215,10 +216,11 @@ export default function NutriRegister() {
 // --- SUB-COMPONENT: INPUT ---
 function Input({ label, icon, type = "text", placeholder, value, onChange, onBlur, disabled }: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
+  const inputId = React.useId();
 
   return (
     <div className={cn("space-y-2 group text-left", disabled && "opacity-50")}>
-      <label className={cn("text-[10px] font-black uppercase tracking-widest ml-1 transition-colors", isFocused ? "text-emerald-500" : "text-slate-400")}>
+      <label htmlFor={inputId} className={cn("text-[10px] font-black uppercase tracking-widest ml-1 transition-colors", isFocused ? "text-emerald-500" : "text-slate-400")}>
         {label}
       </label>
       <div className="relative">
@@ -228,6 +230,7 @@ function Input({ label, icon, type = "text", placeholder, value, onChange, onBlu
           </div>
         )}
         <input 
+          id={inputId}
           type={type}
           placeholder={placeholder}
           disabled={disabled}

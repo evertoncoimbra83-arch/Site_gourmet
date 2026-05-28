@@ -1,5 +1,6 @@
 // view/steps/packages/components/PackageNutritionDashboard
 import React, { useMemo } from "react";
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { 
@@ -52,7 +53,7 @@ export default function PackageNutritionDashboard({
 }: PackageNutritionProps) {
 
   const { nutrition, itemCount } = useMemo(() => {
-    const p = (v: unknown) => parseFloat(String(v || 0).replace(",", "."));
+    const p = (v: unknown) => safeNumber(String(v || 0).replace(",", "."));
 
     if (!dish) return { nutrition: { kcal: 0, carbs: 0, pro: 0, fat: 0 }, itemCount: 0 };
 
@@ -68,7 +69,7 @@ export default function PackageNutritionDashboard({
       dLegacy = (dish.nutritional_info || dish.nutritionalInfo || {}) as NutritionalInfo;
     }
 
-    const dFactor = (Number(defaultWeight) || 300) / 100;
+    const dFactor = safeNumber(defaultWeight, 300) / 100;
 
     // Consolidação Prato Principal
     const base = {

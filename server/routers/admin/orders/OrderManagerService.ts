@@ -5,6 +5,7 @@ import { getDb } from "../../../db";
 import * as schema from "../../../../drizzle/schema/index";
 import { unseal } from "./AdminOrderHelpers";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
 
 // ✅ Caminho relativo corrigido para encontrar a pasta workers
 import { enqueueBIAnalyticsJob } from "../../../workers/queues/biQueue.js";
@@ -40,7 +41,39 @@ function getNumericOrderId(orderId: string): number {
   return Math.abs(hash);
 }
 
+export const FINALIZED_ORDER_STATUSES = ["completed", "cancelled", "delivered"] as const;
+
+function isFinalizedOrderStatus(status: string | null | undefined): boolean {
+  return FINALIZED_ORDER_STATUSES.includes(
+    String(status || "") as (typeof FINALIZED_ORDER_STATUSES)[number],
+  );
+}
+
 export const OrderManagerService = {
+  async assertOrdersAreMutable(ids: string[]) {
+    if (!ids.length) return;
+
+    const db = await getDb();
+    const rows = await db
+      .select({ id: schema.orders.id, status: schema.orders.status })
+      .from(schema.orders)
+      .where(inArray(schema.orders.id, ids));
+
+    if (rows.length !== ids.length) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Pedido não encontrado.",
+      });
+    }
+
+    const blockedOrder = rows.find((row) => isFinalizedOrderStatus(row.status));
+    if (blockedOrder) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Pedidos finalizados não podem ser modificados.",
+      });
+    }
+  },
   
   /**
    * 📋 LISTAGEM DE PEDIDOS COM DESCRIPTOGRAFIA
@@ -158,6 +191,7 @@ export const OrderManagerService = {
    */
   async updateStatus(id: string, status: string) {
     const db = await getDb();
+    await this.assertOrdersAreMutable([id]);
     
     const result = await db.update(schema.orders)
       .set({ status, updatedAt: new Date() } as typeof schema.orders.$inferInsert)
@@ -193,6 +227,7 @@ export const OrderManagerService = {
     const db = await getDb();
     const cleanId = id.replace('#', '');
     const numericId = getNumericOrderId(cleanId);
+    await this.assertOrdersAreMutable([cleanId]);
 
     return await db.transaction(async (tx) => {
       const historyEntries = await tx.select()

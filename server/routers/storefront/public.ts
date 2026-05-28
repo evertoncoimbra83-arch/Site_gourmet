@@ -1,8 +1,9 @@
 // server/routers/storefront/public.ts
 
-import { router, publicProcedure } from "../../_core/trpc.js"; 
+import { router, publicProcedure, createRateLimitMiddleware } from "../../_core/trpc.js"; 
+import { AuditLogService } from "../../services/AuditLogService.js";
 import { z } from "zod";
-import { eq, asc, and, like, inArray } from "drizzle-orm"; 
+import { eq, asc, and, like, inArray, sql } from "drizzle-orm"; 
 import { getDb } from "../../db.js";
 import { getStoreSettings as fetchSettingsFromDb } from "../../storeSettings.js"; 
 import { getDishDetails } from "../../dishes.js";
@@ -77,6 +78,7 @@ async function fetchAllStoreSettings() {
       'company_social_info',
       'favicon_url',
       'google_analytics_id',  // ✅ necessário para o useAnalytics
+      'gtm_id',               // ✅ necessário para o GTM
     ];
 
     const extraConfigs = await db.select().from(appConfigs).where(inArray(appConfigs.configKey, configKeys));
@@ -101,6 +103,7 @@ async function fetchAllStoreSettings() {
       ...general,
       favicon: getVal('favicon_url') || general.favicon || "/favicon.ico",
       googleAnalyticsId: getVal('google_analytics_id') || null,
+      gtmId: getVal('gtm_id') || null,              // ✅ expõe GTM ID para o frontend
       pickupEnabled: shipping?.pickupEnabled ?? general.pickupEnabled ?? true,
       pickupLabel: shipping?.pickupLabel ?? general.pickupLabel ?? "Retirada no Local",
       pickupInstruction: shipping?.pickupInstruction ?? general.pickupInstruction ?? "Apresente o número do pedido no balcão.",
@@ -210,7 +213,22 @@ export const publicRouter = router({
   dishes: router({
     categories: publicProcedure.query(async () => {
       const db = await getDb();
-      return await db.select().from(categories).where(eq(categories.isActive, true)).orderBy(asc(categories.displayOrder));
+      const cats = await db.select().from(categories).where(eq(categories.isActive, true)).orderBy(asc(categories.displayOrder));
+      
+      const counts = await db.select({
+        categoryId: dishes.categoryId,
+        count: sql<number>`count(${dishes.id})`
+      })
+      .from(dishes)
+      .where(eq(dishes.isActive, true))
+      .groupBy(dishes.categoryId);
+
+      const countsMap = new Map(counts.map(c => [c.categoryId, Number(c.count)]));
+
+      return cats.map(c => ({
+        ...c,
+        dishCount: countsMap.get(c.id) || 0
+      }));
     }),
 
     getById: publicProcedure
@@ -290,13 +308,11 @@ export const publicRouter = router({
 
     // 3. Monta o objeto final filtrando pelos IDs salvos na coluna 'items'
     return activeShowcases.map((sc) => {
-      // ✅ Converte a string JSON "[1,2,3]" em array de números
       let dishIds: number[] = [];
       dishIds = safeJsonParse<unknown[]>(sc.items || "[]", [])
         .map((id) => safeInteger(id, Number.NaN))
         .filter(Number.isFinite);
 
-      // ✅ Filtra apenas os pratos que estão na lista desta vitrine
       const filteredItems = normalizedDishes.filter(dish => 
         dishIds.includes(dish!.id)
       );
@@ -319,5 +335,63 @@ export const publicRouter = router({
         if (data.erro) return null;
         return { street: data.logradouro, neighborhood: data.bairro, city: data.localidade, state: data.uf };
       } catch { return null; }
+    }),
+
+  logClientError: publicProcedure
+    .use(createRateLimitMiddleware({
+      keyPrefix: "client-error-logging",
+      limit: 20,
+      windowMs: 60 * 1000
+    }))
+    .input(z.object({
+      errorName: z.string(),
+      errorMessage: z.string(),
+      errorStack: z.string().optional(),
+      url: z.string().optional(),
+      userAgent: z.string().optional(),
+      metadata: z.record(z.any()).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const actor: any = { userId: "system" };
+        let requestId: string | undefined = undefined;
+
+        if (ctx) {
+          if (ctx.user) {
+            actor.userId = ctx.user.id;
+          }
+          if (ctx.req) {
+            requestId = (ctx.req as any).requestId || 
+                        ctx.req.headers?.["x-request-id"] || 
+                        ctx.req.headers?.["x-correlation-id"];
+            actor.ipAddress = ctx.req.ip || 
+                              (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+                              "127.0.0.1";
+            actor.userAgent = ctx.req.headers?.["user-agent"] || input.userAgent || "unknown";
+          }
+        }
+
+        const errorObj = new Error(input.errorMessage);
+        errorObj.name = input.errorName;
+        if (input.errorStack) {
+          errorObj.stack = input.errorStack;
+        }
+
+        await AuditLogService.recordError({
+          module: "client",
+          source: "frontend",
+          error: errorObj,
+          actor,
+          requestId,
+          route: input.url,
+          severity: "critical",
+          metadata: input.metadata || {},
+        });
+
+        return { success: true };
+      } catch (err) {
+        console.error("Erro ao processar logClientError:", err);
+        return { success: false };
+      }
     }),
 });

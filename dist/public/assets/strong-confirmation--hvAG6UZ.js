@@ -1,0 +1,3 @@
+function s(i,e="Nao foi possivel concluir a acao administrativa."){var r,c;const o=i,n=(r=o==null?void 0:o.message)==null?void 0:r.trim(),t=(c=o==null?void 0:o.data)==null?void 0:c.code;if(t==="FORBIDDEN")return n||"Voce nao tem permissao para executar esta acao.";if(t==="BAD_REQUEST"&&n)return n;const a=(n==null?void 0:n.toLowerCase())||"";return a.includes("confirmacao forte")||a.includes("confirme")||n!=null&&n.includes("CONFIRMAR")?n:n||e}function u(i,e="Informe uma justificativa operacional:"){var t;if(window.prompt(`${i}
+
+Digite CONFIRMAR para continuar.`)!=="CONFIRMAR")return null;const n=(t=window.prompt(e))==null?void 0:t.trim();return!n||n.length<8?null:{confirmationToken:"CONFIRMAR",confirmationReason:n}}export{s as g,u as r};

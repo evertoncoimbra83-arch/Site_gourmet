@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ShieldCheck, Mail, Lock, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
+import { SEO } from "@/components/SEO";
 
 // ✅ FIX ESLint 8: Interface para evitar o uso de 'any' nos erros
 interface AuthError {
@@ -77,8 +78,8 @@ export default function FirstAccess() {
   const handleResetPassword = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (formData.password.length < 6) {
-      return toast.warning("A senha deve ter no mínimo 6 caracteres.");
+    if (formData.password.trim().length < 8) {
+      return toast.warning("A senha deve ter no minimo 8 caracteres.");
     }
     if (formData.password !== formData.confirmPassword) {
       return toast.warning("As senhas não coincidem.");
@@ -95,6 +96,7 @@ export default function FirstAccess() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans animate-in fade-in duration-500">
+      <SEO title="Primeiro Acesso | Gourmet Saudável" noindex />
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
         
         <div className="bg-slate-900 p-8 text-center relative overflow-hidden">
@@ -184,7 +186,7 @@ export default function FirstAccess() {
                     <Lock className="absolute left-4 top-3.5 text-slate-400" size={18} />
                     <Input 
                       type="password"
-                      placeholder="Mínimo 6 caracteres" 
+                      placeholder="Minimo 8 caracteres" 
                       className="h-12 pl-11 bg-slate-50 border-none rounded-xl font-bold focus:bg-white transition-all"
                       value={formData.password}
                       onChange={e => setFormData({...formData, password: e.target.value})}
@@ -226,3 +228,4 @@ export default function FirstAccess() {
     </div>
   );
 }
+

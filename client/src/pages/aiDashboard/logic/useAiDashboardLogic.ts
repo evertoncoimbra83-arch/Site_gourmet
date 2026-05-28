@@ -4,6 +4,7 @@ import { trpc } from "@/_core/trpc";
 import { useNavigate } from "react-router-dom";
 import { appToast as toast } from "@/lib/app-toast";
 import { useAuth } from "@/_core/hooks/useAuth"; 
+import { isAdminRole } from "@shared/security/rbac";
 
 export function useAiDashboardLogic() {
   const navigate = useNavigate();
@@ -47,7 +48,7 @@ export function useAiDashboardLogic() {
   const handleDeleteScan = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
 
-    if (user?.role !== "admin") {
+    if (!isAdminRole(user?.role)) {
       toast.error("Apenas administradores podem remover mapeamentos históricos.");
       return;
     }
@@ -64,7 +65,7 @@ export function useAiDashboardLogic() {
     
     // ✅ Dados de Créditos/Tokens
     credits: aiStatusQuery.data?.credits ?? 0,
-    isAdmin: aiStatusQuery.data?.isAdmin ?? (user?.role === "admin"),
+    isAdmin: aiStatusQuery.data?.isAdmin ?? isAdminRole(user?.role),
     
     // Ações
     isDeleting: deleteMutation.isPending,

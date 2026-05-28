@@ -332,7 +332,7 @@ export default function PackageDrawer({ packageId, onClose, onConfirm }: Package
                         ) : (
                           <div className="p-8 border-2 border-dashed border-slate-100 rounded-3xl text-center bg-slate-50/50">
                             <Scale className="mx-auto text-slate-200 mb-2" size={20} />
-                            <p className="text-[9px] font-black uppercase text-slate-300 tracking-widest">Prato sem adicionais</p>
+                            <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Prato sem adicionais</p>
                           </div>
                         )}
                       </div>

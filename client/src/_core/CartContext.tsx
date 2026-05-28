@@ -404,9 +404,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const { data: serverCartRaw, isLoading: isCartLoading } = trpc.store.cart.getSummary.useQuery(
     undefined,
     {
-      staleTime: 15000,           // ✅ evita refetch durante re-renders do login
-      refetchOnWindowFocus: false, // ✅ evita refetch ao trocar de aba
-      refetchOnMount: false,       // ✅ evita refetch duplicado ao montar
+      staleTime: 15000,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
     },
   );
   const { data: loyaltyBalanceData } = trpc.store.loyalty.getUserBalance.useQuery(undefined, {
@@ -442,13 +442,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (lastSyncedUserIdRef.current === activeUserId) return;
     lastSyncedUserIdRef.current = activeUserId;
 
-    // ✅ invalidate já dispara o refetch automaticamente.
-    // fetch() manual criava 2 requests paralelos — race condition no login/logout.
     void utils.store.cart.getSummary.invalidate();
   }, [activeUserId, utils]);
 
+  // ✅ FIX 3: money usa Number.isFinite em vez de v || 0
+  // Evita formatar NaN como "R$ 0,00" silenciosamente
   const money = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+      Number.isFinite(v) ? v : 0,
+    );
 
   const totals: CartTotals = useMemo(() => {
     const styling = normalizeTotalsMetadata(serverCartRaw?.totals);
@@ -467,7 +469,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       calculateGrandTotal(subtotal, shipping, totalDiscounts),
     );
 
-    // ✅ couponBannerColor/logoUrl/description vêm na raiz do serverCartRaw (não dentro de totals)
     const raw = serverCartRaw as Record<string, unknown> | null | undefined;
     const rootBannerColor = raw?.couponBannerColor as string | undefined;
     const rootLogoUrl = raw?.couponLogoUrl as string | undefined;
@@ -529,60 +530,55 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     loyaltyPoints: toNumber(loyaltyBalanceData?.balance),
     money,
     loyaltySettings: normalizeLoyaltySettings(loyaltySettingsRaw),
+
     addItem: async (item) => {
-  try {
-    const res = await addItemMutation.mutateAsync({
-      dishId: item.dishId,
-      packageId: typeof item.packageId === "number" ? item.packageId : undefined,
-      quantity: item.quantity,
-      optionsPayload: item.options,
-      nutritionPayload: toNutritionPayload(item.appliedNutrition),
-    });
+      try {
+        const res = await addItemMutation.mutateAsync({
+          dishId: item.dishId,
+          packageId: typeof item.packageId === "number" ? item.packageId : undefined,
+          quantity: item.quantity,
+          optionsPayload: item.options,
+          nutritionPayload: toNutritionPayload(item.appliedNutrition),
+        });
 
-    // tracking só no sucesso
-    trackAddToCart(
-      buildAnalyticsItem({
-        id: String(item.dishId ?? item.packageId ?? item.name),
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        itemType: item.itemType,
-        sizeName: item.sizeName,
-      }),
-    );
+        trackAddToCart(
+          buildAnalyticsItem({
+            id: String(item.dishId ?? item.packageId ?? item.name),
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            itemType: item.itemType,
+            sizeName: item.sizeName,
+          }),
+        );
 
-    toast.success("Adicionado!");
+        toast.success("Adicionado!");
+        return getCartItemIdFromMutation(res);
 
-    return getCartItemIdFromMutation(res);
+      } catch (error: unknown) {
+        console.error("[CartContext] Erro ao adicionar item:", error);
 
-  } catch (error: unknown) {
-    console.error("[CartContext] Erro ao adicionar item:", error);
+        try {
+          await utils.store.cart.getSummary.invalidate();
+          await utils.store.cart.getSummary.fetch();
+        } catch (e) {
+          console.warn("[CartContext] erro ao ressincronizar carrinho", e);
+        }
 
-    // 🔥 ESSENCIAL: evita carrinho travado
-    try {
-      await utils.store.cart.getSummary.invalidate();
-      await utils.store.cart.getSummary.fetch();
-    } catch (e) {
-      console.warn("[CartContext] erro ao ressincronizar carrinho", e);
-    }
+        const err = error as { message?: string };
+        let message = "Erro ao adicionar item. Tente novamente.";
+        if (err.message?.toLowerCase().includes("limite")) {
+          message = "Você selecionou mais acompanhamentos do que o permitido.";
+        }
+        if (err.message?.toLowerCase().includes("obrigat")) {
+          message = "Selecione todos os acompanhamentos obrigatórios.";
+        }
 
-    // 🔥 melhora UX baseada no erro do backend
-    const err = error as { message?: string };
-    let message = "Erro ao adicionar item. Tente novamente.";
+        toast.error(message);
+        throw error;
+      }
+    },
 
-    if (err.message?.toLowerCase().includes("limite")) {
-      message = "Você selecionou mais acompanhamentos do que o permitido.";
-    }
-
-    if (err.message?.toLowerCase().includes("obrigat")) {
-      message = "Selecione todos os acompanhamentos obrigatórios.";
-    }
-
-    toast.error(message);
-
-    throw error; // mantém comportamento esperado
-  }
-},
     removeItem: async (itemId) => {
       const existingItem = items.find((item) => item.id === itemId);
       try {
@@ -608,6 +604,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
       toast.success("Item removido do carrinho");
     },
+
     updateQuantity: async (itemId, quantity) => {
       const existingItem = items.find((item) => item.id === itemId);
 
@@ -637,7 +634,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      await updateQuantityMutation.mutateAsync({ cartItemId: itemId, quantity });
+      // ✅ FIX 1: try/catch no caminho do update — antes propagava erro sem feedback
+      try {
+        await updateQuantityMutation.mutateAsync({ cartItemId: itemId, quantity });
+      } catch (error) {
+        console.error("[CartContext] Erro ao atualizar quantidade:", error);
+        toast.error("Erro ao atualizar quantidade. Tente novamente.");
+        throw error;
+      }
 
       if (existingItem && quantity > existingItem.quantity) {
         trackAddToCart(
@@ -665,15 +669,25 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
+
     clearCart: () => {
       resetCartCache();
       invalidate();
     },
+
+    // ✅ FIX 2: refreshCart com try/catch — antes propagava erro sem feedback
     refreshCart: async () => {
-      await invalidate();
+      try {
+        await invalidate();
+      } catch (error) {
+        console.error("[CartContext] Erro ao atualizar carrinho:", error);
+        toast.error("Erro ao atualizar carrinho.");
+      }
     },
+
     getTotalItems: () => items.reduce((acc, item) => acc + item.quantity, 0),
     isAdding: addItemMutation.isPending,
+
     toggleLoyalty: async (active) => {
       setUsesLoyalty(active);
       try {

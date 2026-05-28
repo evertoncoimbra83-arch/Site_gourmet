@@ -30,23 +30,31 @@ export function DrawerFooter({
             </p>
           </div>
         )}
+
+        {selectedSize && (
+          <p className="text-center text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
+            Total atualizado conforme tamanho e acompanhamentos.
+          </p>
+        )}
         
         <div className="flex gap-2 items-center w-full">
           {/* QUANTIDADE */}
-          <div className="flex items-center bg-slate-50 rounded-2xl h-14 px-1 shrink-0 border border-slate-100">
+          <div className="flex items-center rounded-2xl h-14 px-1 shrink-0 border border-slate-200 bg-white">
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-10 w-10 hover:bg-white rounded-xl" 
+              className="h-10 w-10 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-slate-900 focus-visible:bg-slate-50" 
               onClick={() => setQuantity(Math.max(1, quantity - 1))}
             >
               <Minus size={14} />
             </Button>
-            <span className="w-8 text-center font-black text-base italic">{quantity}</span>
+            <span className="w-8 text-center font-black text-base italic text-slate-900">
+              {quantity}
+            </span>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-10 w-10 hover:bg-white rounded-xl" 
+              className="h-10 w-10 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-slate-900 focus-visible:bg-slate-50" 
               onClick={() => setQuantity(quantity + 1)}
             >
               <Plus size={14} />
@@ -56,6 +64,7 @@ export function DrawerFooter({
           {/* BOTÃO ADICIONAR */}
           <Button 
             data-testid="btn-add-carrinho"
+            aria-label={`Adicionar ao carrinho por R$ ${(totalPrice * quantity).toFixed(2)}`}
             disabled={!isComplete || isAdding || !selectedSize} 
             onClick={onAdd}
             className={cn(
@@ -64,9 +73,12 @@ export function DrawerFooter({
             )}
           >
             {isAdding ? <Loader2 className="animate-spin" size={20} /> : (
-              <div className="flex items-center justify-between w-full px-2">
-                <span className="hidden md:inline italic truncate pr-2">Adicionar ao Carrinho</span>
-                <ShoppingBag size={20} className="md:hidden ml-2" />
+              <div className="flex items-center justify-between w-full px-3 gap-3">
+                <span className="inline-flex items-center gap-2 truncate pr-2 italic">
+                  <ShoppingBag size={18} className="shrink-0" />
+                  <span className="truncate sm:hidden">Adicionar</span>
+                  <span className="hidden truncate sm:inline">Adicionar ao carrinho</span>
+                </span>
                 <span className="bg-white/10 px-3 py-1.5 rounded-lg whitespace-nowrap text-[12px] border border-white/5">
                   R$ {(totalPrice * quantity).toFixed(2)}
                 </span>

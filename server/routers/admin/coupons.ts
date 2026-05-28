@@ -4,8 +4,15 @@ import { getDb } from "../../db";
 import { coupons } from "../../../drizzle/schema/index";
 import { eq, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { logAction } from "../../db/lib/audit";
 import { safeNumber } from "../../lib/safe-parse";
+import { AuditLogService } from "../../services/AuditLogService.js";
+import {
+  assertConfirmationReason,
+  assertFiniteMoney,
+  assertStrongConfirmation,
+  assertSuperAdmin,
+  operationalLimits,
+} from "./operational-hardening.js";
 
 // Tipagem para inserção no Drizzle
 type CouponInsert = typeof coupons.$inferInsert;
@@ -29,7 +36,51 @@ const couponInputSchema = z.object({
   isActive: z.boolean().optional().default(true),
   bannerColor: z.string().optional().default("#10b981"),
   logoUrl: z.string().nullish(),
+  confirmationToken: z.string().optional(),
+  confirmationReason: z.string().optional(),
 }).passthrough();
+
+function validateCouponLimits(input: {
+  discountType?: "percentage" | "fixed";
+  discountValue?: number;
+  confirmationToken?: string | null;
+  confirmationReason?: string | null;
+}, role: string | undefined, actionLabel: string) {
+  if (input.discountValue === undefined || !input.discountType) return "warning";
+  assertFiniteMoney(input.discountValue, "Desconto");
+
+  if (input.discountType === "percentage") {
+    if (input.discountValue > operationalLimits.couponMaxPercentage) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Cupom percentual acima de ${operationalLimits.couponMaxPercentage}% esta bloqueado.`,
+      });
+    }
+    if (input.discountValue > operationalLimits.couponCriticalPercentage) {
+      assertSuperAdmin(role, actionLabel);
+      assertStrongConfirmation(input, actionLabel);
+      assertConfirmationReason(input, actionLabel);
+      return "critical";
+    }
+  }
+
+  if (input.discountType === "fixed") {
+    if (input.discountValue > operationalLimits.couponMaxFixed) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Cupom fixo acima de R$ ${operationalLimits.couponMaxFixed} esta bloqueado.`,
+      });
+    }
+    if (input.discountValue > operationalLimits.couponCriticalFixed) {
+      assertSuperAdmin(role, actionLabel);
+      assertStrongConfirmation(input, actionLabel);
+      assertConfirmationReason(input, actionLabel);
+      return "critical";
+    }
+  }
+
+  return "warning";
+}
 
 export const adminCouponsRouter = router({
   list: adminProcedure.query(async () => {
@@ -52,6 +103,11 @@ export const adminCouponsRouter = router({
     .input(couponInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      const severity = validateCouponLimits(
+        input,
+        ctx.user?.role,
+        "Criacao de cupom de alto impacto",
+      );
       
       const [existing] = await db.select().from(coupons).where(eq(coupons.code, input.code));
       if (existing) throw new TRPCError({ code: "CONFLICT", message: `O cupom "${input.code}" já existe.` });
@@ -78,9 +134,26 @@ export const adminCouponsRouter = router({
 
         await db.insert(coupons).values(insertData);
 
-        await logAction(ctx, "CREATE_COUPON", "coupons", {
-          entityId: input.code,
-          new: { code: input.code, valor: input.discountValue }
+        const actor = {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId
+        };
+
+        void AuditLogService.record({
+          actor,
+          module: "marketing",
+          action: "CREATE_COUPON",
+          severity,
+          entityType: "coupons",
+          entityId: generatedId,
+          entityLabel: input.code,
+          oldValues: null,
+          newValues: {
+            ...input,
+            confirmationToken: undefined,
+          }
         });
 
         return { success: true, message: `Cupom "${input.code}" criado!` };
@@ -100,6 +173,25 @@ export const adminCouponsRouter = router({
 
       const [oldCoupon] = await db.select().from(coupons).where(eq(coupons.id, id));
       if (!oldCoupon) throw new TRPCError({ code: "NOT_FOUND", message: "Cupom não encontrado." });
+
+      const nextDiscountType =
+        data.discountType !== undefined
+          ? (data.discountType as "percentage" | "fixed")
+          : (oldCoupon.discountType as "percentage" | "fixed");
+      const nextDiscountValue =
+        data.discountValue !== undefined
+          ? safeNumber(data.discountValue)
+          : safeNumber(oldCoupon.discountValue);
+      const severity = validateCouponLimits(
+        {
+          discountType: nextDiscountType,
+          discountValue: nextDiscountValue,
+          confirmationToken: data.confirmationToken as string | undefined,
+          confirmationReason: data.confirmationReason as string | undefined,
+        },
+        ctx.user?.role,
+        "Alteracao de cupom de alto impacto",
+      );
 
       const updatePayload: Partial<CouponInsert> = { };
       const requireMoney = (value: unknown, label: string) => {
@@ -126,9 +218,23 @@ export const adminCouponsRouter = router({
       try {
         await db.update(coupons).set(updatePayload).where(eq(coupons.id, id));
         
-        await logAction(ctx, "UPDATE_COUPON", "coupons", {
-          entityId: id, // ✅ Agora aceito pelo Auditor (string)
-          new: updatePayload as Record<string, unknown>
+        const actor = {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId
+        };
+
+        void AuditLogService.record({
+          actor,
+          module: "marketing",
+          action: "UPDATE_COUPON",
+          severity,
+          entityType: "coupons",
+          entityId: id,
+          entityLabel: oldCoupon.code,
+          oldValues: oldCoupon,
+          newValues: { ...oldCoupon, ...updatePayload }
         });
 
         return { success: true, message: "Cupom atualizado!" };
@@ -139,10 +245,18 @@ export const adminCouponsRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ id: z.string() })) 
-    .mutation(async ({ input }) => {
+    .input(z.object({
+      id: z.string(),
+      confirmationToken: z.string().optional(),
+      confirmationReason: z.string().optional(),
+    })) 
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       try {
+        assertStrongConfirmation(input, "Exclusao de cupom");
+        assertConfirmationReason(input, "Exclusao de cupom");
+        assertSuperAdmin(ctx.user?.role, "Exclusao de cupom");
+
         // ✅ Forçando a tipagem para o eq()
         const targetId = String(input.id);
 
@@ -150,6 +264,26 @@ export const adminCouponsRouter = router({
         if (!coupon) return { success: true };
 
         await db.delete(coupons).where(eq(coupons.id, targetId));
+
+        const actor = {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId
+        };
+
+        void AuditLogService.record({
+          actor,
+          module: "marketing",
+          action: "DELETE_COUPON",
+          severity: "critical",
+          entityType: "coupons",
+          entityId: targetId,
+          entityLabel: coupon.code,
+          oldValues: coupon,
+          newValues: null
+        });
+
         return { success: true, message: "Cupom removido." };
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao deletar." });

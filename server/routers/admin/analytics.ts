@@ -1,7 +1,7 @@
 // server/routers/admin/analytics.ts
 
 import { z } from "zod";
-import { adminProcedure, router } from "../../_core/trpc.js";
+import { superAdminProcedure, router } from "../../_core/trpc.js";
 import { sql, gte, desc, inArray, and, gt, asc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db.js";
@@ -11,30 +11,51 @@ import { logger } from "../../logger.js";
 import { enqueueBIAnalyticsJob, ensureBIWorkerRunning } from "../../workers/queues/biQueue.js";
 import { safeInteger, safeNumber } from "../../lib/safe-parse.js";
 
-// --- INTERFACES DE TIPAGEM ---
+const biAccResultSchema = z
+  .object({
+    name: z.string(),
+    count: z.coerce.number(),
+    revenue: z.coerce.number().default(0),
+  })
+  .strict();
 
-interface RawBIQueryResult {
-  name: string;
-  count: number;
-}
+const biCouponResultSchema = z
+  .object({
+    name: z.string(),
+    usage_count: z.coerce.number(),
+    value: z.coerce.number().default(0),
+  })
+  .strict();
 
-interface RawCouponQueryResult {
-  name: string;
-  value: number;
-  usage_count: number;
-}
+const biPaymentResultSchema = z
+  .object({
+    name: z.string(),
+    count: z.coerce.number(),
+    value: z.coerce.number().default(0),
+  })
+  .strict();
 
-interface RawPaymentQueryResult {
-  name: string;
-  value: number;
-  count: number;
+function parseRawQueryRows<T extends z.ZodTypeAny>(
+  rawResult: unknown,
+  schema: T,
+  context: string,
+): Array<z.infer<T>> {
+  const rows = Array.isArray(rawResult) ? rawResult : [];
+  const parsed = z.array(schema).safeParse(rows);
+
+  if (!parsed.success) {
+    console.warn(`analytics.ts: invalid ${context} query result`, parsed.error.flatten());
+    return [];
+  }
+
+  return parsed.data;
 }
 
 export const adminAnalyticsRouter = router({
   /**
    * 📊 Retorna os dados consolidados do Dashboard de BI
    */
-  getDashboardStats: adminProcedure
+  getDashboardStats: superAdminProcedure
     .input(z.object({
       period: z.enum(["7d", "30d", "90d", "all"]).default("30d")
     }).optional())
@@ -105,7 +126,11 @@ export const adminAnalyticsRouter = router({
           ) AS consolidated_accs
           GROUP BY name ORDER BY count DESC LIMIT 10
         `);
-        const accRows = (topAccs[0] as unknown as RawBIQueryResult[]);
+        const accRows = parseRawQueryRows(
+          Array.isArray(topAccs[0]) ? topAccs[0] : topAccs,
+          biAccResultSchema,
+          "topAccs",
+        );
 
         const topCouponsQuery = await db.execute(sql`
           SELECT coupon_code as name, SUM(discount_coupon) as value, COUNT(*) as usage_count
@@ -113,7 +138,11 @@ export const adminAnalyticsRouter = router({
           WHERE date_id >= ${dateLimit} AND coupon_code IS NOT NULL AND coupon_code != ''
           GROUP BY coupon_code ORDER BY value DESC LIMIT 5
         `);
-        const couponRows = (topCouponsQuery[0] as unknown as RawCouponQueryResult[]);
+        const couponRows = parseRawQueryRows(
+          Array.isArray(topCouponsQuery[0]) ? topCouponsQuery[0] : topCouponsQuery,
+          biCouponResultSchema,
+          "topCouponsQuery",
+        );
 
         const paymentMethodsQuery = await db.execute(sql`
           SELECT payment_method as name, SUM(net_total) as value, COUNT(*) as count
@@ -121,7 +150,13 @@ export const adminAnalyticsRouter = router({
           WHERE date_id >= ${dateLimit} AND payment_method IS NOT NULL
           GROUP BY payment_method ORDER BY value DESC
         `);
-        const paymentRows = (paymentMethodsQuery[0] as unknown as RawPaymentQueryResult[]);
+        const paymentRows = parseRawQueryRows(
+          Array.isArray(paymentMethodsQuery[0])
+            ? paymentMethodsQuery[0]
+            : paymentMethodsQuery,
+          biPaymentResultSchema,
+          "paymentMethodsQuery",
+        );
 
         const dateLimitObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
         const customers = await db.select({ total: sql<number>`count(*)` })
@@ -174,7 +209,7 @@ export const adminAnalyticsRouter = router({
   /**
    * 🔄 Sincronização por Lotes (Batch Sync)
    */
-  syncHistory: adminProcedure
+  syncHistory: superAdminProcedure
     .input(z.object({
       cursor: z.string().optional(),
       limit: z.number().min(1).max(500).default(100)

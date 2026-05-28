@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { trpc } from "@/_core/trpc"; 
 import { keepPreviousData } from "@tanstack/react-query";
 import { mapDishFromDb } from "./mappers"; 
@@ -6,10 +7,14 @@ import { mapDishFromDb } from "./mappers";
 type RawDbData = Record<string, unknown>;
 
 export function useProducts() {
+  const [searchParams] = useSearchParams();
+  const urlCategory = searchParams.get("category");
+  const initialCategory = urlCategory ? Number(urlCategory) : null;
+
   const [selectedDishId, setSelectedDishId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState(""); 
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(initialCategory);
 
   useEffect(() => {
     const handler = setTimeout(() => {

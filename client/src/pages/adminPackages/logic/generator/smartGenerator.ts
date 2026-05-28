@@ -52,13 +52,6 @@ function normalizeGeneratedSlotGroups(
 export function generateSmartPackage(input: GeneratorInput): GeneratorResult {
   const { persona, dishes, slots: drafts, rawAccompanimentRules } = input;
 
-  console.group(`SmartGenerator: Geracao [${persona.label}]`);
-  console.log("1. Input Data:", {
-    totalDishes: dishes.length,
-    totalSlotsSolicitados: drafts.length,
-    personaGoal: persona.goal,
-  });
-
   if (dishes.length === 0) {
     console.error("Erro: Lista de pratos (dishes) está vazia.");
   }
@@ -78,22 +71,10 @@ export function generateSmartPackage(input: GeneratorInput): GeneratorResult {
     const firstFailedIndex = generatedSlots.findIndex(s => s.dishIds.length === 0);
     const sampleFail = drafts[firstFailedIndex];
 
-    console.log("Provável causa do descarte no primeiro slot falho:", {
-      tamanhoExigido: sampleFail?.requiredSizeId,
-      categoriasPermitidas: sampleFail?.allowedCategories || "Todas",
-    });
-
     warnings.push(
       `O sistema não encontrou pratos suficientes para ${failedSlots.length} marmitas com os filtros aplicados (Tamanho/Categoria).`
     );
   }
-
-  console.log(
-    "3. Geração finalizada com sucesso:",
-    generatedSlots.length,
-    "slots."
-  );
-  console.groupEnd();
 
   return {
     slots: generatedSlots,

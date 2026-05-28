@@ -1,12 +1,12 @@
 // server/routers/admin/orders/ordersAdminRouter.ts
 
 import { z } from "zod";
-import { router, adminProcedure } from "../../../_core/trpc.js";
+import { router, adminProcedure, operatorProcedure, superAdminProcedure } from "../../../_core/trpc.js";
 import { AdminOrderDraftService } from "./AdminOrderDraftService.js";
 import { AdminOrderFinalizeService } from "./AdminOrderFinalizeService.js";
 import { OrderManagerService } from "./OrderManagerService.js";
 import { PagSeguroService } from "./services/PagSeguroService.js";
-import { decrypt } from "../../../encryption.js"; 
+import { decrypt, unseal } from "../../../encryption.js"; 
 import { getDb } from "../../../db.js";
 import { 
     adminOrderDraftItems,
@@ -16,9 +16,15 @@ import {
     orderItems,
     users 
 } from "../../../../drizzle/schema/index.js";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, sql, desc, and, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
+import { AuditLogService } from "../../../services/AuditLogService.js";
+import {
+    assertConfirmationReason,
+    assertStrongConfirmation,
+    operationalLimits,
+} from "../operational-hardening.js";
 
 // --- INTERFACES ---
 
@@ -37,7 +43,7 @@ export const ordersAdminRouter = router({
     /**
      * 📋 LISTAGEM DE PEDIDOS
      */
-    list: adminProcedure
+    list: operatorProcedure
         .input(z.object({ 
             search: z.string().optional(), 
             status: z.string().optional(), 
@@ -59,7 +65,7 @@ export const ordersAdminRouter = router({
     /**
      * 🔍 DETALHES DO PEDIDO
      */
-    getById: adminProcedure
+    getById: operatorProcedure
         .input(z.object({ orderId: z.string() }))
         .query(async ({ input }) => {
             const db = await getDb();
@@ -77,20 +83,44 @@ export const ordersAdminRouter = router({
     /**
      * 🔄 ATUALIZAR STATUS
      */
-    updateStatus: adminProcedure
+    updateStatus: operatorProcedure
         .input(z.object({ 
             id: z.string(), 
             status: z.string() 
         }))
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            const [oldOrder] = await db.select().from(orders).where(eq(orders.id, input.id)).limit(1);
+
             await OrderManagerService.updateStatus(input.id, input.status as OrderStatus);
+
+            if (oldOrder) {
+                const actor = {
+                    userId: ctx.user?.id,
+                    ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                    userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                    requestId: (ctx.req as any)?.requestId
+                };
+
+                void AuditLogService.record({
+                    actor,
+                    module: "orders",
+                    action: "UPDATE_STATUS",
+                    severity: "warning",
+                    entityType: "orders",
+                    entityId: input.id,
+                    entityLabel: oldOrder.customerName ? (unseal(oldOrder.customerName as string) || `Pedido ${input.id}`) : `Pedido ${input.id}`,
+                    oldValues: { status: oldOrder.status },
+                    newValues: { status: input.status }
+                });
+            }
             return { success: true };
         }),
 
     /**
      * 🛒 CARRINHOS ABANDONADOS
      */
-    getAbandonedCarts: adminProcedure
+    getAbandonedCarts: operatorProcedure
         .input(z.object({ 
             page: z.number().default(1), 
             perPage: z.number().default(10) 
@@ -206,6 +236,25 @@ export const ordersAdminRouter = router({
                 });
             }
 
+            const actor = {
+                userId: ctx.user?.id,
+                ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                requestId: (ctx.req as any)?.requestId
+            };
+
+            void AuditLogService.record({
+                actor,
+                module: "orders",
+                action: "INIT_ADMINISTRATIVE_EDIT",
+                severity: "info",
+                entityType: "orders",
+                entityId: input.orderId,
+                entityLabel: order.customerName ? (unseal(order.customerName as string) || `Pedido ${input.orderId}`) : `Pedido ${input.orderId}`,
+                oldValues: null,
+                newValues: { orderId: input.orderId }
+            });
+
             return { success: true, newDraftId: pdvDraftId };
         }),
 
@@ -269,17 +318,232 @@ export const ordersAdminRouter = router({
     /**
      * 🧹 LIMPEZA DE CARRINHOS ANTIGOS (Usado pelo useMutation no Front no botão Limpar)
      */
-    clearEmptyOldCarts: adminProcedure.mutation(async () => {
+    clearEmptyOldCarts: adminProcedure
+        .input(z.object({
+            confirmationToken: z.string().optional(),
+            confirmationReason: z.string().optional()
+        }).optional())
+        .mutation(async ({ input }) => {
+        assertStrongConfirmation(input || {}, "Limpeza operacional de carrinhos antigos");
+        assertConfirmationReason(input || {}, "Limpeza operacional de carrinhos antigos");
         return await OrderManagerService.clearEmptyOldCarts();
     }),
 
     /**
      * ❌ EXCLUIR PEDIDO
      */
-    deleteOrder: adminProcedure
-        .input(z.object({ id: z.string() }))
-        .mutation(async ({ input }) => {
-            await OrderManagerService.delete(input.id);
+    deleteOrder: superAdminProcedure
+        .input(z.union([
+            z.string(),
+            z.object({
+                id: z.string(),
+                confirmationToken: z.string().optional(),
+                confirmationReason: z.string().optional()
+            })
+        ]))
+        .mutation(async ({ input, ctx }) => {
+            const id = typeof input === "string" ? input : input.id;
+            if (typeof input === "string") {
+                throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: "Exclusao de pedido exige confirmacao forte.",
+                });
+            }
+            assertStrongConfirmation(input, "Exclusao de pedido");
+            assertConfirmationReason(input, "Exclusao de pedido");
+            const db = await getDb();
+            const [oldOrder] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+            const oldItems = await db.select().from(orderItems).where(eq(orderItems.orderId, id));
+
+            await OrderManagerService.delete(id);
+
+            if (oldOrder) {
+                const actor = {
+                    userId: ctx.user?.id,
+                    ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                    userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                    requestId: (ctx.req as any)?.requestId
+                };
+
+                void AuditLogService.record({
+                    actor,
+                    module: "orders",
+                    action: "DELETE_ORDER",
+                    severity: "critical",
+                    entityType: "orders",
+                    entityId: id,
+                    entityLabel: oldOrder.customerName ? (unseal(oldOrder.customerName as string) || `Pedido ${id}`) : `Pedido ${id}`,
+                    oldValues: {
+                        id: oldOrder.id,
+                        customerName: oldOrder.customerName ? unseal(oldOrder.customerName as string) : null,
+                        total: safeNumber(oldOrder.total),
+                        status: oldOrder.status,
+                        items: oldItems.map(item => ({
+                            dishName: item.dishName,
+                            quantity: safeNumber(item.quantity),
+                            unitPrice: safeNumber(item.unitPrice)
+                        }))
+                    },
+                    newValues: null
+                });
+            }
             return { success: true };
+        }),
+
+     updateStatusBatch: operatorProcedure
+        .input(z.object({
+            ids: z.array(z.string()),
+            status: z.string()
+        }))
+        .mutation(async ({ input, ctx }) => {
+            if (!input.ids.length) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum ID de pedido fornecido." });
+            }
+            const db = await getDb();
+            const oldOrders = await db.select().from(orders).where(inArray(orders.id, input.ids));
+
+            await OrderManagerService.assertOrdersAreMutable(input.ids);
+            for (const id of input.ids) {
+                await OrderManagerService.updateStatus(id, input.status as OrderStatus);
+            }
+
+            const actor = {
+                userId: ctx.user?.id,
+                ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                requestId: (ctx.req as any)?.requestId
+            };
+
+            for (const oldOrder of oldOrders) {
+                void AuditLogService.record({
+                    actor,
+                    module: "orders",
+                    action: "UPDATE_STATUS_BATCH",
+                    severity: "warning",
+                    entityType: "orders",
+                    entityId: oldOrder.id,
+                    entityLabel: oldOrder.customerName ? (unseal(oldOrder.customerName as string) || `Pedido ${oldOrder.id}`) : `Pedido ${oldOrder.id}`,
+                    oldValues: { status: oldOrder.status },
+                    newValues: { status: input.status }
+                });
+            }
+
+            return { success: true };
+        }),
+
+    getBatchByIds: operatorProcedure
+        .input(z.object({
+            orderIds: z.array(z.string())
+        }))
+        .query(async ({ input }) => {
+            if (!input.orderIds.length) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum ID de pedido fornecido." });
+            }
+            const db = await getDb();
+            const results = [];
+            for (const orderId of input.orderIds) {
+                const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+                if (order) {
+                    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+                    results.push({
+                        ...order,
+                        items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
+                    });
+                }
+            }
+            return results;
+        }),
+
+    commitAdministrativeEdit: adminProcedure
+        .input(z.object({
+            orderId: z.string(),
+            justification: z.string().min(5, "A nota descritiva precisa de pelo menos 5 caracteres"),
+            discountAmount: z.number().min(0).default(0),
+            shippingCost: z.number().min(0).default(0),
+            confirmationToken: z.string().optional(),
+            confirmationReason: z.string().optional(),
+            items: z.array(z.object({
+                dishName: z.string().min(1, "O nome do prato é obrigatório"),
+                quantity: z.number().int().min(1),
+                unitPrice: z.number().min(0)
+            }))
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const adminId = ctx.user?.id || "ADMIN_SESSION";
+            const db = await getDb();
+            const [oldOrder] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+            const oldItems = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
+            const oldTotal = safeNumber(oldOrder?.total);
+            const discountRatio = oldTotal > 0 ? input.discountAmount / oldTotal : 0;
+            if (discountRatio > operationalLimits.orderMaxDiscountRatio) {
+                throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: "Desconto administrativo acima do limite operacional bloqueado.",
+                });
+            }
+            if (
+                discountRatio > operationalLimits.orderCriticalDiscountRatio ||
+                input.shippingCost > operationalLimits.orderCriticalShippingCost
+            ) {
+                if (input.shippingCost > operationalLimits.orderMaxShippingCost) {
+                    throw new TRPCError({
+                        code: "BAD_REQUEST",
+                        message: "Frete administrativo acima do limite operacional bloqueado.",
+                    });
+                }
+                assertStrongConfirmation(input, "Ajuste financeiro administrativo");
+                assertConfirmationReason(input, "Ajuste financeiro administrativo");
+            }
+
+            // Executa a mutação a partir do mesmo serviço local unificado
+            const result = await AdminOrderDraftService.applyAdministrativeChanges({
+                ...input,
+                adminId
+            });
+
+            if (oldOrder) {
+                const actor = {
+                    userId: ctx.user?.id,
+                    ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                    userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                    requestId: (ctx.req as any)?.requestId
+                };
+
+                const before = {
+                    totalDiscount: safeNumber(oldOrder.totalDiscount),
+                    shippingCost: safeNumber(oldOrder.shippingCost),
+                    items: oldItems.map(item => ({
+                        dishName: item.dishName,
+                        quantity: safeNumber(item.quantity),
+                        unitPrice: safeNumber(item.unitPrice)
+                    }))
+                };
+
+                const after = {
+                    totalDiscount: input.discountAmount,
+                    shippingCost: input.shippingCost,
+                    items: input.items.map(item => ({
+                        dishName: item.dishName,
+                        quantity: item.quantity,
+                        unitPrice: item.unitPrice
+                    })),
+                    justification: input.justification
+                };
+
+                void AuditLogService.record({
+                    actor,
+                    module: "orders",
+                    action: "COMMIT_ADMINISTRATIVE_EDIT",
+                    severity: discountRatio > operationalLimits.orderCriticalDiscountRatio ||
+                        input.shippingCost > operationalLimits.orderCriticalShippingCost ? "critical" : "warning",
+                    entityType: "orders",
+                    entityId: input.orderId,
+                    entityLabel: oldOrder.customerName ? (unseal(oldOrder.customerName as string) || `Pedido ${input.orderId}`) : `Pedido ${input.orderId}`,
+                    oldValues: before,
+                    newValues: after
+                });
+            }
+
+            return result;
         }),
 });

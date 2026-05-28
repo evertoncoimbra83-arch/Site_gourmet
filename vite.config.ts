@@ -1,5 +1,5 @@
 // vite.config.ts
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
@@ -36,6 +36,12 @@ const pwaConfig = {
   },
 };
 
+const localEnv = loadEnv(process.env.NODE_ENV || "development", process.cwd(), "");
+const devProxyTarget =
+  process.env.VITE_DEV_PROXY_TARGET ||
+  localEnv.VITE_DEV_PROXY_TARGET ||
+  "http://192.168.24.8:3001";
+
 export default defineConfig({
   root: path.resolve(process.cwd(), "client"),
 
@@ -64,8 +70,13 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      "/trpc": {
+        target: devProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
       "/api": {
-        target: "http://localhost:3001",
+        target: devProxyTarget,
         changeOrigin: true,
         secure: false,
       },

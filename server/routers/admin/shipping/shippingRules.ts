@@ -1,8 +1,16 @@
 import { z } from "zod";
-import { router, adminProcedure } from "../../../_core/trpc.js";
+import { TRPCError } from "@trpc/server";
+import { router, superAdminProcedure } from "../../../_core/trpc.js";
 import { getDb } from "../../../db.js";
 import { shippingZones, shippingSettings } from "../../../../drizzle/schema/index.js";
 import { eq, asc, or, notLike, isNull, and, like } from "drizzle-orm";
+import { AuditLogService } from "../../../services/AuditLogService.js";
+import {
+  assertConfirmationReason,
+  assertFiniteMoney,
+  assertStrongConfirmation,
+  operationalLimits,
+} from "../operational-hardening.js";
 
 const shippingRuleSchema = z.object({
   id: z.number().optional(), 
@@ -14,11 +22,33 @@ const shippingRuleSchema = z.object({
   cepEnd: z.string().optional().nullable(),
   polygonCoords: z.string().optional().nullable(),
   storeSlug: z.string().optional().default("default"),
+  confirmationToken: z.string().optional(),
+  confirmationReason: z.string().optional(),
 });
+
+function validateShippingCost(
+  price: number,
+  input: { confirmationToken?: string | null; confirmationReason?: string | null },
+  actionLabel: string,
+) {
+  assertFiniteMoney(price, "Frete");
+  if (price > operationalLimits.shippingMaxCost) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Frete acima de R$ ${operationalLimits.shippingMaxCost} esta bloqueado.`,
+    });
+  }
+  if (price > operationalLimits.shippingCriticalCost) {
+    assertStrongConfirmation(input, actionLabel);
+    assertConfirmationReason(input, actionLabel);
+    return "critical";
+  }
+  return "warning";
+}
 
 export const shippingRulesRouter = router({
   
-  getSettings: adminProcedure.query(async () => {
+  getSettings: superAdminProcedure.query(async () => {
     const db = await getDb();
     const [s] = await db.select().from(shippingSettings).limit(1);
     return s || { 
@@ -28,26 +58,81 @@ export const shippingRulesRouter = router({
     };
   }),
 
-  updateSettings: adminProcedure
+  updateSettings: superAdminProcedure
     .input(z.object({
       pickupEnabled: z.boolean().optional(),
       pickupLabel: z.string().optional(),
       pickupInstruction: z.string().optional(),
+      confirmationToken: z.string().optional(),
+      confirmationReason: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const existing = await db.select().from(shippingSettings).limit(1);
+      assertStrongConfirmation(input, "Alteracao de configuracoes de retirada/frete");
+      assertConfirmationReason(input, "Alteracao de configuracoes de retirada/frete");
+      const { confirmationToken, confirmationReason, ...settingsInput } = input;
 
       if (existing.length === 0) {
         await db.insert(shippingSettings).values({
-          pickupEnabled: input.pickupEnabled ?? false,
+          pickupEnabled: settingsInput.pickupEnabled ?? false,
           pickupLabel: input.pickupLabel ?? "Retirada no Balcão",
-          pickupInstruction: input.pickupInstruction ?? "",
+          pickupInstruction: settingsInput.pickupInstruction ?? "",
         });
+
+        const actor = {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId
+        };
+
+        void AuditLogService.record({
+          actor,
+          module: "shipping",
+          action: "CREATE_SHIPPING_SETTINGS",
+          severity: "critical",
+          entityType: "shipping_settings",
+          entityId: "global",
+          entityLabel: "Configurações de Retirada/Entrega",
+          oldValues: null,
+          newValues: {
+            ...settingsInput,
+            confirmationToken: undefined,
+            confirmationReason,
+          }
+        });
+
       } else {
+        const oldSettings = existing[0];
         await db.update(shippingSettings)
-          .set({ ...input, updatedAt: new Date() })
-          .where(eq(shippingSettings.id, existing[0].id));
+          .set({ ...settingsInput, updatedAt: new Date() })
+          .where(eq(shippingSettings.id, oldSettings.id));
+
+        const actor = {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId
+        };
+
+        void AuditLogService.record({
+          actor,
+          module: "shipping",
+          action: "UPDATE_SHIPPING_SETTINGS",
+          severity: "critical",
+          entityType: "shipping_settings",
+          entityId: oldSettings.id,
+          entityLabel: "Configurações de Retirada/Entrega",
+          oldValues: oldSettings,
+          newValues: {
+            ...oldSettings,
+            ...settingsInput,
+            confirmationToken: undefined,
+            confirmationReason,
+          }
+        });
+
       }
       return { success: true };
     }),
@@ -55,7 +140,7 @@ export const shippingRulesRouter = router({
   /**
    * ✅ BUSCA REGRAS (Flexível: Loja Selecionada + Default)
    */
-  getRules: adminProcedure
+  getRules: superAdminProcedure
     .input(z.object({ storeSlug: z.string().optional().default("default") }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -96,10 +181,15 @@ export const shippingRulesRouter = router({
   /**
    * ✅ UPSERT: Cria ou Atualiza
    */
-  createRule: adminProcedure
+  createRule: superAdminProcedure
     .input(shippingRuleSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      const severity = validateShippingCost(
+        input.price,
+        input,
+        input.id ? "Alteracao de regra de frete" : "Criacao de regra de frete",
+      );
       
       const payload = {
         name: input.name,
@@ -113,21 +203,65 @@ export const shippingRulesRouter = router({
         storeSlug: input.storeSlug,
       };
 
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
       if (input.id) {
+        const [oldRule] = await db.select().from(shippingZones).where(eq(shippingZones.id, input.id)).limit(1);
+
         await db.update(shippingZones)
           .set({ ...payload, updatedAt: new Date() })
           .where(eq(shippingZones.id, input.id));
+
+        if (oldRule) {
+          void AuditLogService.record({
+            actor,
+            module: "shipping",
+            action: "UPDATE_SHIPPING_RULE",
+            severity,
+            entityType: "shipping_zones",
+            entityId: input.id,
+            entityLabel: oldRule.name,
+            oldValues: oldRule,
+            newValues: { ...oldRule, ...payload }
+          });
+
+        }
       } else {
-        await db.insert(shippingZones).values(payload);
+        const [res] = await db.insert(shippingZones).values(payload);
+        const insertId = res?.insertId;
+
+        void AuditLogService.record({
+          actor,
+          module: "shipping",
+          action: "CREATE_SHIPPING_RULE",
+            severity,
+          entityType: "shipping_zones",
+          entityId: insertId || null,
+          entityLabel: input.name,
+          oldValues: null,
+          newValues: payload
+        });
+
       }
       
       return { success: true };
     }),
 
-  deleteRule: adminProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+  deleteRule: superAdminProcedure
+    .input(z.object({
+      id: z.number(),
+      confirmationToken: z.string().optional(),
+      confirmationReason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      assertStrongConfirmation(input, "Exclusao de regra de frete");
+      assertConfirmationReason(input, "Exclusao de regra de frete");
       
       const [rule] = await db.select()
         .from(shippingZones)
@@ -139,6 +273,25 @@ export const shippingRulesRouter = router({
       await db.delete(shippingZones).where(eq(shippingZones.id, input.id));
       await db.delete(shippingZones)
         .where(like(shippingZones.description, `via polígono: ${rule.name}%`));
+
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: (ctx.req as any)?.requestId
+      };
+
+      void AuditLogService.record({
+        actor,
+        module: "shipping",
+        action: "DELETE_SHIPPING_RULE",
+        severity: "critical",
+        entityType: "shipping_zones",
+        entityId: input.id,
+        entityLabel: rule.name,
+        oldValues: rule,
+        newValues: null
+      });
 
       return { success: true };
     }),

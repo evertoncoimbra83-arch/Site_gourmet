@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { CreditCard, Plus, Edit2, Trash2, Loader2, Landmark } from "lucide-react";
-import { appToast as toast } from "@/lib/app-toast";
+import { safeNumber } from "@/lib/safe-parse";
 
 export function AdminPaymentMethodsView() {
   const { state, actions, data, mutations } = useAdminPaymentMethods();
@@ -28,33 +28,6 @@ export function AdminPaymentMethodsView() {
     return `${apiBase}/uploads/${cleanPath}`;
   };
 
-  const handleSave = (formData: Record<string, unknown>) => {
-    const payload = { 
-      name: String(formData.name || ""),
-      description: String(formData.description || ""),
-      icon: String(formData.icon || ""),
-      brand_name: String(formData.brand_name || ""),
-      brand_logo_url: String(formData.brand_logo_url || ""),
-      discount_percentage: Number(formData.discount_percentage || 0) 
-    };
-
-    if (!payload.name) {
-      return toast.error("O nome do método é obrigatório.");
-    }
-    
-    if (state.editingMethod) {
-      mutations.updateMutation.mutate({ 
-        // ✅ CORREÇÃO TS: Convertendo ID para número conforme exigido pelo backend
-        id: Number(state.editingMethod.id), 
-        ...payload 
-      });
-    } else {
-      mutations.createMutation.mutate({ 
-        ...payload, 
-        isActive: true 
-      });
-    }
-  };
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4 md:px-0 text-left">
@@ -103,7 +76,7 @@ export function AdminPaymentMethodsView() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {(data.methods as unknown as PaymentMethod[]).map((method) => {
               const activeStatus = method.isActive;
-              const discount = parseFloat(String(method.discount_percentage || method.discountPercentage || 0));
+              const discount = safeNumber(String(method.discount_percentage || method.discountPercentage || 0));
               const logoUrl = method.brand_logo_url || method.brandLogoUrl;
 
               return (
@@ -147,7 +120,7 @@ export function AdminPaymentMethodsView() {
                         size="icon" 
                         className="h-10 w-10 rounded-xl bg-slate-50 text-slate-200 hover:text-red-500 transition-all" 
                         // ✅ CORREÇÃO TS: Convertendo ID para número no delete também
-                        onClick={() => window.confirm("Remover este canal de recebimento?") && mutations.deleteMutation.mutate({id: Number(method.id)})}
+                        onClick={() => actions.handleDelete(method.id)}
                       >
                         <Trash2 size={16}/>
                       </Button>
@@ -181,7 +154,7 @@ export function AdminPaymentMethodsView() {
         open={state.isOpen}
         onClose={() => actions.setIsOpen(false)}
         method={state.editingMethod as unknown as Parameters<typeof PaymentMethodDrawer>[0]['method']}
-        onSubmit={handleSave as unknown as Parameters<typeof PaymentMethodDrawer>[0]['onSubmit']}
+        onSubmit={actions.handleSave as unknown as Parameters<typeof PaymentMethodDrawer>[0]['onSubmit']}
         isPending={mutations.createMutation.isPending || mutations.updateMutation.isPending}
       />
     </div>

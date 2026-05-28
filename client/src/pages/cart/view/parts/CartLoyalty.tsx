@@ -27,12 +27,22 @@ export function CartLoyalty() {
     settings
   );
 
+  const minCartAmount = Number(settings?.minCartAmount || 0);
   const subtotal = Number(totals?.subtotal || 0);
+  const missingAmount = minCartAmount - subtotal;
   const currentDiscount = Number(totals?.loyaltyDiscount || 0);
   const isProgramDisabled = settings?.enabled === false;
 
   // Lógica de interface baseada no resultado do Validador
   const getStatusContent = () => {
+    if (minCartAmount > 0 && subtotal < minCartAmount) {
+      return {
+        label: `Faltam R$ ${missingAmount.toFixed(2).replace(".", ",")} para liberar o uso dos seus pontos.`,
+        blocked: true,
+        icon: <AlertCircle size={12} />
+      };
+    }
+
     // 1. Bloqueado (Falta valor mínimo ou sem pontos)
     if (!validation.isValid) {
       return {

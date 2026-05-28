@@ -6,6 +6,8 @@ import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom"; 
 import { Loader2, ArrowLeft, ShieldCheck, LockKeyhole, UserPlus } from "lucide-react";
 
+import { SEO } from "@/components/SEO";
+
 import CheckoutPayment from "./checkout/components/CheckoutPayment";
 import CheckoutShipping from "./checkout/components/CheckoutShipping";
 import CheckoutSummary from "./checkout/components/CheckoutSummary";
@@ -142,6 +144,7 @@ export default function CheckoutPage() {
 
   return (
     <CheckoutProvider>
+      <SEO title="Finalizar Pedido" noindex />
       <CheckoutContent />
     </CheckoutProvider>
   );

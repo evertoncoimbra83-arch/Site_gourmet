@@ -17,7 +17,6 @@ interface MediaItem {
   url: string;
   displayUrl?: string;
   originalFilename: string;
-  folder?: string;
 }
 
 interface MediaCardProps {
@@ -35,9 +34,6 @@ export function MediaCard({ item, onCopy, onDelete }: MediaCardProps) {
     <Card className="group overflow-hidden border-none bg-transparent shadow-none transition-all duration-500 hover:-translate-y-2">
       <CardContent className="p-0">
         <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-100 shadow-sm transition-all duration-500 group-hover:shadow-2xl">
-          <div className="absolute left-4 top-4 z-10 rounded-full bg-white/90 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-700 shadow-sm backdrop-blur-md">
-            {item.folder || "geral"}
-          </div>
           
           {/* ASPECT RATIO: Garante que a foto da marmita nunca achate */}
           <AspectRatio ratio={1 / 1}>
@@ -105,7 +101,7 @@ export function MediaCard({ item, onCopy, onDelete }: MediaCardProps) {
           <p className="truncate font-serif text-sm italic text-slate-800 transition-colors group-hover:text-emerald-700">
             {item.originalFilename}
           </p>
-          <div className="mt-1 h-[2px] w-0 bg-emerald-500 transition-all duration-500 group-hover:w-full" />
+          <div className="mt-1 h-0.5 w-0 bg-emerald-500 transition-all duration-500 group-hover:w-full" />
         </div>
       </CardContent>
     </Card>

@@ -1,25 +1,34 @@
-// e:/IA/projects/Site_React/client/src/pages/adminOrders/components/orderDrawer/AdminOrderItems.tsx
-
 import React from "react";
-import { Package, Tag, Flame, Utensils, AlertCircle, Bug } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import {
+  AlertCircle,
+  Flame,
+  Minus,
+  Package,
+  Plus,
+  Tag,
+  Trash2,
+  Utensils,
+} from "lucide-react";
 
-// --- INTERFACES ---
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { safeJsonParse, safeNumber } from "@/lib/safe-parse";
 
 interface Accompaniment {
-  name: string;
+  name?: string;
+  label?: string;
   weight?: number | string;
-  groupId?: number | string;
   id?: number | string;
 }
 
 interface Meal {
   slotName?: string;
-  label?: string; 
+  label?: string;
   dishName?: string;
+  name?: string;
   selectedAccompaniments?: Accompaniment[];
-  accompaniments?: Accompaniment[]; 
+  selectedAccs?: Accompaniment[];
+  accompaniments?: Accompaniment[];
   energy_kcal?: number | string;
   energyKcal?: number | string;
 }
@@ -36,15 +45,17 @@ interface OrderOptions {
   selectedAccompaniments?: Accompaniment[];
 }
 
-interface OrderItem {
+export interface OrderItem {
   id: string | number;
   quantity: number;
+  unitPrice?: number | string;
+  totalPrice?: number | string;
   dish_name?: string;
   dishName?: string;
   name?: string;
-  options?: string | OrderOptions; // ✅ Refinado de 'object' para 'OrderOptions'
-  parsedOptions?: OrderOptions; // ✅ Refinado de 'any'
-  packageItems?: Meal[]; // ✅ Refinado de 'any[]'
+  options?: string | OrderOptions;
+  parsedOptions?: string | OrderOptions;
+  packageItems?: Meal[];
   applied_nutrition?: string | unknown;
   appliedNutrition?: string | unknown;
   package_id?: string | number;
@@ -55,151 +66,222 @@ interface AdminOrderItemsProps {
   items: OrderItem[];
   isEditing: boolean;
   onPrintLabel?: (item: OrderItem) => void;
+  onUpdateQuantity?: (index: number, qty: number) => void;
+  onRemoveItem?: (index: number) => void;
 }
 
-export function AdminOrderItems({ items, isEditing, onPrintLabel }: AdminOrderItemsProps) {
-  
-  // PARSER BLINDADO
-  const safeParse = <T = Record<string, unknown>>(data: unknown): T => {
-    if (!data || data === "null") return {} as T;
-    let current = data;
-    let attempts = 0;
-    while (typeof current === 'string' && attempts < 3) {
-      try {
-        const parsed = JSON.parse(current);
-        if (typeof parsed === 'object' && parsed !== null) {
-          current = parsed;
-          break; 
-        } else {
-          current = parsed; 
-        }
-      } catch {
-        break; 
-      }
-      attempts++;
-    }
-    return (typeof current === 'object' && current !== null) ? (current as T) : ({} as T);
-  };
+function normalizeAccList(value: unknown): Accompaniment[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    return safeJsonParse<Accompaniment[]>(value, []);
+  }
+  return [];
+}
 
+function parseOptions(value: unknown): OrderOptions {
+  if (typeof value === "string") {
+    return safeJsonParse<OrderOptions>(value, {});
+  }
+  return (value as OrderOptions) || {};
+}
+
+function parseNutrition(value: unknown): Meal | Meal[] | null {
+  if (!value || value === "null") return null;
+  if (typeof value === "string") {
+    return safeJsonParse<Meal | Meal[] | null>(value, null);
+  }
+  return value as Meal | Meal[] | null;
+}
+
+export function AdminOrderItems({
+  items,
+  isEditing,
+  onPrintLabel,
+  onUpdateQuantity,
+  onRemoveItem,
+}: AdminOrderItemsProps) {
   if (!items || items.length === 0) {
     return (
-      <div className="p-10 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-        <AlertCircle className="mx-auto text-slate-300 mb-3" size={40} />
-        <p className="text-xs font-black text-slate-400 uppercase tracking-widest italic">
+      <section className="rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center">
+        <AlertCircle className="mx-auto mb-3 text-slate-400" size={40} />
+        <p className="text-xs font-black uppercase italic tracking-widest text-slate-500">
           Nenhum item carregado.
         </p>
-      </div>
+      </section>
     );
   }
 
   return (
     <section className="space-y-4 text-left">
-      <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2 px-2 italic">
-        <Package size={14} /> Detalhes da Produção ({items.length})
+      <h3 className="flex items-center gap-2 px-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+        <Package size={14} className="text-slate-700" />
+        Detalhes da produção ({items.length})
       </h3>
 
       <div className="space-y-3">
         {items.map((item, idx) => {
-          const rawOptions = item.parsedOptions || item.options || {};
-          const options = safeParse<OrderOptions>(rawOptions);
-          
-          const nutrition = safeParse<Meal | Meal[] | null>(item.applied_nutrition || item.appliedNutrition);
-          
-          const isPkg = !!item.package_id || 
-                        options._type === "package" || 
-                        options._type === "package_custom" || 
-                        options.isPackage === true || 
-                        Array.isArray(options.meals);
-          
-          const packageMeals = Array.isArray(item.packageItems) && item.packageItems.length > 0 
-            ? (item.packageItems as Meal[]) 
-            : Array.isArray(options.meals) ? (options.meals as Meal[]) : [];
+          const options = parseOptions(item.parsedOptions || item.options || {});
+          const nutrition = parseNutrition(item.applied_nutrition || item.appliedNutrition);
+          const isPackage =
+            Boolean(item.package_id) ||
+            options._type === "package" ||
+            options._type === "package_custom" ||
+            options.isPackage === true ||
+            Array.isArray(options.meals) ||
+            (Array.isArray(item.packageItems) && item.packageItems.length > 0);
 
-          const displayName = 
-            item.dish_name || 
-            item.dishName || 
-            item.name || 
-            options.dishName || 
-            options.packageName || 
-            (isPkg ? "Pacote Personalizado" : null) ||
-            (options.dishId ? `Prato #${options.dishId}` : "Produto");
+          const packageMeals = Array.isArray(item.packageItems) && item.packageItems.length > 0
+            ? item.packageItems
+            : Array.isArray(options.meals)
+              ? options.meals
+              : [];
 
-          const totalKcal = isPkg && Array.isArray(nutrition)
-            ? nutrition.reduce((acc: number, m: Meal) => acc + (Number(m.energy_kcal || m.energyKcal || 0)), 0)
-            : (Number((nutrition as Meal)?.energy_kcal || (nutrition as Meal)?.energyKcal || 0));
+          const displayName =
+            item.dish_name ||
+            item.dishName ||
+            item.name ||
+            options.dishName ||
+            options.packageName ||
+            (isPackage ? "Pacote Personalizado" : "Produto");
+
+          const totalKcal = isPackage && Array.isArray(nutrition)
+            ? nutrition.reduce(
+                (acc, meal) => acc + safeNumber(meal.energy_kcal ?? meal.energyKcal),
+                0,
+              )
+            : safeNumber((nutrition as Meal | null)?.energy_kcal ?? (nutrition as Meal | null)?.energyKcal);
+
+          const singleAccs = normalizeAccList(
+            options.selectedAccompaniments || options.selectedAccs || [],
+          );
 
           return (
-            <div key={item.id || idx} className="bg-white rounded-3xl border border-slate-100 p-5 shadow-sm relative overflow-hidden transition-all hover:border-slate-200 text-left">
-              
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-2xl bg-slate-50 flex items-center justify-center text-xs font-black text-emerald-600 border border-slate-100 shrink-0">
-                    {item.quantity}x
+            <div
+              key={String(item.id || idx)}
+              className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-900">
+                    {safeNumber(item.quantity, 1)}x
                   </div>
 
-                  <div className="text-left">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-black text-slate-800 uppercase leading-none">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-black uppercase leading-none text-slate-900">
                         {displayName}
                       </span>
                       {totalKcal > 0 && (
-                        <Badge className="bg-orange-50 text-orange-600 border-orange-100 text-[8px] font-black h-4 px-1.5 flex gap-0.5">
-                          <Flame size={8} fill="currentColor" /> {Math.round(totalKcal)} KCAL
+                        <Badge className="h-5 gap-1 border-orange-200 bg-orange-50 px-2 text-[9px] font-black uppercase text-orange-700">
+                          <Flame size={10} className="text-orange-600" />
+                          {Math.round(totalKcal)} kcal
                         </Badge>
                       )}
                     </div>
-                    
-                    {!isPkg && (item.size_name || options.selectedSizeName) && (
-                      <span className="text-[9px] font-bold text-slate-400 uppercase italic">
-                        {item.size_name || options.selectedSizeName}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">
+                        {isPackage
+                          ? `Combo / Pacote (${packageMeals.length} marmitas)`
+                          : item.size_name || options.selectedSizeName || "Sem tamanho"}
                       </span>
-                    )}
-                    {isPkg && (
-                      <span className="text-[9px] font-bold text-slate-400 uppercase italic">
-                        Combo / Pacote ({packageMeals.length} Refeições)
+                      <span className="text-[10px] font-bold text-slate-700">
+                        R$ {safeNumber(item.unitPrice).toFixed(2)}
                       </span>
-                    )}
+                    </div>
                   </div>
                 </div>
 
-                {!isEditing && (
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-10 w-10 rounded-2xl bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all shadow-sm shrink-0 ml-2" 
-                    onClick={() => onPrintLabel?.(item)}
-                  >
-                    <Tag size={18} />
-                  </Button>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {!isEditing && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 rounded-2xl border-slate-200 bg-slate-50 text-slate-800 hover:bg-amber-50 hover:text-amber-700"
+                      onClick={() => onPrintLabel?.(item)}
+                    >
+                      <Tag size={16} className="text-current" />
+                    </Button>
+                  )}
+
+                  {isEditing && (
+                    <div className="flex items-center gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rounded-xl text-slate-800 hover:bg-white"
+                        onClick={() =>
+                          onUpdateQuantity?.(idx, Math.max(1, safeNumber(item.quantity, 1) - 1))
+                        }
+                      >
+                        <Minus size={14} />
+                      </Button>
+                      <span className="min-w-8 text-center text-xs font-black text-slate-900">
+                        {safeNumber(item.quantity, 1)}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rounded-xl text-slate-800 hover:bg-white"
+                        onClick={() =>
+                          onUpdateQuantity?.(idx, safeNumber(item.quantity, 1) + 1)
+                        }
+                      >
+                        <Plus size={14} />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ml-1 h-8 w-8 rounded-xl text-red-600 hover:bg-red-50"
+                        onClick={() => onRemoveItem?.(idx)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="mt-4 ml-12 border-l-2 border-slate-50 pl-4 text-left">
-                {isPkg ? (
+              <div className="mt-4 border-l-2 border-slate-200 pl-4">
+                {isPackage ? (
                   <div className="space-y-3">
                     {packageMeals.length > 0 ? (
-                      packageMeals.map((meal, mIdx) => {
-                        const accs = meal.accompaniments || meal.selectedAccompaniments || [];
+                      packageMeals.map((meal, mealIndex) => {
+                        const mealAccs = normalizeAccList(
+                          meal.accompaniments ||
+                            meal.selectedAccompaniments ||
+                            meal.selectedAccs ||
+                            [],
+                        );
 
                         return (
-                          <div key={mIdx} className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
-                            <p className="text-[9px] font-black text-emerald-600 uppercase italic mb-1">
-                              {meal.label || meal.slotName || `Marmita ${mIdx + 1}`}:
+                          <div
+                            key={`${item.id}-${mealIndex}`}
+                            className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                          >
+                            <p className="text-[9px] font-black uppercase italic text-emerald-700">
+                              {meal.label || meal.slotName || `Marmita ${mealIndex + 1}`}
                             </p>
-                            <p className="text-[10px] font-bold text-slate-700 uppercase mb-2">
-                              {meal.dishName}
+                            <p className="mt-1 text-[11px] font-bold uppercase text-slate-900">
+                              {meal.dishName || meal.name || "Prato do pacote"}
                             </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {accs.length > 0 ? (
-                                accs.map((acc, aIdx) => (
-                                  <div key={aIdx} className="flex flex-col bg-white border border-slate-100 px-2 py-1 rounded-lg">
-                                    <span className="text-[8px] font-bold text-slate-600 uppercase leading-none">
-                                      {acc.name} {acc.weight ? `(${acc.weight}g)` : ''}
-                                    </span>
-                                  </div>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {mealAccs.length > 0 ? (
+                                mealAccs.map((acc, accIndex) => (
+                                  <span
+                                    key={`${item.id}-${mealIndex}-${accIndex}`}
+                                    className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase text-slate-800"
+                                  >
+                                    {acc.name || acc.label || "Acompanhamento"}
+                                    {acc.weight ? ` (${acc.weight}g)` : ""}
+                                  </span>
                                 ))
                               ) : (
-                                <span className="text-[8px] font-bold text-slate-400 uppercase italic">
+                                <span className="text-[10px] font-bold uppercase italic text-slate-500">
                                   Sem acompanhamentos
                                 </span>
                               )}
@@ -208,32 +290,41 @@ export function AdminOrderItems({ items, isEditing, onPrintLabel }: AdminOrderIt
                         );
                       })
                     ) : (
-                      <div className="p-3 bg-red-50 text-red-600 rounded-xl text-xs flex gap-2">
-                        <Bug size={14} className="shrink-0 mt-0.5" />
-                        <div>
-                          <strong>JSON Vazio ou Mal Formatado</strong><br/>
-                          <span className="text-[9px] text-red-400 break-all">{JSON.stringify(options)}</span>
-                        </div>
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-[10px] font-black uppercase text-amber-800">
+                          Pacote sem composição legível
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-amber-700">
+                          O item existe no pedido, mas o JSON das marmitas não trouxe refeições
+                          renderizáveis neste carregamento.
+                        </p>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-slate-400 mb-1">
-                      <Utensils size={12} />
-                      <span className="text-[9px] font-black uppercase">Acompanhamentos:</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Utensils size={12} className="text-slate-600" />
+                      <span className="text-[10px] font-black uppercase text-slate-500">
+                        Acompanhamentos
+                      </span>
                     </div>
+
                     <div className="flex flex-wrap gap-2">
-                      {(options.selectedAccs || options.selectedAccompaniments || []).length > 0 ? (
-                        (options.selectedAccs || options.selectedAccompaniments || []).map((acc, i) => (
-                          <div key={i} className="flex flex-col bg-emerald-50/50 border border-emerald-100 px-2.5 py-1 rounded-xl">
-                            <span className="text-[10px] font-black text-emerald-700 uppercase leading-none">
-                              {acc.name} {acc.weight ? `(${acc.weight}g)` : ''}
-                            </span>
-                          </div>
+                      {singleAccs.length > 0 ? (
+                        singleAccs.map((acc, accIndex) => (
+                          <span
+                            key={`${item.id}-${accIndex}`}
+                            className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-800"
+                          >
+                            {acc.name || acc.label || "Acompanhamento"}
+                            {acc.weight ? ` (${acc.weight}g)` : ""}
+                          </span>
                         ))
                       ) : (
-                        <span className="text-[9px] font-bold text-slate-300 uppercase italic">Nenhum selecionado.</span>
+                        <span className="text-[10px] font-bold uppercase italic text-slate-500">
+                          Nenhum acompanhamento selecionado.
+                        </span>
                       )}
                     </div>
                   </div>

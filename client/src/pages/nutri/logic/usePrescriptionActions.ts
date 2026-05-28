@@ -53,10 +53,12 @@ export function usePrescriptionActions({ clientId, prescriptionId, builder, onCl
 
   const saveAsTemplate = trpc.nutri.saveTemplate.useMutation({
     onSuccess: () => {
-      toast.success("Modelo atualizado na sua biblioteca!");
+      toast.success("Modelo salvo na sua biblioteca!");
       utils.nutri.getMyTemplates.invalidate();
       setShowTemplateModal(false);
-      onClose();
+      if (!clientId) {
+        onClose();
+      }
     },
     onError: (err) => toast.error(`Erro ao salvar modelo: ${err.message}`),
   });

@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast"; 
+import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
 import { keepPreviousData } from "@tanstack/react-query";
+import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 
 // --- INTERFACES ---
 export interface RedemptionRule {
@@ -92,7 +94,8 @@ export function useAdminLoyalty() {
     onSuccess: () => {
       utils.admin.loyaltySettings.get.invalidate();
       toast.success("Configurações salvas!");
-    }
+    },
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao salvar fidelidade.")),
   });
 
   const adjustMutation = trpc.admin.loyaltySettings.addManualPoints.useMutation({
@@ -103,7 +106,7 @@ export function useAdminLoyalty() {
       setManualReason("");
       toast.success(res?.message || "Saldo atualizado com sucesso!");
     },
-    onError: (err: { message: string }) => toast.error(`Erro: ${err.message}`)
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao ajustar pontos."))
   });
 
   // ✅ NOVA MUTATION: Deletar Transação
@@ -113,18 +116,37 @@ export function useAdminLoyalty() {
       utils.admin.loyaltySettings.getCustomers.invalidate();
       toast.success("Entrada removida com sucesso!");
     },
-    onError: (err: { message: string }) => toast.error(`Erro ao deletar: ${err.message}`)
+    onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao deletar movimentacao."))
   });
 
-  const handleSaveSettings = () => updateSettings.mutate(formData as Record<string, unknown>);
+  const handleSaveSettings = () => {
+    const confirmation = requestStrongConfirmation(
+      "Alterar regras do clube de fidelidade afeta pontos, cashback e resgates.",
+    );
+    if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+    updateSettings.mutate({
+      ...(formData as Record<string, unknown>),
+      ...confirmation,
+    });
+  };
 
   const handleManualAdjustment = () => {
     if (!selectedCustomer) return;
+    const confirmation =
+      Math.abs(manualPoints) >= 1000
+        ? requestStrongConfirmation(
+            `Ajuste manual de ${manualPoints} pontos para ${selectedCustomer.name}.`,
+          )
+        : null;
+    if (Math.abs(manualPoints) >= 1000 && !confirmation) {
+      return toast.warning("Confirmacao forte cancelada.");
+    }
     adjustMutation.mutate({
       userId: String(selectedCustomer.id),
       points: manualPoints,
       reason: manualReason || "Ajuste manual",
-      customerName: selectedCustomer.name
+      customerName: selectedCustomer.name,
+      ...confirmation,
     });
   };
 
@@ -140,9 +162,15 @@ export function useAdminLoyalty() {
     }
 
     // ✅ CORREÇÃO: Enviando no formato que o seu backend espera
+    const confirmation = requestStrongConfirmation(
+      "Excluir movimentacao de fidelidade e uma acao irreversivel.",
+    );
+    if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
+
     deleteMutation.mutate({ 
       userId: String(selectedCustomer.id), 
-      transactionIds: [String(transactionId)] 
+      transactionIds: [String(transactionId)],
+      ...confirmation,
     });
   };
 

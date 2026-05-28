@@ -550,9 +550,9 @@ function piiHash(input) {
   const cleanData = input.replace(/\D/g, "").trim();
   return crypto2.createHash("sha256").update(cleanData).digest("hex");
 }
-function encrypt(text19) {
-  if (!text19) return null;
-  const t2 = String(text19).trim();
+function encrypt(text20) {
+  if (!text20) return null;
+  const t2 = String(text20).trim();
   if (!t2) return null;
   try {
     const key = getEncryptionKey();
@@ -568,9 +568,9 @@ function encrypt(text19) {
 }
 function decrypt(data) {
   if (!data) return null;
-  const text19 = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-  const parts = text19.split(":");
-  if (parts.length !== 3) return text19;
+  const text20 = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+  const parts = text20.split(":");
+  if (parts.length !== 3) return text20;
   try {
     const [ivHex, tagHex, encryptedText3] = parts;
     const key = getEncryptionKey();
@@ -582,7 +582,17 @@ function decrypt(data) {
     decrypted += decipher.final("utf8");
     return decrypted;
   } catch {
-    return text19;
+    return text20;
+  }
+}
+function unseal(val) {
+  if (!val) return "";
+  const str = String(val).trim();
+  try {
+    const decrypted = decrypt(str);
+    return decrypted ?? str;
+  } catch {
+    return str;
   }
 }
 var ALGORITHM, IV_LENGTH, encryptedText;
@@ -945,7 +955,8 @@ var init_users = __esm({
       loginMethod: varchar9("login_method", { length: 50 }),
       lastSignedIn: timestamp10("last_signed_in"),
       createdAt: timestamp10("created_at").defaultNow(),
-      updatedAt: timestamp10("updated_at").defaultNow().onUpdateNow()
+      updatedAt: timestamp10("updated_at").defaultNow().onUpdateNow(),
+      deletedAt: timestamp10("deleted_at")
     }, (table) => ({
       nameIdx: index2("name_search_idx").on(table.nameIndex),
       docIdx: index2("doc_search_idx").on(table.documentIndex),
@@ -1224,7 +1235,7 @@ var init_shipping = __esm({
 });
 
 // drizzle/schema/logs.ts
-import { mysqlTable as mysqlTable15, varchar as varchar15, text as text13, timestamp as timestamp15, serial as serial3 } from "drizzle-orm/mysql-core";
+import { index as index3, mysqlTable as mysqlTable15, varchar as varchar15, text as text13, timestamp as timestamp15, serial as serial3 } from "drizzle-orm/mysql-core";
 var auditLogs;
 var init_logs = __esm({
   "drizzle/schema/logs.ts"() {
@@ -1237,17 +1248,31 @@ var init_logs = __esm({
       userId: varchar15("user_id", { length: 255 }).references(() => users.id, { onDelete: "set null" }),
       // Ação executada (Ex: "LOGIN", "UPDATE_PRODUCT")
       action: varchar15("action", { length: 100 }).notNull(),
+      // Módulo organizacional (Ex: "settings", "orders")
+      module: varchar15("module", { length: 100 }).default("system").notNull(),
+      // Classificação de criticidade do log (Ex: "info", "warning", "critical")
+      severity: varchar15("severity", { length: 20 }).default("info").notNull(),
       // Tabela e ID do registro afetado
       entity: varchar15("entity", { length: 100 }),
       entityId: varchar15("entity_id", { length: 255 }),
+      // Rótulo amigável da entidade (Ex: "Pix", "Cupom DESCONTO")
+      entityLabel: varchar15("entity_label", { length: 255 }),
       // Valores em JSON (usamos text para compatibilidade ampla)
       oldValues: text13("old_values"),
       newValues: text13("new_values"),
-      // Informações de rede
+      // Informações de rede e rastreabilidade de sessão
       ipAddress: varchar15("ip_address", { length: 45 }),
       userAgent: text13("user_agent"),
+      requestId: varchar15("request_id", { length: 100 }),
       createdAt: timestamp15("created_at").defaultNow().notNull()
-    });
+    }, (table) => ({
+      createdAtIdx: index3("audit_logs_created_at_idx").on(table.createdAt),
+      moduleIdx: index3("audit_logs_module_idx").on(table.module),
+      severityIdx: index3("audit_logs_severity_idx").on(table.severity),
+      requestIdIdx: index3("audit_logs_request_id_idx").on(table.requestId),
+      userIdIdx: index3("audit_logs_user_id_idx").on(table.userId),
+      entityLookupIdx: index3("audit_logs_entity_lookup_idx").on(table.entity, table.entityId)
+    }));
   }
 });
 
@@ -1380,7 +1405,7 @@ import {
   timestamp as timestamp20,
   text as text16,
   json as json5,
-  index as index3,
+  index as index4,
   unique,
   int as int16
 } from "drizzle-orm/mysql-core";
@@ -1434,8 +1459,8 @@ var init_nutri = __esm({
       createdAt: timestamp20("created_at").defaultNow(),
       updatedAt: timestamp20("updated_at").defaultNow().onUpdateNow()
     }, (table) => ({
-      idxProfessional: index3("idx_professional").on(table.professionalId),
-      idxClient: index3("idx_client").on(table.clientId),
+      idxProfessional: index4("idx_professional").on(table.professionalId),
+      idxClient: index4("idx_client").on(table.clientId),
       uniqueRelationship: unique("unique_relationship").on(table.professionalId, table.clientId)
     }));
     professionalReviews = mysqlTable20("professional_reviews", {
@@ -1629,6 +1654,134 @@ var init_packagePersonas = __esm({
   }
 });
 
+// drizzle/schema/pdv.ts
+import { relations as relations11 } from "drizzle-orm";
+import {
+  date,
+  datetime as datetime2,
+  decimal as decimal18,
+  int as int20,
+  mysqlEnum as mysqlEnum6,
+  mysqlTable as mysqlTable24,
+  text as text19,
+  timestamp as timestamp24,
+  unique as unique2,
+  varchar as varchar24
+} from "drizzle-orm/mysql-core";
+var pdvClienteTipoEnum, pdvComandaStatusEnum, pdvPagamentoFormaEnum, pdvClientes, pdvComandas, pdvComandaItens, pdvPagamentos, pdvFechamentos, pdvClientesRelations, pdvComandasRelations, pdvComandaItensRelations, pdvPagamentosRelations;
+var init_pdv = __esm({
+  "drizzle/schema/pdv.ts"() {
+    "use strict";
+    init_catalog();
+    pdvClienteTipoEnum = mysqlEnum6("tipo", ["cpf", "cnpj"]);
+    pdvComandaStatusEnum = mysqlEnum6("status", [
+      "aberta",
+      "fechada",
+      "cancelada"
+    ]);
+    pdvPagamentoFormaEnum = mysqlEnum6("forma", [
+      "cartao",
+      "pix",
+      "outro"
+    ]);
+    pdvClientes = mysqlTable24("pdv_clientes", {
+      id: int20("id").primaryKey().autoincrement(),
+      tipo: pdvClienteTipoEnum.notNull(),
+      documento: varchar24("documento", { length: 20 }).notNull(),
+      nome: varchar24("nome", { length: 255 }).notNull(),
+      email: varchar24("email", { length: 255 }),
+      telefone: varchar24("telefone", { length: 30 }),
+      empresa: varchar24("empresa", { length: 255 }),
+      observacoes: text19("observacoes"),
+      createdAt: timestamp24("created_at").defaultNow().notNull(),
+      updatedAt: timestamp24("updated_at").defaultNow().onUpdateNow().notNull()
+    });
+    pdvComandas = mysqlTable24("pdv_comandas", {
+      id: int20("id").primaryKey().autoincrement(),
+      clienteId: int20("cliente_id").notNull().references(() => pdvClientes.id, { onDelete: "restrict" }),
+      status: pdvComandaStatusEnum.default("aberta").notNull(),
+      observacoes: text19("observacoes"),
+      desconto: decimal18("desconto", { precision: 10, scale: 2 }).default("0.00").notNull(),
+      totalItens: decimal18("total_itens", { precision: 10, scale: 2 }).default("0.00").notNull(),
+      totalFinal: decimal18("total_final", { precision: 10, scale: 2 }).default("0.00").notNull(),
+      abertaEm: datetime2("aberta_em", { mode: "date", fsp: 3 }).notNull(),
+      fechadaEm: datetime2("fechada_em", { mode: "date", fsp: 3 }),
+      createdBy: varchar24("created_by", { length: 191 }).notNull(),
+      createdAt: timestamp24("created_at").defaultNow().notNull(),
+      updatedAt: timestamp24("updated_at").defaultNow().onUpdateNow().notNull()
+    });
+    pdvComandaItens = mysqlTable24("pdv_comanda_itens", {
+      id: int20("id").primaryKey().autoincrement(),
+      comandaId: int20("comanda_id").notNull().references(() => pdvComandas.id, { onDelete: "cascade" }),
+      dishId: int20("dish_id").references(() => dishes.id, { onDelete: "set null" }),
+      nome: varchar24("nome", { length: 255 }).notNull(),
+      precoUnit: decimal18("preco_unit", { precision: 10, scale: 2 }).notNull(),
+      quantidade: int20("quantidade").default(1).notNull(),
+      subtotal: decimal18("subtotal", { precision: 10, scale: 2 }).notNull(),
+      observacao: text19("observacao"),
+      createdAt: timestamp24("created_at").defaultNow().notNull()
+    });
+    pdvPagamentos = mysqlTable24("pdv_pagamentos", {
+      id: int20("id").primaryKey().autoincrement(),
+      comandaId: int20("comanda_id").notNull().references(() => pdvComandas.id, { onDelete: "cascade" }),
+      forma: pdvPagamentoFormaEnum.notNull(),
+      formaDescricao: varchar24("forma_descricao", { length: 255 }),
+      valor: decimal18("valor", { precision: 10, scale: 2 }).notNull(),
+      createdAt: timestamp24("created_at").defaultNow().notNull()
+    });
+    pdvFechamentos = mysqlTable24(
+      "pdv_fechamentos",
+      {
+        id: int20("id").primaryKey().autoincrement(),
+        dataFechamento: date("data_fechamento", { mode: "string" }).notNull(),
+        totalCartao: decimal18("total_cartao", { precision: 10, scale: 2 }).default("0.00").notNull(),
+        totalPix: decimal18("total_pix", { precision: 10, scale: 2 }).default("0.00").notNull(),
+        totalOutro: decimal18("total_outro", { precision: 10, scale: 2 }).default("0.00").notNull(),
+        totalGeral: decimal18("total_geral", { precision: 10, scale: 2 }).default("0.00").notNull(),
+        totalComandas: int20("total_comandas").default(0).notNull(),
+        observacoes: text19("observacoes"),
+        fechadoPor: varchar24("fechado_por", { length: 191 }).notNull(),
+        createdAt: timestamp24("created_at").defaultNow().notNull()
+      },
+      (table) => ({
+        dataFechamentoUnique: unique2("pdv_fechamentos_data_fechamento_unique").on(
+          table.dataFechamento
+        )
+      })
+    );
+    pdvClientesRelations = relations11(pdvClientes, ({ many }) => ({
+      comandas: many(pdvComandas)
+    }));
+    pdvComandasRelations = relations11(pdvComandas, ({ one, many }) => ({
+      cliente: one(pdvClientes, {
+        fields: [pdvComandas.clienteId],
+        references: [pdvClientes.id]
+      }),
+      itens: many(pdvComandaItens),
+      pagamentos: many(pdvPagamentos)
+    }));
+    pdvComandaItensRelations = relations11(
+      pdvComandaItens,
+      ({ one }) => ({
+        comanda: one(pdvComandas, {
+          fields: [pdvComandaItens.comandaId],
+          references: [pdvComandas.id]
+        }),
+        dish: one(dishes, {
+          fields: [pdvComandaItens.dishId],
+          references: [dishes.id]
+        })
+      })
+    );
+    pdvPagamentosRelations = relations11(pdvPagamentos, ({ one }) => ({
+      comanda: one(pdvComandas, {
+        fields: [pdvPagamentos.comandaId],
+        references: [pdvComandas.id]
+      })
+    }));
+  }
+});
+
 // drizzle/schema/index.ts
 var init_schema = __esm({
   "drizzle/schema/index.ts"() {
@@ -1657,6 +1810,7 @@ var init_schema = __esm({
     init_aiIntelligence();
     init_analytics();
     init_packagePersonas();
+    init_pdv();
   }
 });
 
@@ -1733,6 +1887,18 @@ __export(schema_exports, {
   packages: () => packages,
   paymentMethodRelations: () => paymentMethodRelations,
   paymentMethods: () => paymentMethods,
+  pdvClienteTipoEnum: () => pdvClienteTipoEnum,
+  pdvClientes: () => pdvClientes,
+  pdvClientesRelations: () => pdvClientesRelations,
+  pdvComandaItens: () => pdvComandaItens,
+  pdvComandaItensRelations: () => pdvComandaItensRelations,
+  pdvComandaStatusEnum: () => pdvComandaStatusEnum,
+  pdvComandas: () => pdvComandas,
+  pdvComandasRelations: () => pdvComandasRelations,
+  pdvFechamentos: () => pdvFechamentos,
+  pdvPagamentoFormaEnum: () => pdvPagamentoFormaEnum,
+  pdvPagamentos: () => pdvPagamentos,
+  pdvPagamentosRelations: () => pdvPagamentosRelations,
   prescriptionItems: () => prescriptionItems,
   prescriptionItemsRelations: () => prescriptionItemsRelations,
   prescriptionTemplates: () => prescriptionTemplates,
@@ -1980,35 +2146,71 @@ import { ZodError } from "zod";
 import superjson from "superjson";
 import { eq as eq2 } from "drizzle-orm";
 
-// server/db/lib/audit.ts
+// server/logger.ts
+import pino from "pino";
+var isDev = process.env.NODE_ENV !== "production";
+var logger = pino({
+  level: isDev ? "debug" : "info",
+  // Em dev, formata o texto bonitinho. Em produção, cospe JSON de alta performance.
+  transport: isDev ? {
+    target: "pino-pretty",
+    options: {
+      colorize: true,
+      translateTime: "SYS:HH:MM:ss",
+      ignore: "pid,hostname"
+    }
+  } : void 0
+});
+
+// server/_core/trpc.ts
+init_encryption();
+
+// server/services/AuditLogService.ts
 init_db();
 init_schema();
 
 // server/lib/redact.ts
 var FULL_REDACT = "[redacted]";
-var REDACTED_KEYS = /* @__PURE__ */ new Set([
+var CPF_KEYS = /* @__PURE__ */ new Set(["cpf", "document", "documento", "doc", "rg", "customerdocument"]);
+var PHONE_KEYS = /* @__PURE__ */ new Set(["phone", "telefone", "celular", "mobile", "customerphone"]);
+var ZIP_KEYS = /* @__PURE__ */ new Set(["cep", "zip", "zipcode"]);
+var SECRET_KEYS = /* @__PURE__ */ new Set([
   "password",
+  "senha",
   "token",
   "secret",
-  "currentPassword",
-  "newPassword",
-  "customerDocument",
-  "document",
-  "cpf",
-  "customerPhone",
-  "phone",
-  "mobile",
-  "receiverName",
-  "shippingAddress",
+  "apikey",
+  "api_key",
+  "authorization",
+  "cookie",
+  "currentpassword",
+  "newpassword"
+]);
+var ADDRESS_KEYS = /* @__PURE__ */ new Set([
   "address",
+  "endereco",
+  "shippingaddress",
   "street",
+  "rua",
   "number",
+  "numero",
   "complement",
   "neighborhood",
-  "zipCode",
-  "zip",
-  "cep"
+  "receivername"
 ]);
+var PAYMENT_KEYS = /* @__PURE__ */ new Set(["card", "cartao", "cvv", "pixkey", "chavepix", "chave_pix"]);
+var REDACTED_KEYS = /* @__PURE__ */ new Set([
+  ...CPF_KEYS,
+  ...PHONE_KEYS,
+  ...ZIP_KEYS,
+  ...SECRET_KEYS,
+  ...ADDRESS_KEYS,
+  ...PAYMENT_KEYS,
+  "email"
+]);
+function normalizeKey(key) {
+  return key.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 function maskDigits(value, visibleStart = 0, visibleEnd = 0) {
   const digits = value.replace(/\D/g, "");
   if (!digits) return "";
@@ -2038,13 +2240,14 @@ function maskZipCode(value) {
 }
 function redactByKey(key, value) {
   if (value == null) return value;
-  if (key === "customerDocument" || key === "document" || key === "cpf") {
+  const normalizedKey = normalizeKey(key);
+  if (CPF_KEYS.has(normalizedKey)) {
     return maskCpf(value);
   }
-  if (key === "customerPhone" || key === "phone" || key === "mobile") {
+  if (PHONE_KEYS.has(normalizedKey)) {
     return maskPhone(value);
   }
-  if (key === "zipCode" || key === "zip" || key === "cep") {
+  if (ZIP_KEYS.has(normalizedKey)) {
     return maskZipCode(value);
   }
   return FULL_REDACT;
@@ -2057,63 +2260,288 @@ function redactSensitiveData(value) {
     const input = value;
     const output = {};
     for (const [key, fieldValue] of Object.entries(input)) {
-      output[key] = REDACTED_KEYS.has(key) ? redactByKey(key, fieldValue) : redactSensitiveData(fieldValue);
+      output[key] = REDACTED_KEYS.has(normalizeKey(key)) ? redactByKey(key, fieldValue) : redactSensitiveData(fieldValue);
     }
     return output;
   }
   return value;
 }
 
-// server/db/lib/audit.ts
-async function logAction(ctx, action, entity, details) {
-  const db2 = await getDb();
-  if (!db2) return;
-  try {
-    const now = /* @__PURE__ */ new Date();
-    now.setHours(now.getHours() - 3);
-    const safeOld = details.old ? redactSensitiveData(details.old) : null;
-    const safeNew = details.new ? redactSensitiveData(details.new) : null;
-    const logData = {
-      action,
-      entity,
-      entityId: details.entityId ? String(details.entityId) : "global",
-      userId: String(ctx.userId || ctx.user?.id || "system"),
-      oldValues: safeOld ? JSON.stringify(safeOld) : null,
-      newValues: safeNew ? JSON.stringify(safeNew) : null,
-      ipAddress: ctx.ip || "127.0.0.1",
-      userAgent: ctx.userAgent || "Sistema",
-      createdAt: now
-    };
-    await db2.insert(auditLogs).values(logData);
-  } catch (error) {
-    console.error(
-      "CRITICAL_AUDIT_ERROR:",
-      error instanceof Error ? error.message : error
-    );
-  }
+// server/services/AuditLogService.ts
+import crypto3 from "crypto";
+var recentAuditKeys = /* @__PURE__ */ new Map();
+var AUDIT_DEDUPE_WINDOW_MS = 5e3;
+var EXPECTED_TRPC_ERROR_CODES = /* @__PURE__ */ new Set([
+  "BAD_REQUEST",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "CONFLICT",
+  "PRECONDITION_FAILED",
+  "PAYLOAD_TOO_LARGE",
+  "METHOD_NOT_SUPPORTED",
+  "UNPROCESSABLE_CONTENT",
+  "TOO_MANY_REQUESTS",
+  "CLIENT_CLOSED_REQUEST"
+]);
+function shouldPersistError(input) {
+  const trpcCode = input.metadata?.trpcCode;
+  if (input.source !== "trpc" || typeof trpcCode !== "string") return true;
+  if (trpcCode === "INTERNAL_SERVER_ERROR") return true;
+  if (input.severity === "critical") return true;
+  return !EXPECTED_TRPC_ERROR_CODES.has(trpcCode);
 }
-
-// server/logger.ts
-import pino from "pino";
-var isDev = process.env.NODE_ENV !== "production";
-var logger = pino({
-  level: isDev ? "debug" : "info",
-  // Em dev, formata o texto bonitinho. Em produção, cospe JSON de alta performance.
-  transport: isDev ? {
-    target: "pino-pretty",
-    options: {
-      colorize: true,
-      translateTime: "SYS:HH:MM:ss",
-      ignore: "pid,hostname"
+function computeDiff(oldVal, newVal) {
+  if (oldVal === null || oldVal === void 0 || newVal === null || newVal === void 0) {
+    return { before: oldVal, after: newVal };
+  }
+  if (typeof oldVal !== "object" || typeof newVal !== "object" || Array.isArray(oldVal) || Array.isArray(newVal)) {
+    return { before: oldVal, after: newVal };
+  }
+  const before = {};
+  const after = {};
+  const allKeys = /* @__PURE__ */ new Set([...Object.keys(oldVal), ...Object.keys(newVal)]);
+  for (const key of allKeys) {
+    if (key === "updatedAt" || key === "updated_at" || key === "createdAt" || key === "created_at") {
+      continue;
     }
-  } : void 0
-});
+    const o = oldVal[key];
+    const n = newVal[key];
+    if (JSON.stringify(o) !== JSON.stringify(n)) {
+      before[key] = o === void 0 ? null : o;
+      after[key] = n === void 0 ? null : n;
+    }
+  }
+  return { before, after };
+}
+function hasAuditValue(value) {
+  if (value === null || value === void 0) return false;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+function normalizeEntityType(entityType) {
+  if (!entityType) return null;
+  const normalized = entityType.toLowerCase();
+  const entityMap = {
+    orders: "order",
+    coupons: "coupon",
+    shipping_zones: "shipping_rule",
+    shipping_settings: "shipping_settings",
+    payment_methods: "payment_method",
+    loyalty: "loyalty_rule",
+    settings: "settings",
+    store_settings: "settings",
+    users: "user",
+    "var/backups": "backup"
+  };
+  return entityMap[normalized] || normalized;
+}
+function shouldSkipDuplicateAudit(input) {
+  const now = Date.now();
+  for (const [key2, createdAt] of recentAuditKeys.entries()) {
+    if (now - createdAt > AUDIT_DEDUPE_WINDOW_MS) {
+      recentAuditKeys.delete(key2);
+    }
+  }
+  const key = [
+    input.requestId,
+    input.module,
+    input.action,
+    input.entityType || "none",
+    input.entityId !== void 0 && input.entityId !== null ? String(input.entityId) : "none"
+  ].join("|");
+  if (recentAuditKeys.has(key)) return true;
+  recentAuditKeys.set(key, now);
+  return false;
+}
+var AuditLogService = {
+  /**
+   * Limpa payloads e previne inchaço no banco
+   */
+  sanitizeData(data) {
+    if (data === null || data === void 0) return null;
+    const redacted = redactSensitiveData(data);
+    const traverseAndTrim = (val) => {
+      if (Array.isArray(val)) {
+        if (val.length > 20) {
+          return { _summary: `Array com ${val.length} itens recortado para poupar espa\xE7o.` };
+        }
+        return val.map(traverseAndTrim);
+      }
+      if (val && typeof val === "object" && !Buffer.isBuffer(val)) {
+        const cleaned = {};
+        for (const [key, value] of Object.entries(val)) {
+          if (typeof value === "string") {
+            const trimmedVal = value.trim();
+            if (trimmedVal.startsWith("data:") || trimmedVal.startsWith("data;base64") || /^[a-zA-Z0-9+/=]{1000,}$/.test(trimmedVal) || trimmedVal.length > 2e3) {
+              cleaned[key] = `[IMAGE_OR_BINARY_REMOVED: ${trimmedVal.length} caracteres]`;
+            } else {
+              cleaned[key] = traverseAndTrim(value);
+            }
+          } else {
+            cleaned[key] = traverseAndTrim(value);
+          }
+        }
+        return cleaned;
+      }
+      return val;
+    };
+    return traverseAndTrim(redacted);
+  },
+  /**
+   * Gravação isolada de log
+   */
+  async record(input) {
+    try {
+      const db2 = await getDb();
+      if (!db2) return;
+      const action = input.action.toUpperCase();
+      const module = input.module.toLowerCase();
+      const severity = input.severity || "info";
+      const entityType = normalizeEntityType(input.entityType);
+      let safeOld = this.sanitizeData(input.oldValues);
+      let safeNew = this.sanitizeData(input.newValues);
+      if (safeOld && safeNew && JSON.stringify(safeOld) === JSON.stringify(safeNew)) {
+        return;
+      }
+      if (safeOld && safeNew && typeof safeOld === "object" && typeof safeNew === "object" && !Array.isArray(safeOld) && !Array.isArray(safeNew)) {
+        const { before, after } = computeDiff(safeOld, safeNew);
+        safeOld = before;
+        safeNew = after;
+        if (!hasAuditValue(safeOld) && !hasAuditValue(safeNew)) {
+          return;
+        }
+      }
+      let userIdString = null;
+      if (input.actor.userId !== void 0 && input.actor.userId !== null) {
+        userIdString = String(input.actor.userId);
+      }
+      const requestId = input.actor.requestId || crypto3.randomUUID();
+      if (shouldSkipDuplicateAudit({
+        requestId,
+        action,
+        module,
+        entityType,
+        entityId: input.entityId
+      })) {
+        return;
+      }
+      await db2.insert(auditLogs).values({
+        userId: userIdString,
+        action,
+        module,
+        severity,
+        entity: entityType,
+        entityId: input.entityId !== void 0 && input.entityId !== null ? String(input.entityId) : null,
+        entityLabel: input.entityLabel || null,
+        oldValues: safeOld ? JSON.stringify(safeOld) : null,
+        newValues: safeNew ? JSON.stringify(safeNew) : null,
+        ipAddress: input.actor.ipAddress || "127.0.0.1",
+        userAgent: input.actor.userAgent || "Sistema",
+        requestId,
+        createdAt: /* @__PURE__ */ new Date()
+      });
+    } catch (error) {
+      console.error("Critical: Failed to write audit log:", error);
+    }
+  },
+  /**
+   * Grava erros de sistema estruturados
+   */
+  async recordError(input) {
+    try {
+      if (!shouldPersistError(input)) {
+        return;
+      }
+      const err = input.error instanceof Error ? input.error : new Error(String(input.error));
+      const cleanStack = err.stack ? err.stack.split("\n").slice(0, 10).join("\n") : "No stack trace";
+      const safeMeta = this.sanitizeData(input.metadata || {});
+      const actor = {
+        userId: "system",
+        ...input.actor || {}
+      };
+      if (input.requestId && !actor.requestId) {
+        actor.requestId = input.requestId;
+      }
+      await this.record({
+        actor,
+        module: input.module,
+        action: "ERROR",
+        severity: input.severity || "critical",
+        entityType: "error",
+        entityLabel: err.name || "Error",
+        oldValues: null,
+        newValues: {
+          message: err.message,
+          stack: cleanStack,
+          source: input.source || "backend",
+          procedure: input.procedure,
+          route: input.route,
+          meta: safeMeta
+        }
+      });
+    } catch (logErr) {
+      console.error("Failed to persist error log entry:", logErr);
+    }
+  }
+};
 
 // server/_core/trpc.ts
-init_encryption();
+import crypto4 from "crypto";
+
+// shared/security/rbac.ts
+var ADMIN_ROLES = ["super_admin", "admin", "operator"];
+var APP_ROLES = [...ADMIN_ROLES, "user", "nutri", "customer"];
+var ADMIN_ROLE_SET = new Set(ADMIN_ROLES);
+var APP_ROLE_SET = new Set(APP_ROLES);
+function normalizeRole(role) {
+  const normalized = String(role || "user").toLowerCase().trim();
+  return APP_ROLE_SET.has(normalized) ? normalized : "user";
+}
+
+// server/_core/trpc.ts
 var t = initTRPC.context().create({
   transformer: superjson,
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape, error, ctx }) {
+    try {
+      const procedure = shape.data.path || "unknown";
+      const { module } = getTrpcModuleAndEntity(procedure);
+      const originalError = error.cause instanceof Error ? error.cause : error;
+      const isCritical = error.code === "INTERNAL_SERVER_ERROR";
+      const severity = isCritical ? "critical" : "warning";
+      const actor = { userId: "system" };
+      let requestId = void 0;
+      let route = void 0;
+      if (ctx) {
+        if (ctx.user) {
+          actor.userId = ctx.user.id;
+        }
+        if (ctx.req) {
+          requestId = ctx.req.requestId || ctx.req.headers?.["x-request-id"] || ctx.req.headers?.["x-correlation-id"];
+          route = ctx.req.originalUrl || ctx.req.url;
+          actor.ipAddress = ctx.req.ip || ctx.req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1";
+          actor.userAgent = ctx.req.headers?.["user-agent"] || "unknown";
+        }
+      }
+      void AuditLogService.recordError({
+        module,
+        source: "trpc",
+        error: originalError,
+        actor,
+        requestId,
+        route,
+        procedure,
+        severity,
+        metadata: {
+          trpcCode: error.code,
+          zodError: error.cause instanceof ZodError ? error.cause.flatten() : null
+        }
+      });
+    } catch (e) {
+      logger.error(e instanceof Error ? e : new Error(String(e)), "Erro ao registrar falha do tRPC no AuditLogService");
+    }
     return {
       ...shape,
       data: {
@@ -2157,7 +2585,7 @@ var isInternal = t.middleware(async ({ ctx, next }) => {
   return next({
     ctx: {
       ...ctx,
-      user: { id: "system-ai", role: "admin" },
+      user: { id: "system-ai", role: "super_admin" },
       isInternal: true
     }
   });
@@ -2185,16 +2613,31 @@ function requireRoles(allowedRoles) {
         message: "Sess\xE3o expirada ou n\xE3o autenticada."
       });
     }
-    if (!allowedRoles.includes(ctx.user.role)) {
+    const role = normalizeRole(ctx.user.role);
+    if (!allowedRoles.includes(role)) {
       logger.warn(
         {
           path: path5,
           userId: ctx.user.id,
-          role: ctx.user.role,
+          role,
           allowedRoles
         },
         "Tentativa de acesso negado por role"
       );
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "security",
+        action: "RBAC_DENIED",
+        severity: "critical",
+        entityType: "trpc_procedure",
+        entityId: path5,
+        newValues: { role, allowedRoles }
+      });
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Voc\xEA n\xE3o tem permiss\xE3o para acessar este recurso."
@@ -2203,9 +2646,9 @@ function requireRoles(allowedRoles) {
     return next({
       ctx: {
         ...ctx,
-        user: ctx.user,
+        user: { ...ctx.user, role },
         session: ctx.session,
-        isAdmin: ctx.user.role === "admin"
+        isAdmin: ["super_admin", "admin", "operator"].includes(role)
       }
     });
   });
@@ -2220,10 +2663,12 @@ function getRateLimitActorKey(ctx) {
   return userId || guestId || `ip:${ip}`;
 }
 function createRateLimitMiddleware(config) {
-  return t.middleware(({ ctx, next, path: path5 }) => {
+  return t.middleware((opts) => {
+    const { ctx, next, path: path5 } = opts;
     const actorKey = getRateLimitActorKey(ctx);
+    const inputKey = config.getInputKey?.(opts.rawInput);
     const now = Date.now();
-    const key = `${config.keyPrefix}:${path5}:${actorKey}`;
+    const key = `${config.keyPrefix}:${path5}:${actorKey}:${inputKey || "global"}`;
     const existing = procedureRateLimitStore.get(key);
     if (!existing || existing.resetAt <= now) {
       procedureRateLimitStore.set(key, {
@@ -2237,6 +2682,7 @@ function createRateLimitMiddleware(config) {
         {
           path: path5,
           actorKey,
+          inputKey,
           limit: config.limit,
           windowMs: config.windowMs
         },
@@ -2252,13 +2698,89 @@ function createRateLimitMiddleware(config) {
     return next();
   });
 }
+function getTrpcModuleAndEntity(path5) {
+  const parts = path5.toLowerCase().split(".");
+  const routerName = parts[1] || "system";
+  const moduleMap = {
+    settings: "settings",
+    storesettings: "settings",
+    admintheme: "theme",
+    paymentmethods: "payments",
+    shippingrules: "shipping",
+    shippingmesh: "shipping",
+    loyalty: "loyalty",
+    loyaltysettings: "loyalty",
+    coupons: "marketing",
+    marketing: "marketing",
+    backups: "backup",
+    security: "security",
+    labels: "zebra",
+    orders: "orders",
+    ordersadmin: "orders",
+    users: "security",
+    usersadmin: "security",
+    api: "integrations",
+    media: "media"
+  };
+  const module = moduleMap[routerName] || "system";
+  return { module, entity: routerName };
+}
+function getTrpcSeverity(path5) {
+  const p = path5.toUpperCase();
+  if (p.includes("BACKUP") || p.includes("SECURITY") || p.includes("GENERATE") || p.includes("EMERGENCY") || p.includes("TOKEN") || p.includes("PASSWORD") || p.includes("DELETE")) {
+    return "critical";
+  }
+  if (p.includes("UPDATE") || p.includes("SAVE") || p.includes("EDIT") || p.includes("BATCH") || p.includes("ADJUST")) {
+    return "warning";
+  }
+  return "info";
+}
 var auditMiddleware = t.middleware(async (opts) => {
   const { ctx, path: path5, type, next } = opts;
   const rawInput = opts.rawInput;
+  let requestId = ctx.req?.requestId;
+  if (!requestId && ctx.req) {
+    requestId = ctx.req.headers?.["x-request-id"] || ctx.req.headers?.["x-correlation-id"] || crypto4.randomUUID();
+    ctx.req.requestId = requestId;
+  }
   const result = await next();
   if (type === "mutation" && result.ok && ctx.user) {
-    const silentPaths = ["admin.logs.list", "admin.auth.session"];
-    if (!silentPaths.includes(path5)) {
+    const silentPaths = /* @__PURE__ */ new Set([
+      "admin.logs.list",
+      "admin.auth.session",
+      "admin.orders.updateStatus",
+      "admin.orders.editOrder",
+      "admin.orders.deleteOrder",
+      "admin.orders.updateStatusBatch",
+      "admin.orders.commitAdministrativeEdit",
+      "admin.ordersAdmin.updateStatus",
+      "admin.ordersAdmin.editOrder",
+      "admin.ordersAdmin.deleteOrder",
+      "admin.ordersAdmin.updateStatusBatch",
+      "admin.ordersAdmin.commitAdministrativeEdit",
+      "admin.coupons.create",
+      "admin.coupons.update",
+      "admin.coupons.delete",
+      "admin.paymentMethods.update",
+      "admin.paymentMethods.delete",
+      "admin.shipping.rules.updateSettings",
+      "admin.shipping.rules.createRule",
+      "admin.shipping.rules.deleteRule",
+      "admin.shippingRules.updateSettings",
+      "admin.shippingRules.createRule",
+      "admin.shippingRules.deleteRule",
+      "admin.loyaltySettings.addManualPoints",
+      "admin.loyaltySettings.update",
+      "admin.loyaltySettings.deleteTransactions",
+      "admin.storeSettings.upsert",
+      "admin.storeSettings.update",
+      "admin.storeSettings.saveCompanyInfo",
+      "admin.settings.upsert",
+      "admin.settings.update",
+      "admin.settings.saveCompanyInfo",
+      "admin.marketing.updateRules"
+    ]);
+    if (!silentPaths.has(path5)) {
       let safeInput = null;
       if (rawInput && typeof rawInput === "object") {
         const inputObj = { ...rawInput };
@@ -2272,38 +2794,45 @@ var auditMiddleware = t.middleware(async (opts) => {
         for (const key of sensitiveKeys) {
           if (key in inputObj) delete inputObj[key];
         }
-        safeInput = redactSensitiveData(inputObj);
+        safeInput = inputObj;
       } else {
-        safeInput = redactSensitiveData(rawInput);
+        safeInput = rawInput;
       }
-      const entity = path5.split(".")[1] || "system";
+      const { module, entity } = getTrpcModuleAndEntity(path5);
+      const severity = getTrpcSeverity(path5);
       const actionName = `AUTO_${path5.toUpperCase().replace(/\./g, "_")}`;
       const responseMessage = result.data && typeof result.data === "object" ? result.data.message || "Sucesso" : "Sucesso";
-      void logAction(
-        { ...ctx, user: { id: ctx.user.id } },
-        actionName,
-        entity,
-        {
-          new: {
-            input: safeInput,
-            response: responseMessage
-          }
-        }
-      ).catch((err) => {
-        const msg = err instanceof Error ? err.message : "Erro desconhecido";
-        logger.error({ err: msg, path: path5 }, "Erro ao salvar auditoria autom\xE1tica");
+      const actor = {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module,
+        action: actionName,
+        entityType: entity,
+        entityId: rawInput?.id || rawInput?.orderId || null,
+        newValues: {
+          input: safeInput,
+          response: responseMessage
+        },
+        severity
       });
     }
   }
   return result;
 });
 var protectedProcedure = t.procedure.use(isAuthed);
-var adminProcedure = t.procedure.use(requireRoles(["admin"])).use(auditMiddleware);
-var nutriProcedure = t.procedure.use(requireRoles(["admin", "nutri"])).use(auditMiddleware);
+var operatorProcedure = t.procedure.use(auditMiddleware).use(requireRoles(["super_admin", "admin", "operator"]));
+var adminProcedure = t.procedure.use(auditMiddleware).use(requireRoles(["super_admin", "admin"]));
+var superAdminProcedure = t.procedure.use(auditMiddleware).use(requireRoles(["super_admin"]));
+var nutriProcedure = t.procedure.use(auditMiddleware).use(requireRoles(["super_admin", "admin", "nutri"]));
 var internalProcedure = t.procedure.use(isInternal);
 
 // server/routers/admin/index.ts
-import { z as z35 } from "zod";
+import { z as z36 } from "zod";
 
 // server/routers/admin/analytics.ts
 import { z } from "zod";
@@ -2623,11 +3152,35 @@ async function enqueueBIAnalyticsJob(orderId, options) {
 void ensureBIWorkerRunning();
 
 // server/routers/admin/analytics.ts
+var biAccResultSchema = z.object({
+  name: z.string(),
+  count: z.coerce.number(),
+  revenue: z.coerce.number().default(0)
+}).strict();
+var biCouponResultSchema = z.object({
+  name: z.string(),
+  usage_count: z.coerce.number(),
+  value: z.coerce.number().default(0)
+}).strict();
+var biPaymentResultSchema = z.object({
+  name: z.string(),
+  count: z.coerce.number(),
+  value: z.coerce.number().default(0)
+}).strict();
+function parseRawQueryRows(rawResult, schema, context) {
+  const rows = Array.isArray(rawResult) ? rawResult : [];
+  const parsed = z.array(schema).safeParse(rows);
+  if (!parsed.success) {
+    console.warn(`analytics.ts: invalid ${context} query result`, parsed.error.flatten());
+    return [];
+  }
+  return parsed.data;
+}
 var adminAnalyticsRouter = router({
   /**
    * 📊 Retorna os dados consolidados do Dashboard de BI
    */
-  getDashboardStats: adminProcedure.input(z.object({
+  getDashboardStats: superAdminProcedure.input(z.object({
     period: z.enum(["7d", "30d", "90d", "all"]).default("30d")
   }).optional()).query(async ({ input }) => {
     const db2 = await getDb();
@@ -2674,21 +3227,33 @@ var adminAnalyticsRouter = router({
           ) AS consolidated_accs
           GROUP BY name ORDER BY count DESC LIMIT 10
         `);
-      const accRows = topAccs[0];
+      const accRows = parseRawQueryRows(
+        Array.isArray(topAccs[0]) ? topAccs[0] : topAccs,
+        biAccResultSchema,
+        "topAccs"
+      );
       const topCouponsQuery = await db2.execute(sql3`
           SELECT coupon_code as name, SUM(discount_coupon) as value, COUNT(*) as usage_count
           FROM bi_financial_facts
           WHERE date_id >= ${dateLimit} AND coupon_code IS NOT NULL AND coupon_code != ''
           GROUP BY coupon_code ORDER BY value DESC LIMIT 5
         `);
-      const couponRows = topCouponsQuery[0];
+      const couponRows = parseRawQueryRows(
+        Array.isArray(topCouponsQuery[0]) ? topCouponsQuery[0] : topCouponsQuery,
+        biCouponResultSchema,
+        "topCouponsQuery"
+      );
       const paymentMethodsQuery = await db2.execute(sql3`
           SELECT payment_method as name, SUM(net_total) as value, COUNT(*) as count
           FROM bi_financial_facts
           WHERE date_id >= ${dateLimit} AND payment_method IS NOT NULL
           GROUP BY payment_method ORDER BY value DESC
         `);
-      const paymentRows = paymentMethodsQuery[0];
+      const paymentRows = parseRawQueryRows(
+        Array.isArray(paymentMethodsQuery[0]) ? paymentMethodsQuery[0] : paymentMethodsQuery,
+        biPaymentResultSchema,
+        "paymentMethodsQuery"
+      );
       const dateLimitObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1e3);
       const customers = await db2.select({ total: sql3`count(*)` }).from(users).where(input?.period === "all" ? void 0 : gte(users.createdAt, dateLimitObj));
       const totalOrders = await db2.select({ count: sql3`count(*)` }).from(biFinancialFacts).where(dateLimit > 0 ? gte(biFinancialFacts.dateId, dateLimit) : void 0);
@@ -2732,7 +3297,7 @@ var adminAnalyticsRouter = router({
   /**
    * 🔄 Sincronização por Lotes (Batch Sync)
    */
-  syncHistory: adminProcedure.input(z.object({
+  syncHistory: superAdminProcedure.input(z.object({
     cursor: z.string().optional(),
     limit: z.number().min(1).max(500).default(100)
   }).optional()).mutation(async ({ input }) => {
@@ -2788,9 +3353,9 @@ init_db();
 init_schema();
 init_encryption();
 import { z as z2 } from "zod";
-import { desc as desc2, eq as eq4 } from "drizzle-orm";
+import { and as and2, asc as asc2, desc as desc2, eq as eq4, gte as gte2, like, lte, or, sql as sql4 } from "drizzle-orm";
 import { TRPCError as TRPCError3 } from "@trpc/server";
-function unseal(val) {
+function unseal2(val) {
   if (!val) return "";
   try {
     const str = String(val);
@@ -2800,11 +3365,57 @@ function unseal(val) {
     return String(val);
   }
 }
+function parseLogValues(val) {
+  if (!val) return null;
+  if (typeof val === "object" && !Buffer.isBuffer(val)) {
+    return val;
+  }
+  try {
+    const str = Buffer.isBuffer(val) ? val.toString("utf8") : String(val);
+    return JSON.parse(str);
+  } catch {
+    return { info: "Dados em formato incompat\xEDvel ou texto puro" };
+  }
+}
+var logsListInput = z2.object({
+  limit: z2.number().min(1).max(100).default(50),
+  offset: z2.number().min(0).default(0),
+  module: z2.string().trim().optional(),
+  severity: z2.enum(["info", "warning", "critical", "error"]).optional(),
+  action: z2.string().trim().optional(),
+  entityType: z2.string().trim().optional(),
+  userId: z2.string().trim().optional(),
+  requestId: z2.string().trim().optional(),
+  startDate: z2.string().trim().optional(),
+  endDate: z2.string().trim().optional(),
+  search: z2.string().trim().optional()
+});
+var logDetailInput = z2.object({
+  id: z2.coerce.number().min(1)
+});
+var cachedModules = null;
+var cacheExpiry = 0;
+var CACHE_TTL_MS = 5 * 60 * 1e3;
 var adminLogsRouter = router({
-  list: adminProcedure.input(z2.object({
-    limit: z2.number().min(1).max(100).default(50),
-    offset: z2.number().default(0)
-  })).query(async ({ input }) => {
+  modules: superAdminProcedure.query(async () => {
+    const now = Date.now();
+    if (cachedModules && now < cacheExpiry) {
+      return cachedModules;
+    }
+    const db2 = await getDb();
+    if (!db2) {
+      throw new TRPCError3({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Banco de dados indispon\xEDvel."
+      });
+    }
+    const rows = await db2.select({ module: auditLogs.module }).from(auditLogs).groupBy(auditLogs.module).orderBy(asc2(auditLogs.module));
+    const result = rows.map((row) => row.module || "legacy").filter((module, index5, modules) => modules.indexOf(module) === index5);
+    cachedModules = result;
+    cacheExpiry = now + CACHE_TTL_MS;
+    return result;
+  }),
+  list: superAdminProcedure.input(logsListInput).query(async ({ input }) => {
     const db2 = await getDb();
     if (!db2) {
       throw new TRPCError3({
@@ -2813,44 +3424,97 @@ var adminLogsRouter = router({
       });
     }
     try {
+      const conditions = [];
+      const limit = Math.min(Math.max(input.limit || 50, 1), 100);
+      const offset = Math.max(input.offset || 0, 0);
+      if (input.module) conditions.push(eq4(auditLogs.module, input.module));
+      if (input.action)
+        conditions.push(like(auditLogs.action, `%${input.action}%`));
+      if (input.entityType)
+        conditions.push(eq4(auditLogs.entity, input.entityType));
+      if (input.userId) conditions.push(eq4(auditLogs.userId, input.userId));
+      if (input.requestId)
+        conditions.push(eq4(auditLogs.requestId, input.requestId));
+      if (input.severity) {
+        conditions.push(
+          input.severity === "error" ? eq4(auditLogs.action, "ERROR") : eq4(auditLogs.severity, input.severity)
+        );
+      }
+      if (input.startDate) {
+        const start = new Date(input.startDate);
+        if (!Number.isNaN(start.getTime())) {
+          conditions.push(gte2(auditLogs.createdAt, start));
+        }
+      }
+      if (input.endDate) {
+        const end = new Date(input.endDate);
+        if (!Number.isNaN(end.getTime())) {
+          conditions.push(lte(auditLogs.createdAt, end));
+        }
+      }
+      if (input.search) {
+        const term = `%${input.search}%`;
+        conditions.push(
+          or(
+            like(auditLogs.action, term),
+            like(auditLogs.module, term),
+            like(auditLogs.entity, term),
+            like(auditLogs.entityId, term),
+            like(auditLogs.entityLabel, term),
+            like(auditLogs.requestId, term),
+            like(users.email, term)
+          )
+        );
+      }
+      const whereClause = conditions.length > 0 ? and2(...conditions) : void 0;
+      const [totalRow] = await db2.select({ total: sql4`count(*)` }).from(auditLogs).leftJoin(users, eq4(auditLogs.userId, users.id)).where(whereClause);
       const rows = await db2.select({
         id: auditLogs.id,
         action: auditLogs.action,
+        module: auditLogs.module,
+        severity: auditLogs.severity,
         entity: auditLogs.entity,
         entityId: auditLogs.entityId,
+        entityLabel: auditLogs.entityLabel,
         ipAddress: auditLogs.ipAddress,
+        userAgent: auditLogs.userAgent,
+        requestId: auditLogs.requestId,
         createdAt: auditLogs.createdAt,
+        userId: auditLogs.userId,
         userName: users.name,
         userEmail: users.email,
-        oldValues: auditLogs.oldValues,
-        newValues: auditLogs.newValues
-      }).from(auditLogs).leftJoin(users, eq4(auditLogs.userId, users.id)).orderBy(desc2(auditLogs.createdAt)).limit(input.limit).offset(input.offset);
-      return rows.map((row) => {
-        const parseLogValues = (val) => {
-          if (!val) return null;
-          if (typeof val === "object" && !Buffer.isBuffer(val)) {
-            return val;
-          }
-          try {
-            const str = Buffer.isBuffer(val) ? val.toString("utf8") : String(val);
-            return JSON.parse(str);
-          } catch {
-            return { info: "Dados em formato incompat\xEDvel ou texto puro" };
-          }
-        };
-        return {
-          id: row.id,
-          action: row.action,
-          entity: row.entity,
-          entityId: row.entityId,
-          ipAddress: row.ipAddress || "Interno",
-          oldValues: parseLogValues(row.oldValues),
-          newValues: parseLogValues(row.newValues),
-          // ✅ Descriptografia do nome do executor da ação
-          user: row.userName ? { name: unseal(row.userName), email: row.userEmail } : { name: "Sistema", email: "Autom\xE1tico" },
-          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : (/* @__PURE__ */ new Date()).toISOString()
-        };
-      });
+        hasOldValues: sql4`case when ${auditLogs.oldValues} is null then 0 else 1 end`,
+        hasNewValues: sql4`case when ${auditLogs.newValues} is null then 0 else 1 end`
+      }).from(auditLogs).leftJoin(users, eq4(auditLogs.userId, users.id)).where(whereClause).orderBy(desc2(auditLogs.createdAt)).limit(limit).offset(offset);
+      const items = rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        module: row.module || "legacy",
+        severity: row.action === "ERROR" ? "error" : row.severity || "info",
+        entity: row.entity,
+        entityType: row.entity || "legacy",
+        entityId: row.entityId,
+        entityLabel: row.entityLabel || row.entityId || row.entity || "Registro legado",
+        ipAddress: row.ipAddress || "Interno",
+        userAgent: row.userAgent || "unknown",
+        requestId: row.requestId || null,
+        oldValues: null,
+        newValues: null,
+        hasDetails: Boolean(row.hasOldValues || row.hasNewValues),
+        isErrorLog: row.action === "ERROR",
+        user: row.userName ? { id: row.userId, name: unseal2(row.userName), email: row.userEmail } : { id: row.userId, name: "Sistema", email: "Autom\xE1tico" },
+        createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(String(row.createdAt || Date.now())).toISOString()
+      }));
+      const total = Number(totalRow?.total || 0);
+      const nextOffset = offset + items.length;
+      return {
+        items,
+        total,
+        limit,
+        offset,
+        hasMore: nextOffset < total,
+        nextOffset: nextOffset < total ? nextOffset : null
+      };
     } catch (err) {
       console.error("Erro ao processar logs de auditoria:", err);
       throw new TRPCError3({
@@ -2858,19 +3522,44 @@ var adminLogsRouter = router({
         message: "Falha ao carregar trilha de auditoria para o painel."
       });
     }
+  }),
+  detail: superAdminProcedure.input(logDetailInput).query(async ({ input }) => {
+    const db2 = await getDb();
+    if (!db2) {
+      throw new TRPCError3({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Banco de dados indispon\xEDvel."
+      });
+    }
+    const [row] = await db2.select({
+      id: auditLogs.id,
+      oldValues: auditLogs.oldValues,
+      newValues: auditLogs.newValues
+    }).from(auditLogs).where(eq4(auditLogs.id, input.id)).limit(1);
+    if (!row) {
+      throw new TRPCError3({
+        code: "NOT_FOUND",
+        message: "Log n\xE3o encontrado."
+      });
+    }
+    return {
+      id: row.id,
+      oldValues: parseLogValues(row.oldValues),
+      newValues: parseLogValues(row.newValues)
+    };
   })
 });
 
 // server/routers/admin/health.ts
-import { sql as sql4 } from "drizzle-orm";
+import { sql as sql5 } from "drizzle-orm";
 var healthRouter = router({
-  checkStatus: adminProcedure.query(async ({ ctx }) => {
+  checkStatus: operatorProcedure.query(async ({ ctx }) => {
     const start = Date.now();
     let dbStatus = "online";
     let dbLatency = 0;
     try {
       const dbStart = Date.now();
-      await ctx.db.execute(sql4`SELECT 1`);
+      await ctx.db.execute(sql5`SELECT 1`);
       dbLatency = Date.now() - dbStart;
     } catch {
       dbStatus = "offline";
@@ -3002,7 +3691,7 @@ var globalLimiter = rateLimit({
 });
 var authLimiter = rateLimit({
   windowMs: 15 * 60 * 1e3,
-  max: 50,
+  max: 25,
   skip: skipLocalhost,
   message: {
     status: 429,
@@ -3011,7 +3700,7 @@ var authLimiter = rateLimit({
 });
 var checkoutLimiter = rateLimit({
   windowMs: 60 * 60 * 1e3,
-  max: 50,
+  max: 30,
   skip: skipLocalhost,
   message: {
     status: 429,
@@ -3020,7 +3709,7 @@ var checkoutLimiter = rateLimit({
 });
 
 // server/lib/upload-security.ts
-import crypto3 from "crypto";
+import crypto5 from "crypto";
 import { TRPCError as TRPCError4 } from "@trpc/server";
 var MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 var ALLOWED_MIME_TYPES = /* @__PURE__ */ new Set([
@@ -3107,7 +3796,55 @@ function validateAndDecodeImageUpload(input) {
 }
 function buildSafeMediaFilename(mimeType) {
   const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "gif";
-  return `${Date.now()}-${crypto3.randomBytes(8).toString("hex")}.${extension}`;
+  return `${Date.now()}-${crypto5.randomBytes(8).toString("hex")}.${extension}`;
+}
+
+// server/db/lib/audit.ts
+function deduceModule(action, entity) {
+  const act = action.toUpperCase();
+  const ent = (entity || "").toLowerCase();
+  if (act.includes("AUTH") || act.includes("LOGIN") || act.includes("PASSWORD") || ent.includes("user")) return "security";
+  if (ent.includes("setting") || ent.includes("config")) return "settings";
+  if (ent.includes("payment") || act.includes("PAYMENT")) return "payments";
+  if (ent.includes("shipping") || ent.includes("zone") || ent.includes("mesh") || ent.includes("cep")) return "shipping";
+  if (ent.includes("loyalty")) return "loyalty";
+  if (ent.includes("coupon") || ent.includes("marketing") || ent.includes("offer")) return "marketing";
+  if (ent.includes("backup")) return "backup";
+  if (ent.includes("label") || ent.includes("template")) return "zebra";
+  if (ent.includes("dish") || ent.includes("ingredient") || ent.includes("category") || ent.includes("package") || ent.includes("showcase")) return "catalog";
+  if (ent.includes("order") || act.includes("ORDER")) return "orders";
+  return "system";
+}
+function deduceSeverity(action) {
+  const act = action.toUpperCase();
+  if (act.includes("PASSWORD") || act.includes("BACKUP") || act.includes("SECURITY") || act.includes("EMERGENCY") || act.includes("PANIC") || act.includes("TOKEN") || act.includes("SECRET") || act.includes("GENERATE_TOKEN") || act.includes("DELETE_USER")) {
+    return "critical";
+  }
+  if (act.includes("DELETE") || act.includes("UPDATE_SETTINGS") || act.includes("DISABLE") || act.includes("ADJUST") || act.includes("ESTORNO") || act.includes("BULK")) {
+    return "warning";
+  }
+  return "info";
+}
+async function logAction(ctx, action, entity, details) {
+  const actor = {
+    userId: ctx.userId || ctx.user?.id || null,
+    ipAddress: ctx.ip,
+    userAgent: ctx.userAgent,
+    requestId: ctx.requestId || ctx.req?.requestId
+  };
+  const module = deduceModule(action, entity);
+  const severity = deduceSeverity(action);
+  await AuditLogService.record({
+    actor,
+    module,
+    action,
+    entityType: entity,
+    entityId: details.entityId || null,
+    entityLabel: details.entityLabel || null,
+    oldValues: details.old,
+    newValues: details.new,
+    severity
+  });
 }
 
 // server/routers/admin/security.ts
@@ -3310,7 +4047,7 @@ function summarizeOverallRisk(checks) {
   return "secure";
 }
 var securityRouter = router({
-  getEnvironmentSecurityReport: adminProcedure.query(async () => {
+  getEnvironmentSecurityReport: superAdminProcedure.query(async () => {
     const checks = getChecks();
     const overallRisk = summarizeOverallRisk(checks);
     return {
@@ -3480,11 +4217,11 @@ var adminNutriRouter = router({
 });
 
 // server/routers/admin/media.ts
+init_schema();
+import { TRPCError as TRPCError5 } from "@trpc/server";
+import { desc as desc4, eq as eq6, or as or2 } from "drizzle-orm";
 import { z as z4 } from "zod";
 init_db();
-init_schema();
-import { desc as desc4, eq as eq6 } from "drizzle-orm";
-import { TRPCError as TRPCError5 } from "@trpc/server";
 
 // server/routers/lib/cloudinary.ts
 import { v2 as cloudinary } from "cloudinary";
@@ -3495,80 +4232,127 @@ cloudinary.config({
 });
 
 // server/routers/admin/media.ts
+var ESSENTIAL_MEDIA_FOLDERS = [
+  "geral",
+  "pratos",
+  "logo",
+  "banners",
+  "nutris"
+];
+function normalizeMediaFolderFilter(folder) {
+  const normalized = (folder || "all").toLowerCase().trim();
+  return normalized === "all" ? "all" : sanitizeMediaFolder(normalized);
+}
+function getCloudinaryAppFolder(publicId) {
+  const parts = publicId.split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts[0] === "gourmet" && parts.length >= 3) {
+    return sanitizeMediaFolder(parts[1]);
+  }
+  return "geral";
+}
 var adminMediaRouter = router({
-  // --- 1. LISTAR PASTAS REAIS (DINÂMICO) ---
   listFolders: adminProcedure.query(async () => {
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
     try {
-      const result = await cloudinary.api.root_folders();
-      const cloudFolders = result.folders.map((f) => f.name);
-      const defaultFolders = ["logo", "pratos", "banners", "nutris", "geral"];
-      const allFolders = Array.from(/* @__PURE__ */ new Set([...defaultFolders, ...cloudFolders]));
-      return allFolders;
+      const [result, dbFolders] = await Promise.all([
+        cloudinary.api.sub_folders("gourmet"),
+        db2.select({ folder: media.folder }).from(media).groupBy(media.folder)
+      ]);
+      const cloudFolders = result.folders.map((folder) => sanitizeMediaFolder(folder.name));
+      const persistedFolders = dbFolders.map((row) => sanitizeMediaFolder(row.folder));
+      return Array.from(
+        /* @__PURE__ */ new Set([
+          ...ESSENTIAL_MEDIA_FOLDERS,
+          ...cloudFolders,
+          ...persistedFolders
+        ])
+      ).sort((a, b) => a.localeCompare(b));
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erro desconhecido";
-      console.error("\u274C Erro ao listar pastas:", msg);
-      return ["logo", "pratos", "banners", "nutris", "geral"];
+      console.error("Erro ao listar pastas Cloudinary:", error);
+      const dbFolders = await db2.select({ folder: media.folder }).from(media).groupBy(media.folder);
+      return Array.from(
+        /* @__PURE__ */ new Set([
+          ...ESSENTIAL_MEDIA_FOLDERS,
+          ...dbFolders.map((row) => sanitizeMediaFolder(row.folder))
+        ])
+      ).sort((a, b) => a.localeCompare(b));
     }
   }),
-  // --- 2. SINCRONIZAR (INTELIGENTE) ---
   syncCloudinary: adminProcedure.mutation(async () => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco Offline" });
+    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
     try {
-      const cloudResources = await cloudinary.api.resources({
-        type: "upload",
-        prefix: "",
-        max_results: 500
-      });
-      const resources = cloudResources.resources || [];
+      let allResources = [];
+      let nextCursor;
+      let page = 1;
+      do {
+        const result = await cloudinary.api.resources({
+          type: "upload",
+          prefix: "gourmet",
+          max_results: 500,
+          next_cursor: nextCursor
+        });
+        allResources = [...allResources, ...result.resources || []];
+        nextCursor = result.next_cursor;
+        page++;
+      } while (nextCursor);
       let newCount = 0;
       let updateCount = 0;
-      for (const res of resources) {
-        if (res.public_id.includes("samples/")) continue;
-        const cloudPath = res.folder || "";
-        let folderName = "geral";
-        if (cloudPath) {
-          const parts = cloudPath.split("/");
-          folderName = parts[parts.length - 1].toLowerCase();
-        }
-        const [existing] = await db2.select().from(media).where(eq6(media.filePath, res.public_id));
+      for (const resource of allResources) {
+        if (resource.public_id.includes("samples/")) continue;
+        const folder = getCloudinaryAppFolder(resource.public_id);
+        const originalFilename = resource.public_id.split("/").pop() || "imagem_nuvem";
+        const mimeType = `image/${resource.format}`;
+        const [existing] = await db2.select().from(media).where(
+          or2(
+            eq6(media.filePath, resource.public_id),
+            eq6(media.url, resource.secure_url)
+          )
+        ).limit(1);
         if (!existing) {
           await db2.insert(media).values({
-            url: res.secure_url,
-            originalFilename: res.public_id.split("/").pop() || "imagem_nuvem",
-            mimeType: `image/${res.format}`,
-            filePath: res.public_id,
-            folder: folderName
+            url: resource.secure_url,
+            originalFilename,
+            mimeType,
+            filePath: resource.public_id,
+            folder
           });
           newCount++;
-        } else if (existing.folder !== folderName) {
-          await db2.update(media).set({ folder: folderName }).where(eq6(media.filePath, res.public_id));
+          continue;
+        }
+        const shouldUpdate = existing.folder !== folder || existing.url !== resource.secure_url || existing.filePath !== resource.public_id;
+        if (shouldUpdate) {
+          await db2.update(media).set({
+            url: resource.secure_url,
+            originalFilename,
+            mimeType,
+            filePath: resource.public_id,
+            folder
+          }).where(eq6(media.id, existing.id));
           updateCount++;
         }
       }
       return {
         success: true,
-        message: `Sync conclu\xEDdo: ${newCount} novos itens, ${updateCount} movidos.`
+        message: `Sync: ${newCount} novos, ${updateCount} atualizados de ${allResources.length} totais.`
       };
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erro no Cloudinary";
-      throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: msg });
+      console.error("\u274C [ERROR] Erro na sincronia:", error);
+      throw new TRPCError5({
+        code: "INTERNAL_SERVER_ERROR",
+        message: error instanceof Error ? error.message : "Erro ao sincronizar Cloudinary"
+      });
     }
   }),
-  // --- 3. UPLOAD (TOTALMENTE DINÂMICO) ---
-  upload: adminProcedure.use(
-    createRateLimitMiddleware({
-      keyPrefix: "admin-media-upload",
-      limit: 20,
-      windowMs: 5 * 60 * 1e3
-    })
-  ).input(z4.object({
+  upload: adminProcedure.use(createRateLimitMiddleware({ keyPrefix: "admin-media-upload", limit: 30, windowMs: 5 * 60 * 1e3 })).input(z4.object({
     filename: z4.string(),
     mimeType: z4.string(),
     base64Data: z4.string(),
     folder: z4.string().optional().default("geral")
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
+    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
     try {
       const folder = sanitizeMediaFolder(input.folder);
       const validated = validateAndDecodeImageUpload({
@@ -3577,41 +4361,66 @@ var adminMediaRouter = router({
         filename: input.filename
       });
       const safeFilename = buildSafeMediaFilename(validated.mimeType);
-      const cloudPath = `gourmet/${folder.replace("geral", "")}`.replace(/\/$/, "");
+      const cloudPath = folder === "geral" ? "gourmet" : `gourmet/${folder}`;
       const cloudRes = await cloudinary.uploader.upload(
         `data:${validated.mimeType};base64,${validated.buffer.toString("base64")}`,
         {
-          folder: cloudPath || "gourmet",
+          folder: cloudPath,
           resource_type: "image",
           public_id: safeFilename.replace(/\.[^.]+$/, ""),
-          overwrite: false
+          overwrite: false,
+          use_filename: true,
+          unique_filename: false
         }
       );
-      await db2.insert(media).values({
-        url: cloudRes.secure_url,
-        originalFilename: safeFilename,
-        mimeType: validated.mimeType,
-        filePath: cloudRes.public_id,
-        folder
-      });
+      const publicId = String(cloudRes.public_id || "");
+      const derivedFolder = getCloudinaryAppFolder(publicId);
+      const [existing] = await db2.select().from(media).where(or2(eq6(media.filePath, publicId), eq6(media.url, cloudRes.secure_url))).limit(1);
+      if (existing) {
+        await db2.update(media).set({
+          url: cloudRes.secure_url,
+          originalFilename: input.filename,
+          mimeType: validated.mimeType,
+          filePath: publicId,
+          folder: derivedFolder
+        }).where(eq6(media.id, existing.id));
+      } else {
+        await db2.insert(media).values({
+          url: cloudRes.secure_url,
+          originalFilename: input.filename,
+          mimeType: validated.mimeType,
+          filePath: publicId,
+          folder: derivedFolder
+        });
+      }
       return { success: true, url: cloudRes.secure_url };
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erro no upload";
-      throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: msg });
+      throw new TRPCError5({
+        code: "INTERNAL_SERVER_ERROR",
+        message: error instanceof Error ? error.message : "Erro no upload"
+      });
     }
   }),
-  // --- 4. LISTAGEM ---
-  list: adminProcedure.query(async () => {
+  list: adminProcedure.input(z4.object({ folder: z4.string().nullish() }).optional()).query(async ({ input }) => {
     const db2 = await getDb();
-    return await db2.select().from(media).orderBy(desc4(media.id));
+    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
+    const folder = normalizeMediaFolderFilter(input?.folder);
+    if (folder === "all") {
+      return db2.select().from(media).orderBy(desc4(media.id));
+    }
+    return db2.select().from(media).where(eq6(media.folder, folder)).orderBy(desc4(media.id));
   }),
-  // --- 5. EXCLUSÃO ---
   delete: adminProcedure.input(z4.object({ id: z4.union([z4.string(), z4.number()]) })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    const targetId = typeof input.id === "string" ? parseInt(input.id, 10) : input.id;
-    const [item] = await db2.select().from(media).where(eq6(media.id, targetId));
-    if (item) {
-      if (item.filePath) await cloudinary.uploader.destroy(item.filePath);
+    if (!db2) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Banco offline" });
+    const targetId = typeof input.id === "string" ? safeInteger(input.id) : input.id;
+    const [item] = await db2.select().from(media).where(eq6(media.id, targetId)).limit(1);
+    if (item && item.filePath) {
+      try {
+        await cloudinary.uploader.destroy(item.filePath);
+      } catch (error) {
+        console.warn("Cloudinary delete failed:", error);
+      }
       await db2.delete(media).where(eq6(media.id, targetId));
     }
     return { success: true };
@@ -3624,11 +4433,11 @@ import { z as z5 } from "zod";
 // server/storeSettings.ts
 init_db();
 init_schema();
-import { eq as eq7, sql as sql5 } from "drizzle-orm";
+import { eq as eq7, sql as sql6 } from "drizzle-orm";
 async function getStoreSettings() {
   const db2 = await getDb();
   if (!db2) throw new Error("Banco de dados n\xE3o dispon\xEDvel");
-  const [rows] = await db2.execute(sql5`SELECT * FROM store_settings WHERE id = '1' LIMIT 1`);
+  const [rows] = await db2.execute(sql6`SELECT * FROM store_settings WHERE id = '1' LIMIT 1`);
   const parseJsonField = (field) => {
     if (!field) return {};
     try {
@@ -3778,8 +4587,8 @@ import { z as z6 } from "zod";
 // server/admin-loyalty.ts
 init_db();
 init_schema();
-import { eq as eq8, desc as desc5, like, or, count, and as and2, sql as sql6, inArray as inArray3 } from "drizzle-orm";
-import crypto4 from "crypto";
+import { eq as eq8, desc as desc5, like as like2, or as or3, count, and as and3, sql as sql7, inArray as inArray3 } from "drizzle-orm";
+import crypto6 from "crypto";
 var toNum = (val) => val === null || val === void 0 ? 0 : Number(val);
 async function getLoyaltyConfigs() {
   const db2 = await getDb();
@@ -3831,21 +4640,21 @@ async function getCustomersLoyalty(params) {
   if (params.search && params.search.trim() !== "" && params.search !== "undefined") {
     const term = `%${params.search}%`;
     conditions.push(
-      or(
-        like(users.email, term),
-        sql6`name_index LIKE ${term}`
+      or3(
+        like2(users.email, term),
+        sql7`name_index LIKE ${term}`
       )
     );
   }
-  const whereClause = conditions.length > 0 ? and2(...conditions) : void 0;
+  const whereClause = conditions.length > 0 ? and3(...conditions) : void 0;
   try {
     const dataQuery = await db2.select({
       id: users.id,
       name: users.name,
       email: users.email,
-      loyaltyBalance: sql6`loyalty_balance`.mapWith(Number),
-      totalSpent: sql6`COALESCE(SUM(CASE WHEN ${orders.status} = 'completed' THEN ${orders.total} ELSE 0 END), 0)`.mapWith(Number)
-    }).from(users).leftJoin(orders, eq8(orders.userId, users.id)).where(whereClause).groupBy(users.id).orderBy(sql6`loyalty_balance DESC`).limit(params.limit).offset(offset);
+      loyaltyBalance: sql7`loyalty_balance`.mapWith(Number),
+      totalSpent: sql7`COALESCE(SUM(CASE WHEN ${orders.status} = 'completed' THEN ${orders.total} ELSE 0 END), 0)`.mapWith(Number)
+    }).from(users).leftJoin(orders, eq8(orders.userId, users.id)).where(whereClause).groupBy(users.id).orderBy(sql7`loyalty_balance DESC`).limit(params.limit).offset(offset);
     const [totalResult] = await db2.select({ value: count() }).from(users).where(whereClause);
     return {
       items: dataQuery || [],
@@ -3876,7 +4685,7 @@ async function addManualPoints(userId, points, reason) {
   try {
     return await db2.transaction(async (tx) => {
       await tx.insert(loyaltyHistory).values({
-        id: crypto4.randomUUID(),
+        id: crypto6.randomUUID(),
         userId,
         pointsChange: points,
         type,
@@ -3884,7 +4693,7 @@ async function addManualPoints(userId, points, reason) {
         description: reason,
         createdAt: /* @__PURE__ */ new Date()
       });
-      await tx.execute(sql6`
+      await tx.execute(sql7`
                 UPDATE users 
                 SET loyalty_balance = COALESCE(loyalty_balance, 0) + ${points} 
                 WHERE id = ${userId}
@@ -3905,7 +4714,7 @@ async function deleteTransactions(userId, transactionIds) {
     return await db2.transaction(async (tx) => {
       logger.warn({ userId, transactionCount: transactionIds.length }, "\u26A0\uFE0F Iniciando estorno de transa\xE7\xF5es de fidelidade");
       await tx.delete(loyaltyHistory).where(
-        and2(
+        and3(
           eq8(loyaltyHistory.userId, userId),
           inArray3(loyaltyHistory.id, transactionIds)
         )
@@ -3914,7 +4723,7 @@ async function deleteTransactions(userId, transactionIds) {
         points: loyaltyHistory.pointsChange
       }).from(loyaltyHistory).where(eq8(loyaltyHistory.userId, userId));
       const newBalance = remainingHistory.reduce((acc, curr) => acc + toNum(curr.points), 0);
-      await tx.execute(sql6`
+      await tx.execute(sql7`
                 UPDATE users 
                 SET loyalty_balance = ${newBalance} 
                 WHERE id = ${userId}
@@ -3930,14 +4739,69 @@ async function deleteTransactions(userId, transactionIds) {
 
 // server/routers/admin/loyalty.ts
 import { createDecipheriv as createDecipheriv2, scryptSync as scryptSync2 } from "crypto";
+
+// server/routers/admin/operational-hardening.ts
+import { TRPCError as TRPCError7 } from "@trpc/server";
+var STRONG_CONFIRMATION_TOKEN = "CONFIRMAR";
+var operationalLimits = {
+  loyaltyCriticalPoints: 1e3,
+  loyaltySuperAdminPoints: 5e3,
+  couponCriticalPercentage: 40,
+  couponMaxPercentage: 70,
+  couponCriticalFixed: 300,
+  couponMaxFixed: 1e3,
+  paymentCriticalDiscountPercentage: 10,
+  paymentMaxDiscountPercentage: 30,
+  shippingCriticalCost: 100,
+  shippingMaxCost: 500,
+  orderCriticalDiscountRatio: 0.3,
+  orderMaxDiscountRatio: 0.8,
+  orderCriticalShippingCost: 150,
+  orderMaxShippingCost: 500
+};
+function assertStrongConfirmation(input, actionLabel) {
+  if (input.confirmationToken !== STRONG_CONFIRMATION_TOKEN) {
+    throw new TRPCError7({
+      code: "BAD_REQUEST",
+      message: `${actionLabel}: digite ${STRONG_CONFIRMATION_TOKEN} para confirmar esta acao critica.`
+    });
+  }
+}
+function assertConfirmationReason(input, actionLabel) {
+  const reason = input.confirmationReason?.trim();
+  if (!reason || reason.length < 8) {
+    throw new TRPCError7({
+      code: "BAD_REQUEST",
+      message: `${actionLabel}: informe uma justificativa operacional com pelo menos 8 caracteres.`
+    });
+  }
+}
+function assertSuperAdmin(role, actionLabel) {
+  if (role !== "super_admin") {
+    throw new TRPCError7({
+      code: "FORBIDDEN",
+      message: `${actionLabel}: somente super_admin pode executar esta acao critica.`
+    });
+  }
+}
+function assertFiniteMoney(value, label) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new TRPCError7({
+      code: "BAD_REQUEST",
+      message: `${label} invalido.`
+    });
+  }
+}
+
+// server/routers/admin/loyalty.ts
 var ENCRYPTION_KEY_RAW = process.env.DB_ENCRYPTION_KEY || "fallback-key-de-seguranca";
 var ALGORITHM2 = "aes-256-gcm";
-function decryptManual(text19) {
-  if (!text19 || typeof text19 !== "string") return null;
-  if (!text19.includes(":")) return text19;
+function decryptManual(text20) {
+  if (!text20 || typeof text20 !== "string") return null;
+  if (!text20.includes(":")) return text20;
   try {
-    const parts = text19.split(":");
-    if (parts.length !== 3) return text19;
+    const parts = text20.split(":");
+    if (parts.length !== 3) return text20;
     const [ivHex, authTagHex, encryptedHex] = parts;
     const key = scryptSync2(ENCRYPTION_KEY_RAW, "static-salt", 32);
     const iv = Buffer.from(ivHex, "hex");
@@ -3948,7 +4812,7 @@ function decryptManual(text19) {
     decrypted += decipher.final("utf8");
     return decrypted;
   } catch {
-    return text19.startsWith("iv:") ? "Dados Protegidos" : text19;
+    return text20.startsWith("iv:") ? "Dados Protegidos" : text20;
   }
 }
 var adminLoyaltySettingsRouter = router({
@@ -3990,12 +4854,40 @@ var adminLoyaltySettingsRouter = router({
     userId: z6.string(),
     points: z6.coerce.number(),
     reason: z6.string().min(1, "O motivo \xE9 obrigat\xF3rio"),
-    customerName: z6.string().optional()
+    customerName: z6.string().optional(),
+    confirmationToken: z6.string().optional(),
+    confirmationReason: z6.string().optional()
   })).mutation(async ({ ctx, input }) => {
+    const absolutePoints = Math.abs(input.points);
+    if (absolutePoints >= operationalLimits.loyaltyCriticalPoints) {
+      assertStrongConfirmation(input, "Ajuste manual de fidelidade");
+      assertConfirmationReason(input, "Ajuste manual de fidelidade");
+    }
+    if (absolutePoints >= operationalLimits.loyaltySuperAdminPoints) {
+      assertSuperAdmin(ctx.user?.role, "Ajuste manual acima do limite operacional");
+    }
     const result = await addManualPoints(input.userId, input.points, input.reason);
-    await logAction(ctx, "LOYALTY_MANUAL_ADJUST", "loyalty", {
+    const severity = absolutePoints >= operationalLimits.loyaltyCriticalPoints ? "critical" : "warning";
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "loyalty",
+      action: "LOYALTY_MANUAL_ADJUST",
+      severity,
+      entityType: "loyalty",
       entityId: input.userId,
-      new: { pontos: input.points, motivo: input.reason }
+      entityLabel: input.customerName || `Cliente ${input.userId}`,
+      oldValues: null,
+      newValues: {
+        pontos: input.points,
+        motivo: input.reason,
+        confirmationReason: input.confirmationReason?.trim() || null
+      }
     });
     const actionText = input.points >= 0 ? "Adicionados" : "Removidos";
     return {
@@ -4014,12 +4906,33 @@ var adminLoyaltySettingsRouter = router({
     }));
   }),
   update: adminProcedure.input(z6.record(z6.unknown())).mutation(async ({ ctx, input }) => {
+    const confirmationInput = {
+      confirmationToken: input.confirmationToken,
+      confirmationReason: input.confirmationReason
+    };
+    assertStrongConfirmation(confirmationInput, "Alteracao de regras de fidelidade");
+    assertConfirmationReason(confirmationInput, "Alteracao de regras de fidelidade");
+    const sanitizedInput = { ...input };
+    delete sanitizedInput.confirmationToken;
+    delete sanitizedInput.confirmationReason;
     const oldConfigs = await getLoyaltyConfigs();
-    const result = await updateLoyaltyConfigs(input);
-    await logAction(ctx, "UPDATE_LOYALTY_RULES", "loyalty", {
+    const result = await updateLoyaltyConfigs(sanitizedInput);
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "loyalty",
+      action: "UPDATE_LOYALTY_RULES",
+      severity: "warning",
+      entityType: "loyalty",
       entityId: "global_configs",
-      old: oldConfigs || {},
-      new: input
+      entityLabel: "Regras de Fidelidade",
+      oldValues: oldConfigs || {},
+      newValues: sanitizedInput
     });
     return {
       success: true,
@@ -4029,12 +4942,34 @@ var adminLoyaltySettingsRouter = router({
   }),
   deleteTransactions: adminProcedure.input(z6.object({
     userId: z6.string(),
-    transactionIds: z6.array(z6.string())
+    transactionIds: z6.array(z6.string()),
+    confirmationToken: z6.string().optional(),
+    confirmationReason: z6.string().optional()
   })).mutation(async ({ ctx, input }) => {
+    assertStrongConfirmation(input, "Exclusao de transacoes de fidelidade");
+    assertConfirmationReason(input, "Exclusao de transacoes de fidelidade");
+    assertSuperAdmin(ctx.user?.role, "Exclusao de transacoes de fidelidade");
     const result = await deleteTransactions(input.userId, input.transactionIds);
-    await logAction(ctx, "LOYALTY_BULK_DELETE", "loyalty", {
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "loyalty",
+      action: "LOYALTY_BULK_DELETE",
+      severity: "critical",
+      entityType: "loyalty",
       entityId: input.userId,
-      new: { count: input.transactionIds.length, transactionIds: input.transactionIds }
+      entityLabel: `Transa\xE7\xF5es estornadas do usu\xE1rio ${input.userId}`,
+      oldValues: null,
+      newValues: {
+        count: input.transactionIds.length,
+        transactionIds: input.transactionIds,
+        confirmationReason: input.confirmationReason?.trim()
+      }
     });
     return {
       success: true,
@@ -4049,7 +4984,7 @@ import { z as z7 } from "zod";
 init_db();
 init_schema();
 import { eq as eq9, desc as desc6 } from "drizzle-orm";
-import { TRPCError as TRPCError7 } from "@trpc/server";
+import { TRPCError as TRPCError8 } from "@trpc/server";
 var cleanDate = (val) => {
   if (!val || typeof val === "string" && val.trim() === "") return null;
   const d = new Date(val);
@@ -4067,8 +5002,43 @@ var couponInputSchema = z7.object({
   description: z7.string().nullish(),
   isActive: z7.boolean().optional().default(true),
   bannerColor: z7.string().optional().default("#10b981"),
-  logoUrl: z7.string().nullish()
+  logoUrl: z7.string().nullish(),
+  confirmationToken: z7.string().optional(),
+  confirmationReason: z7.string().optional()
 }).passthrough();
+function validateCouponLimits(input, role, actionLabel) {
+  if (input.discountValue === void 0 || !input.discountType) return "warning";
+  assertFiniteMoney(input.discountValue, "Desconto");
+  if (input.discountType === "percentage") {
+    if (input.discountValue > operationalLimits.couponMaxPercentage) {
+      throw new TRPCError8({
+        code: "BAD_REQUEST",
+        message: `Cupom percentual acima de ${operationalLimits.couponMaxPercentage}% esta bloqueado.`
+      });
+    }
+    if (input.discountValue > operationalLimits.couponCriticalPercentage) {
+      assertSuperAdmin(role, actionLabel);
+      assertStrongConfirmation(input, actionLabel);
+      assertConfirmationReason(input, actionLabel);
+      return "critical";
+    }
+  }
+  if (input.discountType === "fixed") {
+    if (input.discountValue > operationalLimits.couponMaxFixed) {
+      throw new TRPCError8({
+        code: "BAD_REQUEST",
+        message: `Cupom fixo acima de R$ ${operationalLimits.couponMaxFixed} esta bloqueado.`
+      });
+    }
+    if (input.discountValue > operationalLimits.couponCriticalFixed) {
+      assertSuperAdmin(role, actionLabel);
+      assertStrongConfirmation(input, actionLabel);
+      assertConfirmationReason(input, actionLabel);
+      return "critical";
+    }
+  }
+  return "warning";
+}
 var adminCouponsRouter = router({
   list: adminProcedure.query(async () => {
     const db2 = await getDb();
@@ -4082,13 +5052,18 @@ var adminCouponsRouter = router({
         isActive: Boolean(c.isActive)
       }));
     } catch {
-      throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao buscar cupons." });
+      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao buscar cupons." });
     }
   }),
   create: adminProcedure.input(couponInputSchema).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
+    const severity = validateCouponLimits(
+      input,
+      ctx.user?.role,
+      "Criacao de cupom de alto impacto"
+    );
     const [existing] = await db2.select().from(coupons).where(eq9(coupons.code, input.code));
-    if (existing) throw new TRPCError7({ code: "CONFLICT", message: `O cupom "${input.code}" j\xE1 existe.` });
+    if (existing) throw new TRPCError8({ code: "CONFLICT", message: `O cupom "${input.code}" j\xE1 existe.` });
     try {
       const generatedId = String(Math.floor(Math.random() * 1e9));
       const insertData = {
@@ -4108,26 +5083,54 @@ var adminCouponsRouter = router({
         createdAt: /* @__PURE__ */ new Date()
       };
       await db2.insert(coupons).values(insertData);
-      await logAction(ctx, "CREATE_COUPON", "coupons", {
-        entityId: input.code,
-        new: { code: input.code, valor: input.discountValue }
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "marketing",
+        action: "CREATE_COUPON",
+        severity,
+        entityType: "coupons",
+        entityId: generatedId,
+        entityLabel: input.code,
+        oldValues: null,
+        newValues: {
+          ...input,
+          confirmationToken: void 0
+        }
       });
       return { success: true, message: `Cupom "${input.code}" criado!` };
     } catch (error) {
       console.error(error);
-      throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Erro t\xE9cnico ao gerar cupom." });
+      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Erro t\xE9cnico ao gerar cupom." });
     }
   }),
   update: adminProcedure.input(z7.object({ id: z7.string() }).passthrough()).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     const { id, ...data } = input;
     const [oldCoupon] = await db2.select().from(coupons).where(eq9(coupons.id, id));
-    if (!oldCoupon) throw new TRPCError7({ code: "NOT_FOUND", message: "Cupom n\xE3o encontrado." });
+    if (!oldCoupon) throw new TRPCError8({ code: "NOT_FOUND", message: "Cupom n\xE3o encontrado." });
+    const nextDiscountType = data.discountType !== void 0 ? data.discountType : oldCoupon.discountType;
+    const nextDiscountValue = data.discountValue !== void 0 ? safeNumber(data.discountValue) : safeNumber(oldCoupon.discountValue);
+    const severity = validateCouponLimits(
+      {
+        discountType: nextDiscountType,
+        discountValue: nextDiscountValue,
+        confirmationToken: data.confirmationToken,
+        confirmationReason: data.confirmationReason
+      },
+      ctx.user?.role,
+      "Alteracao de cupom de alto impacto"
+    );
     const updatePayload = {};
     const requireMoney = (value, label) => {
       const amount = safeNumber(value, Number.NaN);
       if (!Number.isFinite(amount) || amount < 0) {
-        throw new TRPCError7({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
+        throw new TRPCError8({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
       }
       return amount.toFixed(2);
     };
@@ -4145,34 +5148,73 @@ var adminCouponsRouter = router({
     if (data.validUntil !== void 0) updatePayload.validUntil = cleanDate(data.validUntil);
     try {
       await db2.update(coupons).set(updatePayload).where(eq9(coupons.id, id));
-      await logAction(ctx, "UPDATE_COUPON", "coupons", {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "marketing",
+        action: "UPDATE_COUPON",
+        severity,
+        entityType: "coupons",
         entityId: id,
-        // ✅ Agora aceito pelo Auditor (string)
-        new: updatePayload
+        entityLabel: oldCoupon.code,
+        oldValues: oldCoupon,
+        newValues: { ...oldCoupon, ...updatePayload }
       });
       return { success: true, message: "Cupom atualizado!" };
     } catch (error) {
       console.error(error);
-      throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao salvar altera\xE7\xF5es." });
+      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao salvar altera\xE7\xF5es." });
     }
   }),
-  delete: adminProcedure.input(z7.object({ id: z7.string() })).mutation(async ({ input }) => {
+  delete: adminProcedure.input(z7.object({
+    id: z7.string(),
+    confirmationToken: z7.string().optional(),
+    confirmationReason: z7.string().optional()
+  })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     try {
+      assertStrongConfirmation(input, "Exclusao de cupom");
+      assertConfirmationReason(input, "Exclusao de cupom");
+      assertSuperAdmin(ctx.user?.role, "Exclusao de cupom");
       const targetId = String(input.id);
       const [coupon] = await db2.select().from(coupons).where(eq9(coupons.id, targetId));
       if (!coupon) return { success: true };
       await db2.delete(coupons).where(eq9(coupons.id, targetId));
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "marketing",
+        action: "DELETE_COUPON",
+        severity: "critical",
+        entityType: "coupons",
+        entityId: targetId,
+        entityLabel: coupon.code,
+        oldValues: coupon,
+        newValues: null
+      });
       return { success: true, message: "Cupom removido." };
     } catch {
-      throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao deletar." });
+      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao deletar." });
     }
   })
 });
 
 // server/routers/admin/discount-rules.ts
 import { z as z9 } from "zod";
-import { TRPCError as TRPCError8 } from "@trpc/server";
+init_db();
+init_schema();
+import { TRPCError as TRPCError9 } from "@trpc/server";
+import { eq as eq11 } from "drizzle-orm";
 
 // server/discountRules.ts
 init_db();
@@ -4249,20 +5291,51 @@ async function deleteDiscountRule(id) {
 }
 
 // server/routers/admin/discount-rules.ts
+var protectedDiscountRuleInput = discountRuleInput.extend({
+  confirmationToken: z9.string().optional(),
+  confirmationReason: z9.string().optional()
+});
+function validateDiscountRule(input, role, label) {
+  if (input.type === "percentage" && input.value > operationalLimits.couponMaxPercentage) {
+    throw new TRPCError9({ code: "BAD_REQUEST", message: `Regra percentual acima de ${operationalLimits.couponMaxPercentage}% esta bloqueada.` });
+  }
+  if (input.type === "percentage" && input.value > operationalLimits.couponCriticalPercentage || input.type === "fixed" && input.value > operationalLimits.couponCriticalFixed) {
+    assertSuperAdmin(role, label);
+    assertStrongConfirmation(input, label);
+    assertConfirmationReason(input, label);
+  }
+}
 var adminDiscountRulesRouter = router({
   list: adminProcedure.query(async () => {
     try {
       return await listDiscountRules();
     } catch {
-      throw new TRPCError8({
+      throw new TRPCError9({
         code: "INTERNAL_SERVER_ERROR",
         message: "Erro ao listar regras de desconto."
       });
     }
   }),
-  create: adminProcedure.input(discountRuleInput).mutation(async ({ input }) => {
+  create: adminProcedure.input(protectedDiscountRuleInput).mutation(async ({ ctx, input }) => {
     try {
-      const result = await createDiscountRule(input);
+      validateDiscountRule(input, ctx.user?.role, "Criacao de regra de desconto de alto impacto");
+      const { confirmationToken, confirmationReason, ...data } = input;
+      const result = await createDiscountRule(data);
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "marketing",
+        action: "CREATE_DISCOUNT_RULE",
+        severity: "warning",
+        entityType: "discount_rules",
+        entityLabel: input.name,
+        oldValues: null,
+        newValues: { ...data, confirmationReason: confirmationReason?.trim() || null }
+      });
       return {
         success: true,
         data: result,
@@ -4270,17 +5343,36 @@ var adminDiscountRulesRouter = router({
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro ao criar regra";
-      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message });
+      throw new TRPCError9({ code: "INTERNAL_SERVER_ERROR", message });
     }
   }),
   update: adminProcedure.input(
-    discountRuleInput.extend({
+    protectedDiscountRuleInput.extend({
       id: z9.coerce.number()
     })
-  ).mutation(async ({ input }) => {
+  ).mutation(async ({ ctx, input }) => {
     try {
-      const { id, ...data } = input;
+      validateDiscountRule(input, ctx.user?.role, "Alteracao de regra de desconto de alto impacto");
+      const db2 = await getDb();
+      const [oldRule] = await db2.select().from(discountRules).where(eq11(discountRules.id, input.id)).limit(1);
+      const { id, confirmationToken, confirmationReason, ...data } = input;
       const result = await updateDiscountRule(id, data);
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "marketing",
+        action: "UPDATE_DISCOUNT_RULE",
+        severity: "warning",
+        entityType: "discount_rules",
+        entityId: id,
+        entityLabel: input.name,
+        oldValues: oldRule || null,
+        newValues: { ...data, confirmationReason: confirmationReason?.trim() || null }
+      });
       return {
         success: true,
         data: result,
@@ -4288,21 +5380,44 @@ var adminDiscountRulesRouter = router({
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro ao atualizar regra";
-      throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message });
+      throw new TRPCError9({ code: "INTERNAL_SERVER_ERROR", message });
     }
   }),
   delete: adminProcedure.input(z9.object({
     id: z9.coerce.number(),
-    name: z9.string().optional()
-  })).mutation(async ({ input }) => {
+    name: z9.string().optional(),
+    confirmationToken: z9.string().optional(),
+    confirmationReason: z9.string().optional()
+  })).mutation(async ({ ctx, input }) => {
     try {
+      assertStrongConfirmation(input, "Exclusao de regra de desconto");
+      assertConfirmationReason(input, "Exclusao de regra de desconto");
+      assertSuperAdmin(ctx.user?.role, "Exclusao de regra de desconto");
+      const db2 = await getDb();
+      const [oldRule] = await db2.select().from(discountRules).where(eq11(discountRules.id, input.id)).limit(1);
       await deleteDiscountRule(input.id);
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user?.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "marketing",
+        action: "DELETE_DISCOUNT_RULE",
+        severity: "critical",
+        entityType: "discount_rules",
+        entityId: input.id,
+        entityLabel: input.name || oldRule?.name,
+        oldValues: oldRule || null,
+        newValues: { confirmationReason: input.confirmationReason?.trim() }
+      });
       return {
         success: true,
         message: input.name ? `Regra "${input.name}" removida.` : "Regra de desconto exclu\xEDda com sucesso."
       };
     } catch {
-      throw new TRPCError8({
+      throw new TRPCError9({
         code: "INTERNAL_SERVER_ERROR",
         message: "Erro ao excluir a regra de desconto."
       });
@@ -4313,8 +5428,8 @@ var adminDiscountRulesRouter = router({
 // server/routers/admin/automation.routes.ts
 init_schema();
 init_db();
-import { sql as sql7 } from "drizzle-orm";
-import { TRPCError as TRPCError9 } from "@trpc/server";
+import { sql as sql8 } from "drizzle-orm";
+import { TRPCError as TRPCError10 } from "@trpc/server";
 import { randomUUID } from "crypto";
 async function runLoyaltyExpirationLogic() {
   const db2 = await getDb();
@@ -4328,7 +5443,7 @@ async function runLoyaltyExpirationLogic() {
   cutoffDate.setDate(cutoffDate.getDate() - expirationDays);
   const formattedDate = cutoffDate.toISOString().slice(0, 19).replace("T", " ");
   await db2.transaction(async (tx) => {
-    const toExpire = await tx.execute(sql7`
+    const toExpire = await tx.execute(sql8`
       SELECT user_id, SUM(points_change) as total 
       FROM loyalty_history 
       WHERE created_at < ${formattedDate} AND type = 'earned'
@@ -4366,7 +5481,7 @@ var loyaltyAdminRouter = router({
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
-      throw new TRPCError9({
+      throw new TRPCError10({
         code: "INTERNAL_SERVER_ERROR",
         message: "Falha ao processar expira\xE7\xE3o: " + errorMessage
       });
@@ -4379,8 +5494,8 @@ import { z as z10 } from "zod";
 init_mailer();
 init_schema();
 init_db();
-import { eq as eq11 } from "drizzle-orm";
-import { TRPCError as TRPCError10 } from "@trpc/server";
+import { eq as eq12 } from "drizzle-orm";
+import { TRPCError as TRPCError11 } from "@trpc/server";
 var mailAdminRouter = router({
   /**
    * 📥 GET CONFIGS
@@ -4401,9 +5516,9 @@ var mailAdminRouter = router({
   }))).mutation(async ({ input }) => {
     const db2 = await getDb();
     for (const item of input) {
-      const [exists] = await db2.select().from(appConfigs).where(eq11(appConfigs.configKey, item.configKey)).limit(1);
+      const [exists] = await db2.select().from(appConfigs).where(eq12(appConfigs.configKey, item.configKey)).limit(1);
       if (exists) {
-        await db2.update(appConfigs).set({ configValue: item.configValue }).where(eq11(appConfigs.configKey, item.configKey));
+        await db2.update(appConfigs).set({ configValue: item.configValue }).where(eq12(appConfigs.configKey, item.configKey));
       } else {
         await db2.insert(appConfigs).values({
           configKey: item.configKey,
@@ -4440,7 +5555,7 @@ var mailAdminRouter = router({
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
-      throw new TRPCError10({
+      throw new TRPCError11({
         code: "INTERNAL_SERVER_ERROR",
         message: `Falha no teste SMTP: ${errorMessage}`
       });
@@ -4452,7 +5567,7 @@ var mailAdminRouter = router({
 init_db();
 init_schema();
 import { z as z11 } from "zod";
-import { desc as desc8, sql as sql8 } from "drizzle-orm";
+import { desc as desc8, sql as sql9 } from "drizzle-orm";
 import { nanoid } from "nanoid";
 var adminReferralRouter = router({
   // 📝 LISTAR TODOS OS PARCEIROS
@@ -4498,9 +5613,9 @@ var adminReferralRouter = router({
     const db2 = await getDb();
     return await db2.select({
       referralCode: orders.referralCode,
-      totalSales: sql8`count(${orders.id})`.mapWith(Number),
-      revenue: sql8`sum(${orders.total})`.mapWith(Number)
-    }).from(orders).where(sql8`${orders.referralCode} IS NOT NULL`).groupBy(orders.referralCode);
+      totalSales: sql9`count(${orders.id})`.mapWith(Number),
+      revenue: sql9`sum(${orders.total})`.mapWith(Number)
+    }).from(orders).where(sql9`${orders.referralCode} IS NOT NULL`).groupBy(orders.referralCode);
   })
 });
 
@@ -4510,8 +5625,8 @@ import { z as z12 } from "zod";
 // server/coupon.ts
 init_db();
 init_schema();
-import { eq as eq12, sql as sql9, desc as desc9 } from "drizzle-orm";
-import crypto5 from "crypto";
+import { eq as eq13, sql as sql10, desc as desc9 } from "drizzle-orm";
+import crypto7 from "crypto";
 async function listCoupons() {
   const db2 = await getDb();
   const results = await db2.select({
@@ -4528,14 +5643,14 @@ async function listCoupons() {
     isActive: coupons.isActive,
     bannerColor: coupons.bannerColor,
     logoUrl: coupons.logoUrl,
-    timesUsed: sql9`count(${couponUsage.id})`
-  }).from(coupons).leftJoin(couponUsage, eq12(coupons.id, couponUsage.couponId)).groupBy(coupons.id).orderBy(desc9(coupons.createdAt));
+    timesUsed: sql10`count(${couponUsage.id})`
+  }).from(coupons).leftJoin(couponUsage, eq13(coupons.id, couponUsage.couponId)).groupBy(coupons.id).orderBy(desc9(coupons.createdAt));
   return results;
 }
 async function createCoupon(input) {
   const db2 = await getDb();
   await db2.insert(coupons).values({
-    id: crypto5.randomUUID(),
+    id: crypto7.randomUUID(),
     code: input.code.toUpperCase(),
     description: input.description || null,
     discountType: input.discountType,
@@ -4567,30 +5682,30 @@ async function updateCoupon(id, data) {
   if (data.validUntil !== void 0) updateData.validUntil = data.validUntil;
   if (data.bannerColor !== void 0) updateData.bannerColor = data.bannerColor;
   if (data.logoUrl !== void 0) updateData.logoUrl = data.logoUrl;
-  await db2.update(coupons).set(updateData).where(eq12(coupons.id, id));
+  await db2.update(coupons).set(updateData).where(eq13(coupons.id, id));
   return { success: true };
 }
 async function deleteCoupon(id) {
   const db2 = await getDb();
-  await db2.delete(couponUsage).where(eq12(couponUsage.couponId, id));
-  await db2.delete(coupons).where(eq12(coupons.id, id));
+  await db2.delete(couponUsage).where(eq13(couponUsage.couponId, id));
+  await db2.delete(coupons).where(eq13(coupons.id, id));
   return { success: true };
 }
 
 // server/admin-payment-methods.ts
 init_db();
 init_schema();
-import { eq as eq13, asc as asc2 } from "drizzle-orm";
-import crypto6 from "crypto";
+import { eq as eq14, asc as asc3 } from "drizzle-orm";
+import crypto8 from "crypto";
 async function listAllPaymentMethods() {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
-  return db2.select().from(paymentMethods).orderBy(asc2(paymentMethods.displayOrder), asc2(paymentMethods.name));
+  return db2.select().from(paymentMethods).orderBy(asc3(paymentMethods.displayOrder), asc3(paymentMethods.name));
 }
 async function createPaymentMethod(data) {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
-  const newId = crypto6.randomUUID();
+  const newId = crypto8.randomUUID();
   await db2.insert(paymentMethods).values({
     ...data,
     id: newId
@@ -4600,14 +5715,14 @@ async function createPaymentMethod(data) {
 async function updatePaymentMethod(id, data) {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
-  await db2.update(paymentMethods).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq13(paymentMethods.id, id));
+  await db2.update(paymentMethods).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq14(paymentMethods.id, id));
   return { success: true };
 }
 
 // server/admin-reports.ts
 init_db();
 init_schema();
-import { eq as eq14, desc as desc10, or as or2, sql as sql10, and as and3, gte as gte2, lte, count as count2 } from "drizzle-orm";
+import { eq as eq15, desc as desc10, or as or4, sql as sql11, and as and4, gte as gte3, lte as lte2, count as count2 } from "drizzle-orm";
 async function getDashboardSummary(timeframe) {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
@@ -4629,30 +5744,30 @@ async function getDashboardSummary(timeframe) {
     default:
       throw new Error("Timeframe inv\xE1lido.");
   }
-  const timeFilter = and3(
-    gte2(orders.createdAt, startDate),
-    lte(orders.createdAt, endDate)
+  const timeFilter = and4(
+    gte3(orders.createdAt, startDate),
+    lte2(orders.createdAt, endDate)
   );
   const [revenueResult] = await db2.select({
-    revenue: sql10`SUM(${orders.total})`,
+    revenue: sql11`SUM(${orders.total})`,
     count: count2(orders.id)
   }).from(orders).where(
-    and3(
+    and4(
       timeFilter,
-      or2(
-        eq14(orders.status, "delivered"),
-        eq14(orders.status, "completed")
+      or4(
+        eq15(orders.status, "delivered"),
+        eq15(orders.status, "completed")
       )
     )
   );
   const salesByDay = await db2.select({
-    date: sql10`DATE(${orders.createdAt})`,
-    sales: sql10`SUM(${orders.total})`
-  }).from(orders).where(timeFilter).groupBy(sql10`DATE(${orders.createdAt})`).orderBy(sql10`DATE(${orders.createdAt})`);
+    date: sql11`DATE(${orders.createdAt})`,
+    sales: sql11`SUM(${orders.total})`
+  }).from(orders).where(timeFilter).groupBy(sql11`DATE(${orders.createdAt})`).orderBy(sql11`DATE(${orders.createdAt})`);
   const topProducts = await db2.select({
     name: dishes.name,
-    quantity: sql10`SUM(${orderItems.quantity})`
-  }).from(orderItems).innerJoin(dishes, eq14(orderItems.dishId, dishes.id)).innerJoin(orders, eq14(orderItems.orderId, orders.id)).where(timeFilter).groupBy(dishes.name).orderBy(sql10`SUM(${orderItems.quantity}) DESC`).limit(5);
+    quantity: sql11`SUM(${orderItems.quantity})`
+  }).from(orderItems).innerJoin(dishes, eq15(orderItems.dishId, dishes.id)).innerJoin(orders, eq15(orderItems.orderId, orders.id)).where(timeFilter).groupBy(dishes.name).orderBy(sql11`SUM(${orderItems.quantity}) DESC`).limit(5);
   return {
     totalRevenue: revenueResult.revenue || "0.00",
     totalOrders: revenueResult.count,
@@ -4663,31 +5778,31 @@ async function getDashboardSummary(timeframe) {
 async function getPaymentMethodReport(startDate, endDate) {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
-  const timeFilter = and3(
-    gte2(orders.createdAt, startDate),
-    lte(orders.createdAt, endDate)
+  const timeFilter = and4(
+    gte3(orders.createdAt, startDate),
+    lte2(orders.createdAt, endDate)
   );
   const results = await db2.select({
     paymentMethod: orders.paymentMethod,
-    totalRevenue: sql10`SUM(${orders.total})`,
+    totalRevenue: sql11`SUM(${orders.total})`,
     totalOrders: count2(orders.id)
-  }).from(orders).where(timeFilter).groupBy(orders.paymentMethod).orderBy(desc10(sql10`SUM(${orders.total})`));
+  }).from(orders).where(timeFilter).groupBy(orders.paymentMethod).orderBy(desc10(sql11`SUM(${orders.total})`));
   return results;
 }
 
 // server/media-library.ts
 init_db();
 init_schema();
-import { eq as eq15, desc as desc11 } from "drizzle-orm";
-import crypto7 from "crypto";
+import { eq as eq16, desc as desc11 } from "drizzle-orm";
+import crypto9 from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 var UPLOADS_DIR = path.resolve(process.cwd(), "public/uploads");
 function generateUniqueWebpFilename() {
-  const timestamp24 = Date.now();
-  const randomStr = crypto7.randomBytes(4).toString("hex");
-  return `${timestamp24}-${randomStr}.webp`;
+  const timestamp25 = Date.now();
+  const randomStr = crypto9.randomBytes(4).toString("hex");
+  return `${timestamp25}-${randomStr}.webp`;
 }
 async function uploadImage(data) {
   const db2 = await getDb();
@@ -4698,7 +5813,7 @@ async function uploadImage(data) {
   const buffer = data.file instanceof Buffer ? data.file : Buffer.from(data.file);
   await sharp(buffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 80 }).toFile(filePath);
   const fileUrl = `/uploads/${filename}`;
-  const newId = crypto7.randomUUID();
+  const newId = crypto9.randomUUID();
   await db2.insert(mediaLibrary).values({
     id: newId,
     url: fileUrl,
@@ -4708,7 +5823,7 @@ async function uploadImage(data) {
     altText: data.altText || "",
     uploadedBy: data.uploadedBy
   });
-  const [newItem] = await db2.select().from(mediaLibrary).where(eq15(mediaLibrary.id, newId)).limit(1);
+  const [newItem] = await db2.select().from(mediaLibrary).where(eq16(mediaLibrary.id, newId)).limit(1);
   if (!newItem) throw new Error("Erro ao recuperar item inserido");
   return newItem;
 }
@@ -4720,8 +5835,8 @@ async function listMediaLibrary() {
 
 // server/routers/admin/finance.ts
 var adminCouponsRouter2 = router({
-  list: adminProcedure.query(async () => await listCoupons()),
-  create: adminProcedure.input(z12.object({
+  list: superAdminProcedure.query(async () => await listCoupons()),
+  create: superAdminProcedure.input(z12.object({
     code: z12.string().min(1).toUpperCase(),
     description: z12.string().nullish(),
     discountType: z12.enum(["percentage", "fixed"]),
@@ -4745,7 +5860,7 @@ var adminCouponsRouter2 = router({
       message: `Cupom "${input.code}" criado com sucesso!`
     };
   }),
-  update: adminProcedure.input(z12.object({
+  update: superAdminProcedure.input(z12.object({
     id: z12.union([z12.string(), z12.number()]),
     code: z12.string().optional(),
     isActive: z12.boolean().optional()
@@ -4759,7 +5874,7 @@ var adminCouponsRouter2 = router({
       message: `Configura\xE7\xF5es do cupom ${input.code || ""} atualizadas!`
     };
   }),
-  delete: adminProcedure.input(z12.object({ id: z12.union([z12.string(), z12.number()]), code: z12.string().optional() })).mutation(async ({ input }) => {
+  delete: superAdminProcedure.input(z12.object({ id: z12.union([z12.string(), z12.number()]), code: z12.string().optional() })).mutation(async ({ input }) => {
     const stringId = String(input.id);
     await deleteCoupon(stringId);
     return {
@@ -4769,8 +5884,8 @@ var adminCouponsRouter2 = router({
   })
 });
 var adminPaymentMethodsRouter = router({
-  listAll: adminProcedure.query(async () => await listAllPaymentMethods()),
-  create: adminProcedure.input(z12.object({
+  listAll: superAdminProcedure.query(async () => await listAllPaymentMethods()),
+  create: superAdminProcedure.input(z12.object({
     name: z12.string(),
     type: z12.enum(["card", "cash", "meal_card", "pix"])
   }).passthrough()).mutation(async ({ input }) => {
@@ -4781,7 +5896,7 @@ var adminPaymentMethodsRouter = router({
       message: `M\xE9todo de pagamento "${input.name}" adicionado!`
     };
   }),
-  update: adminProcedure.input(z12.object({
+  update: superAdminProcedure.input(z12.object({
     id: z12.union([z12.string(), z12.number()]),
     name: z12.string().optional(),
     isActive: z12.boolean().optional()
@@ -4796,15 +5911,15 @@ var adminPaymentMethodsRouter = router({
   })
 });
 var adminReportsRouter = router({
-  getDashboardSummary: adminProcedure.input(z12.object({ timeframe: z12.enum(["day", "week", "month"]) })).query(async ({ input }) => await getDashboardSummary(input.timeframe)),
-  getPaymentMethodReport: adminProcedure.input(z12.object({
+  getDashboardSummary: superAdminProcedure.input(z12.object({ timeframe: z12.enum(["day", "week", "month"]) })).query(async ({ input }) => await getDashboardSummary(input.timeframe)),
+  getPaymentMethodReport: superAdminProcedure.input(z12.object({
     startDate: z12.coerce.date(),
     endDate: z12.coerce.date()
   })).query(async ({ input }) => await getPaymentMethodReport(input.startDate, input.endDate))
 });
 var adminMediaRouter2 = router({
-  list: adminProcedure.query(async () => await listMediaLibrary()),
-  upload: adminProcedure.input(z12.object({ filename: z12.string(), mimeType: z12.string(), base64Data: z12.string() })).mutation(async ({ input, ctx }) => {
+  list: superAdminProcedure.query(async () => await listMediaLibrary()),
+  upload: superAdminProcedure.input(z12.object({ filename: z12.string(), mimeType: z12.string(), base64Data: z12.string() })).mutation(async ({ input, ctx }) => {
     const fileBuffer = Buffer.from(input.base64Data, "base64");
     const authorId = ctx.user?.id || "system";
     const result = await uploadImage({
@@ -4829,30 +5944,51 @@ var adminFinanceRouter = router({
 });
 
 // server/routers/admin/payment-methods.ts
+import { TRPCError as TRPCError12 } from "@trpc/server";
+import { asc as asc4, eq as eq17 } from "drizzle-orm";
 import { z as z13 } from "zod";
 init_db();
 init_schema();
-import { eq as eq16, asc as asc3 } from "drizzle-orm";
+function validatePaymentDiscount(discount, input, actionLabel) {
+  assertFiniteMoney(discount, "Desconto do metodo de pagamento");
+  if (discount > operationalLimits.paymentMaxDiscountPercentage) {
+    throw new TRPCError12({
+      code: "BAD_REQUEST",
+      message: `Desconto de pagamento acima de ${operationalLimits.paymentMaxDiscountPercentage}% esta bloqueado.`
+    });
+  }
+  if (discount > operationalLimits.paymentCriticalDiscountPercentage) {
+    assertStrongConfirmation(input, actionLabel);
+    assertConfirmationReason(input, actionLabel);
+    return "critical";
+  }
+  return "warning";
+}
 var adminPaymentMethodsRouter2 = router({
-  // --- LISTAGEM ---
-  listAll: adminProcedure.query(async () => {
+  listAll: superAdminProcedure.query(async () => {
     const db2 = await getDb();
     if (!db2) throw new Error("Database not available");
-    return await db2.select().from(paymentMethods).orderBy(asc3(paymentMethods.name));
+    return db2.select().from(paymentMethods).orderBy(asc4(paymentMethods.name));
   }),
-  /**
-   * ✅ CRIAÇÃO
-   */
-  create: adminProcedure.input(z13.object({
-    name: z13.string().min(1),
-    isActive: z13.boolean().optional().default(true),
-    brand_name: z13.string().optional().nullable(),
-    brand_logo_url: z13.string().optional().nullable(),
-    description: z13.string().optional().nullable(),
-    icon: z13.string().optional().nullable(),
-    discount_percentage: z13.coerce.number().optional().default(0)
-  })).mutation(async ({ input }) => {
+  create: superAdminProcedure.input(
+    z13.object({
+      name: z13.string().min(1),
+      isActive: z13.boolean().optional().default(true),
+      brand_name: z13.string().optional().nullable(),
+      brand_logo_url: z13.string().optional().nullable(),
+      description: z13.string().optional().nullable(),
+      icon: z13.string().optional().nullable(),
+      discount_percentage: z13.coerce.number().optional().default(0),
+      confirmationToken: z13.string().optional(),
+      confirmationReason: z13.string().optional()
+    })
+  ).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
+    const severity = validatePaymentDiscount(
+      input.discount_percentage,
+      input,
+      "Criacao de metodo de pagamento com desconto"
+    );
     const payload = {
       name: input.name,
       isActive: input.isActive,
@@ -4864,30 +6000,59 @@ var adminPaymentMethodsRouter2 = router({
       createdAt: /* @__PURE__ */ new Date(),
       updatedAt: /* @__PURE__ */ new Date()
     };
-    const [res] = await db2.insert(paymentMethods).values(payload);
+    const [insertResult] = await db2.insert(paymentMethods).values(payload);
+    const insertId = insertResult?.insertId;
+    if (!insertId) {
+      throw new TRPCError12({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Erro operacional ao gerar o ID do registro no banco."
+      });
+    }
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "payments",
+      action: "CREATE_PAYMENT_METHOD",
+      severity,
+      entityType: "payment_methods",
+      entityId: insertId,
+      entityLabel: input.name,
+      oldValues: null,
+      newValues: {
+        ...payload,
+        confirmationReason: input.confirmationReason?.trim() || null
+      }
+    });
     return {
       success: true,
-      id: res.insertId,
+      id: insertId,
       message: `M\xE9todo "${input.name}" cadastrado!`
     };
   }),
-  /**
-   * ✅ ATUALIZAÇÃO
-   */
-  update: adminProcedure.input(z13.object({
-    id: z13.coerce.number(),
-    name: z13.string().optional().nullable(),
-    description: z13.string().optional().nullable(),
-    brandName: z13.string().optional().nullable(),
-    brand_name: z13.string().optional().nullable(),
-    brandLogoUrl: z13.string().optional().nullable(),
-    brand_logo_url: z13.string().optional().nullable(),
-    icon: z13.string().optional().nullable(),
-    discountPercentage: z13.coerce.number().optional().nullable(),
-    discount_percentage: z13.coerce.number().optional().nullable(),
-    isActive: z13.boolean().optional().nullable()
-  })).mutation(async ({ input }) => {
+  update: superAdminProcedure.input(
+    z13.object({
+      id: z13.coerce.number(),
+      name: z13.string().optional().nullable(),
+      description: z13.string().optional().nullable(),
+      brandName: z13.string().optional().nullable(),
+      brand_name: z13.string().optional().nullable(),
+      brandLogoUrl: z13.string().optional().nullable(),
+      brand_logo_url: z13.string().optional().nullable(),
+      icon: z13.string().optional().nullable(),
+      discountPercentage: z13.coerce.number().optional().nullable(),
+      discount_percentage: z13.coerce.number().optional().nullable(),
+      isActive: z13.boolean().optional().nullable(),
+      confirmationToken: z13.string().optional(),
+      confirmationReason: z13.string().optional()
+    })
+  ).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
+    const [oldPayment] = await db2.select().from(paymentMethods).where(eq17(paymentMethods.id, String(input.id))).limit(1);
     const updateData = {
       updatedAt: /* @__PURE__ */ new Date()
     };
@@ -4899,20 +6064,76 @@ var adminPaymentMethodsRouter2 = router({
     if (brandLogo !== void 0) updateData.brandLogoUrl = brandLogo;
     if (input.icon !== void 0) updateData.icon = input.icon;
     const discount = input.discountPercentage ?? input.discount_percentage;
-    if (discount !== void 0) updateData.discountPercentage = String(discount);
+    let severity = "warning";
+    if (discount !== void 0 && discount !== null) {
+      severity = validatePaymentDiscount(
+        discount,
+        input,
+        "Alteracao de desconto em metodo de pagamento"
+      );
+      updateData.discountPercentage = String(discount);
+    }
+    if (input.isActive !== void 0 && oldPayment?.isActive !== input.isActive) {
+      assertStrongConfirmation(input, "Ativacao/desativacao de metodo de pagamento");
+      assertConfirmationReason(input, "Ativacao/desativacao de metodo de pagamento");
+      severity = "critical";
+    }
     if (input.isActive !== void 0) updateData.isActive = input.isActive;
-    await db2.update(paymentMethods).set(updateData).where(eq16(paymentMethods.id, String(input.id)));
+    await db2.update(paymentMethods).set(updateData).where(eq17(paymentMethods.id, String(input.id)));
+    if (oldPayment) {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "payments",
+        action: "UPDATE_PAYMENT_METHOD",
+        severity,
+        entityType: "payment_methods",
+        entityId: input.id,
+        entityLabel: oldPayment.name,
+        oldValues: oldPayment,
+        newValues: { ...oldPayment, ...updateData }
+      });
+    }
     return {
       success: true,
       message: "M\xE9todo atualizado com sucesso!"
     };
   }),
-  /**
-   * ✅ EXCLUSÃO
-   */
-  delete: adminProcedure.input(z13.object({ id: z13.coerce.number(), name: z13.string().optional() })).mutation(async ({ input }) => {
+  delete: superAdminProcedure.input(z13.object({
+    id: z13.coerce.number(),
+    name: z13.string().optional(),
+    confirmationToken: z13.string().optional(),
+    confirmationReason: z13.string().optional()
+  })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
-    await db2.delete(paymentMethods).where(eq16(paymentMethods.id, String(input.id)));
+    assertStrongConfirmation(input, "Exclusao de metodo de pagamento");
+    assertConfirmationReason(input, "Exclusao de metodo de pagamento");
+    const [oldPayment] = await db2.select().from(paymentMethods).where(eq17(paymentMethods.id, String(input.id))).limit(1);
+    await db2.delete(paymentMethods).where(eq17(paymentMethods.id, String(input.id)));
+    if (oldPayment) {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "payments",
+        action: "DELETE_PAYMENT_METHOD",
+        severity: "critical",
+        entityType: "payment_methods",
+        entityId: input.id,
+        entityLabel: oldPayment.name,
+        oldValues: oldPayment,
+        newValues: null
+      });
+    }
     return {
       success: true,
       message: input.name ? `"${input.name}" removido.` : "Exclu\xEDdo com sucesso."
@@ -4921,14 +6142,14 @@ var adminPaymentMethodsRouter2 = router({
 });
 
 // server/routers/admin/ingredients.ts
-init_db();
 init_schema();
+init_db();
+import { TRPCError as TRPCError13 } from "@trpc/server";
+import { and as and5, asc as asc5, eq as eq18, like as like3, sql as sql12 } from "drizzle-orm";
 import { z as z14 } from "zod";
-import { TRPCError as TRPCError11 } from "@trpc/server";
-import { eq as eq17, and as and4, asc as asc4, like as like2, sql as sql11 } from "drizzle-orm";
 var toDecimal = (val, precision = 2) => {
   if (val === void 0 || val === null || val === "") return "0.00";
-  const num = typeof val === "string" ? parseFloat(val.replace(",", ".")) : Number(val);
+  const num = typeof val === "string" ? safeNumber(val.replace(",", ".")) : safeNumber(val);
   return isNaN(num) ? "0.00" : num.toFixed(precision);
 };
 var ingredientSchema = z14.object({
@@ -4951,12 +6172,9 @@ var ingredientSchema = z14.object({
   iron: z14.coerce.number().default(0)
 });
 var ingredientsRouter = router({
-  /**
-   * 1. LISTAGEM
-   */
   list: adminProcedure.input(z14.object({ search: z14.string().optional() }).optional()).query(async ({ input }) => {
     const db2 = await getDb();
-    return await db2.select({
+    return db2.select({
       id: ingredients.id,
       name: ingredients.name,
       unit: ingredients.unit,
@@ -4976,15 +6194,12 @@ var ingredientsRouter = router({
       iron: nutritionFacts.iron
     }).from(ingredients).leftJoin(
       nutritionFacts,
-      and4(eq17(nutritionFacts.ingredientId, ingredients.id), eq17(nutritionFacts.entityType, "BASE"))
-    ).where(input?.search ? like2(ingredients.name, `%${input.search}%`) : void 0).orderBy(asc4(ingredients.name));
+      and5(eq18(nutritionFacts.ingredientId, ingredients.id), eq18(nutritionFacts.entityType, "BASE"))
+    ).where(input?.search ? like3(ingredients.name, `%${input.search}%`) : void 0).orderBy(asc5(ingredients.name));
   }),
-  /**
-   * 2. SALVAR (CREATE / UPDATE)
-   */
   create: adminProcedure.input(ingredientSchema).mutation(async ({ input }) => {
     const db2 = await getDb();
-    return await db2.transaction(async (tx) => {
+    return db2.transaction(async (tx) => {
       let ingId = input.id;
       const payloadIngredients = {
         name: input.name,
@@ -4992,14 +6207,19 @@ var ingredientsRouter = router({
         unit: input.unit
       };
       if (ingId) {
-        await tx.update(ingredients).set(payloadIngredients).where(eq17(ingredients.id, ingId));
+        await tx.update(ingredients).set(payloadIngredients).where(eq18(ingredients.id, ingId));
       } else {
-        const [res] = await tx.insert(ingredients).values(payloadIngredients);
-        ingId = res.insertId;
+        const result = await tx.insert(ingredients).values(payloadIngredients);
+        const insertId = result[0]?.insertId;
+        if (!insertId) {
+          throw new TRPCError13({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro operacional: N\xE3o foi poss\xEDvel gerar o identificador do registro."
+          });
+        }
+        ingId = insertId;
       }
-      await tx.delete(nutritionFacts).where(
-        and4(eq17(nutritionFacts.ingredientId, ingId), eq17(nutritionFacts.entityType, "BASE"))
-      );
+      await tx.delete(nutritionFacts).where(and5(eq18(nutritionFacts.ingredientId, ingId), eq18(nutritionFacts.entityType, "BASE")));
       const nutritionData = {
         ingredientId: ingId,
         entityType: "BASE",
@@ -5026,9 +6246,6 @@ var ingredientsRouter = router({
       };
     });
   }),
-  /**
-   * 3. BUSCA EXTERNA (OpenFoodFacts)
-   */
   searchExternal: adminProcedure.input(z14.object({ name: z14.string() })).query(async ({ input }) => {
     try {
       let searchTerm = input.name;
@@ -5042,40 +6259,37 @@ var ingredientsRouter = router({
       const response = await fetch(url);
       const data = await response.json();
       const products = isBarcode ? data.product ? [data.product] : [] : data.products || [];
-      return products.map((p) => ({
-        name: p.product_name || searchTerm,
-        brand: p.brands || "Marca Externa",
-        image: p.image_thumb_url || null,
-        energyKcal: toDecimal(p.nutriments?.["energy-kcal_100g"] || 0),
-        energyKj: toDecimal(p.nutriments?.["energy-kj_100g"] || 0),
-        proteins: toDecimal(p.nutriments?.proteins_100g || 0, 3),
-        carbs: toDecimal(p.nutriments?.carbohydrates_100g || 0, 3),
-        fatTotal: toDecimal(p.nutriments?.fat_100g || 0, 3),
-        fatSaturated: toDecimal(p.nutriments?.["saturated-fat_100g"] || 0, 3),
-        fiber: toDecimal(p.nutriments?.fiber_100g || 0, 3),
-        sodium: toDecimal(Number(p.nutriments?.sodium_100g || 0) * 1e3, 2),
-        calcium: toDecimal(p.nutriments?.calcium_100g || 0),
-        iron: toDecimal(p.nutriments?.iron_100g || 0)
+      return products.map((product) => ({
+        name: product.product_name || searchTerm,
+        brand: product.brands || "Marca Externa",
+        image: product.image_thumb_url || null,
+        energyKcal: toDecimal(product.nutriments?.["energy-kcal_100g"] || 0),
+        energyKj: toDecimal(product.nutriments?.["energy-kj_100g"] || 0),
+        proteins: toDecimal(product.nutriments?.proteins_100g || 0, 3),
+        carbs: toDecimal(product.nutriments?.carbohydrates_100g || 0, 3),
+        fatTotal: toDecimal(product.nutriments?.fat_100g || 0, 3),
+        fatSaturated: toDecimal(product.nutriments?.["saturated-fat_100g"] || 0, 3),
+        fiber: toDecimal(product.nutriments?.fiber_100g || 0, 3),
+        sodium: toDecimal(safeNumber(product.nutriments?.sodium_100g) * 1e3, 2),
+        calcium: toDecimal(product.nutriments?.calcium_100g || 0),
+        iron: toDecimal(product.nutriments?.iron_100g || 0)
       }));
     } catch {
       return [];
     }
   }),
-  /**
-   * 4. EXCLUSÃO
-   */
   delete: adminProcedure.input(z14.object({ id: z14.number(), name: z14.string().optional() })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    const [usage] = await db2.select({ count: sql11`count(*)` }).from(dishComposition).where(eq17(dishComposition.ingredientId, input.id));
+    const [usage] = await db2.select({ count: sql12`count(*)` }).from(dishComposition).where(eq18(dishComposition.ingredientId, input.id));
     if (Number(usage?.count || 0) > 0) {
-      throw new TRPCError11({
+      throw new TRPCError13({
         code: "CONFLICT",
-        message: `Insumo em uso: Este item est\xE1 vinculado a uma ou mais fichas t\xE9cnicas.`
+        message: "Insumo em uso: Este item est\xE1 vinculado a uma ou mais fichas t\xE9cnicas."
       });
     }
     await db2.transaction(async (tx) => {
-      await tx.delete(nutritionFacts).where(eq17(nutritionFacts.ingredientId, input.id));
-      await tx.delete(ingredients).where(eq17(ingredients.id, input.id));
+      await tx.delete(nutritionFacts).where(eq18(nutritionFacts.ingredientId, input.id));
+      await tx.delete(ingredients).where(eq18(ingredients.id, input.id));
     });
     return {
       success: true,
@@ -5088,8 +6302,8 @@ var ingredientsRouter = router({
 init_db();
 init_schema();
 import { z as z15 } from "zod";
-import { eq as eq18 } from "drizzle-orm";
-import { TRPCError as TRPCError12 } from "@trpc/server";
+import { eq as eq19 } from "drizzle-orm";
+import { TRPCError as TRPCError14 } from "@trpc/server";
 var dishCompositionRouter = router({
   /**
    * ✅ BUSCA A COMPOSIÇÃO
@@ -5100,12 +6314,12 @@ var dishCompositionRouter = router({
   })).query(async ({ input }) => {
     const db2 = await getDb();
     if (!input.dishId && !input.accompanimentOptionId) {
-      throw new TRPCError12({
+      throw new TRPCError14({
         code: "BAD_REQUEST",
         message: "\xC9 necess\xE1rio informar dishId ou accompanimentOptionId."
       });
     }
-    const whereClause = input.dishId ? eq18(dishComposition.dishId, input.dishId) : eq18(dishComposition.accompanimentOptionId, input.accompanimentOptionId);
+    const whereClause = input.dishId ? eq19(dishComposition.dishId, input.dishId) : eq19(dishComposition.accompanimentOptionId, input.accompanimentOptionId);
     return await db2.select().from(dishComposition).where(whereClause);
   }),
   /**
@@ -5126,12 +6340,12 @@ var dishCompositionRouter = router({
     }).passthrough())
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError12({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
+    if (!db2) throw new TRPCError14({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
     return await db2.transaction(async (tx) => {
       if (input.dishId) {
-        await tx.delete(dishComposition).where(eq18(dishComposition.dishId, input.dishId));
+        await tx.delete(dishComposition).where(eq19(dishComposition.dishId, input.dishId));
       } else if (input.accompanimentOptionId) {
-        await tx.delete(dishComposition).where(eq18(dishComposition.accompanimentOptionId, input.accompanimentOptionId));
+        await tx.delete(dishComposition).where(eq19(dishComposition.accompanimentOptionId, input.accompanimentOptionId));
       }
       if (input.items.length === 0) {
         return {
@@ -5192,7 +6406,7 @@ var dishCompositionRouter = router({
           fiber: String(totals.fib.toFixed(2)),
           sodium: String(totals.sod.toFixed(2)),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq18(dishes.id, input.dishId));
+        }).where(eq19(dishes.id, input.dishId));
       }
       const target = input.dishId ? "do prato" : "do acompanhamento";
       return {
@@ -5205,11 +6419,11 @@ var dishCompositionRouter = router({
 
 // server/routers/admin/dishes.ts
 import { z as z16 } from "zod";
-import { TRPCError as TRPCError14 } from "@trpc/server";
+import { TRPCError as TRPCError16 } from "@trpc/server";
 
 // server/admin-dishes/logic/admin-dishes-queries.ts
 init_db();
-import { and as and5, asc as asc5, count as count3, desc as desc12, eq as eq19, like as like3, sql as sql12 } from "drizzle-orm";
+import { and as and6, asc as asc6, count as count3, desc as desc12, eq as eq20, like as like4, sql as sql13 } from "drizzle-orm";
 
 // server/admin-dishes/logic/admin-dishes-types.ts
 function mapDishRowToAdmin(row) {
@@ -5251,7 +6465,7 @@ function generateSlug(name) {
 init_schema();
 async function getLocalCategories() {
   const db2 = await getDb();
-  return await db2.select().from(categories).orderBy(asc5(categories.displayOrder));
+  return await db2.select().from(categories).orderBy(asc6(categories.displayOrder));
 }
 async function searchIngredients(query) {
   const db2 = await getDb();
@@ -5262,7 +6476,7 @@ async function searchIngredients(query) {
       name: ingredients.name,
       category: ingredients.category,
       unit: ingredients.unit,
-      yieldFactor: sql12`ingredients.yield_factor`,
+      yieldFactor: sql13`ingredients.yield_factor`,
       energyKcal: nutritionFacts.energyKcal,
       energyKj: nutritionFacts.energyKj,
       proteins: nutritionFacts.proteins,
@@ -5271,11 +6485,11 @@ async function searchIngredients(query) {
       sodium: nutritionFacts.sodium
     }).from(ingredients).leftJoin(
       nutritionFacts,
-      and5(
-        eq19(nutritionFacts.ingredientId, ingredients.id),
-        eq19(nutritionFacts.entityType, "BASE")
+      and6(
+        eq20(nutritionFacts.ingredientId, ingredients.id),
+        eq20(nutritionFacts.entityType, "BASE")
       )
-    ).where(like3(ingredients.name, `%${query}%`)).limit(15);
+    ).where(like4(ingredients.name, `%${query}%`)).limit(15);
     return results.map((ing) => ({
       ...ing,
       yieldFactor: Number(ing.yieldFactor || 1),
@@ -5306,21 +6520,21 @@ async function getDishById(id) {
       isActive: dishes.isActive,
       ingredients: dishes.ingredients,
       show_nutrition: dishes.showNutrition,
-      isVegetarian: sql12`COALESCE(dishes.is_vegetarian, 0)`,
-      isGlutenFree: sql12`COALESCE(dishes.is_gluten_free, 0)`,
-      isLactoseFree: sql12`COALESCE(dishes.is_lactose_free, 0)`,
+      isVegetarian: sql13`COALESCE(dishes.is_vegetarian, 0)`,
+      isGlutenFree: sql13`COALESCE(dishes.is_gluten_free, 0)`,
+      isLactoseFree: sql13`COALESCE(dishes.is_lactose_free, 0)`,
       categoryName: categories.name
-    }).from(dishes).leftJoin(categories, eq19(dishes.categoryId, categories.id)).where(eq19(dishes.id, dishId)).limit(1);
+    }).from(dishes).leftJoin(categories, eq20(dishes.categoryId, categories.id)).where(eq20(dishes.id, dishId)).limit(1);
     const row = rows[0];
     if (!row) return null;
     const mappedBase = mapDishRowToAdmin(row) || {};
-    const nutrition = await db2.select().from(nutritionFacts).where(and5(eq19(nutritionFacts.dishId, dishId), eq19(nutritionFacts.entityType, "TOTAL"))).limit(1);
-    const compositionItems = await db2.select().from(dishComposition).where(eq19(dishComposition.dishId, dishId));
+    const nutrition = await db2.select().from(nutritionFacts).where(and6(eq20(nutritionFacts.dishId, dishId), eq20(nutritionFacts.entityType, "TOTAL"))).limit(1);
+    const compositionItems = await db2.select().from(dishComposition).where(eq20(dishComposition.dishId, dishId));
     const enrichedComposition = await Promise.all((compositionItems || []).map(async (item) => {
       if (item.ingredientId) {
         const [data] = await db2.select({
           name: ingredients.name,
-          yieldFactor: sql12`ingredients.yield_factor`,
+          yieldFactor: sql13`ingredients.yield_factor`,
           energyKcal: nutritionFacts.energyKcal,
           energyKj: nutritionFacts.energyKj,
           proteins: nutritionFacts.proteins,
@@ -5330,11 +6544,11 @@ async function getDishById(id) {
           sodium: nutritionFacts.sodium
         }).from(ingredients).leftJoin(
           nutritionFacts,
-          and5(
-            eq19(nutritionFacts.ingredientId, ingredients.id),
-            eq19(nutritionFacts.entityType, "BASE")
+          and6(
+            eq20(nutritionFacts.ingredientId, ingredients.id),
+            eq20(nutritionFacts.entityType, "BASE")
           )
-        ).where(eq19(ingredients.id, item.ingredientId)).limit(1);
+        ).where(eq20(ingredients.id, item.ingredientId)).limit(1);
         return {
           ...item,
           ingredientName: data?.name || item.ingredientName || "Item desconhecido",
@@ -5355,7 +6569,7 @@ async function getDishById(id) {
       name: dishSizes.name,
       priceModifier: dishSizes.priceModifier,
       isActive: dishSizes.isActive
-    }).from(dishSizes).innerJoin(dishesToSizes, eq19(dishSizes.id, dishesToSizes.sizeId)).where(eq19(dishesToSizes.dishId, dishId));
+    }).from(dishSizes).innerJoin(dishesToSizes, eq20(dishSizes.id, dishesToSizes.sizeId)).where(eq20(dishesToSizes.dishId, dishId));
     return {
       ...mappedBase,
       energyKcal: Number(nutrition[0]?.energyKcal || 0),
@@ -5380,10 +6594,10 @@ async function getPaginatedDishes(params) {
   const db2 = await getDb();
   const offset = (params.page - 1) * params.limit;
   const conditions = [];
-  if (params.search) conditions.push(like3(dishes.name, `%${params.search}%`));
-  if (params.categoryId) conditions.push(eq19(dishes.categoryId, params.categoryId));
-  if (!params.showInactive) conditions.push(eq19(dishes.isActive, true));
-  const whereExpr = conditions.length ? and5(...conditions) : void 0;
+  if (params.search) conditions.push(like4(dishes.name, `%${params.search}%`));
+  if (params.categoryId) conditions.push(eq20(dishes.categoryId, params.categoryId));
+  if (!params.showInactive) conditions.push(eq20(dishes.isActive, true));
+  const whereExpr = conditions.length ? and6(...conditions) : void 0;
   const [totalResult] = await db2.select({ value: count3() }).from(dishes).where(whereExpr);
   const rows = await db2.select({
     id: dishes.id,
@@ -5395,16 +6609,16 @@ async function getPaginatedDishes(params) {
     imageUrl: dishes.imageUrl,
     categoryName: categories.name,
     // Preenchimento de campos obrigatórios da interface para evitar bugs no map
-    slug: sql12`''`,
-    description: sql12`''`,
-    ingredients: sql12`''`,
-    show_nutrition: sql12`false`,
-    isVegetarian: sql12`0`,
-    isGlutenFree: sql12`0`,
-    isLactoseFree: sql12`0`
-  }).from(dishes).leftJoin(categories, eq19(dishes.categoryId, categories.id)).where(whereExpr).orderBy(desc12(dishes.id)).limit(params.limit).offset(offset);
+    slug: sql13`''`,
+    description: sql13`''`,
+    ingredients: sql13`''`,
+    show_nutrition: sql13`false`,
+    isVegetarian: sql13`0`,
+    isGlutenFree: sql13`0`,
+    isLactoseFree: sql13`0`
+  }).from(dishes).leftJoin(categories, eq20(dishes.categoryId, categories.id)).where(whereExpr).orderBy(desc12(dishes.id)).limit(params.limit).offset(offset);
   const dataWithSizes = await Promise.all(rows.map(async (row) => {
-    const linkedSizes = await db2.select({ id: dishSizes.id }).from(dishesToSizes).innerJoin(dishSizes, eq19(dishesToSizes.sizeId, dishSizes.id)).where(eq19(dishesToSizes.dishId, row.id));
+    const linkedSizes = await db2.select({ id: dishSizes.id }).from(dishesToSizes).innerJoin(dishSizes, eq20(dishesToSizes.sizeId, dishSizes.id)).where(eq20(dishesToSizes.dishId, row.id));
     const mapped = mapDishRowToAdmin(row) || {};
     return { ...mapped, sizes: linkedSizes };
   }));
@@ -5425,14 +6639,14 @@ async function listAllSizes() {
     description: dishSizes.description,
     groupsOrder: dishSizes.groupsOrder,
     weight: dishSizes.weight
-  }).from(dishSizes).where(eq19(dishSizes.isActive, true)).orderBy(asc5(dishSizes.name));
+  }).from(dishSizes).where(eq20(dishSizes.isActive, true)).orderBy(asc6(dishSizes.name));
 }
 
 // server/admin-dishes/logic/admin-dishes-mutations.ts
 init_db();
 init_schema();
-import { and as and6, eq as eq20 } from "drizzle-orm";
-import { TRPCError as TRPCError13 } from "@trpc/server";
+import { and as and7, eq as eq21 } from "drizzle-orm";
+import { TRPCError as TRPCError15 } from "@trpc/server";
 var toDecimal2 = (val, precision = 2) => {
   if (val === void 0 || val === null || val === "") return "0.00";
   const normalized = typeof val === "string" ? val.replace(",", ".") : val;
@@ -5448,7 +6662,7 @@ var getSafeId = (item) => {
 function requireIntegerId(value, label) {
   const id = safeInteger(value, Number.NaN);
   if (!Number.isFinite(id) || id <= 0) {
-    throw new TRPCError13({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
+    throw new TRPCError15({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
   }
   return id;
 }
@@ -5456,7 +6670,7 @@ function requirePrice(value, label) {
   const normalized = typeof value === "string" ? value.replace(",", ".") : value;
   const price = safeNumber(normalized, Number.NaN);
   if (!Number.isFinite(price) || price < 0) {
-    throw new TRPCError13({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
+    throw new TRPCError15({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
   }
   return price.toFixed(2);
 }
@@ -5529,11 +6743,11 @@ async function updateDish(id, data) {
       nutritionalInfo: null,
       updatedAt: /* @__PURE__ */ new Date()
     };
-    await tx.update(dishes).set(dishPayload).where(eq20(dishes.id, dishId));
+    await tx.update(dishes).set(dishPayload).where(eq21(dishes.id, dishId));
     if (data.composition && Array.isArray(data.composition)) {
-      await tx.delete(dishComposition).where(eq20(dishComposition.dishId, dishId));
+      await tx.delete(dishComposition).where(eq21(dishComposition.dishId, dishId));
       await tx.delete(nutritionFacts).where(
-        and6(eq20(nutritionFacts.dishId, dishId), eq20(nutritionFacts.entityType, "TOTAL"))
+        and7(eq21(nutritionFacts.dishId, dishId), eq21(nutritionFacts.entityType, "TOTAL"))
       );
       for (const item of data.composition) {
         const safeIngId = getSafeId(item);
@@ -5576,10 +6790,10 @@ async function deleteDish(id) {
   const db2 = await getDb();
   const dishId = requireIntegerId(id, "Prato");
   return await db2.transaction(async (tx) => {
-    await tx.delete(nutritionFacts).where(eq20(nutritionFacts.dishId, dishId));
-    await tx.delete(dishComposition).where(eq20(dishComposition.dishId, dishId));
-    await tx.delete(dishesToSizes).where(eq20(dishesToSizes.dishId, dishId));
-    await tx.delete(dishes).where(eq20(dishes.id, dishId));
+    await tx.delete(nutritionFacts).where(eq21(nutritionFacts.dishId, dishId));
+    await tx.delete(dishComposition).where(eq21(dishComposition.dishId, dishId));
+    await tx.delete(dishesToSizes).where(eq21(dishesToSizes.dishId, dishId));
+    await tx.delete(dishes).where(eq21(dishes.id, dishId));
     return { success: true };
   });
 }
@@ -5587,9 +6801,9 @@ async function toggleSizeLink(dishId, sizeId) {
   const db2 = await getDb();
   const dId = requireIntegerId(dishId, "Prato");
   const sId = requireIntegerId(sizeId, "Tamanho");
-  const existing = await db2.select().from(dishesToSizes).where(and6(eq20(dishesToSizes.dishId, dId), eq20(dishesToSizes.sizeId, sId))).limit(1);
+  const existing = await db2.select().from(dishesToSizes).where(and7(eq21(dishesToSizes.dishId, dId), eq21(dishesToSizes.sizeId, sId))).limit(1);
   if (existing.length > 0) {
-    await db2.delete(dishesToSizes).where(and6(eq20(dishesToSizes.dishId, dId), eq20(dishesToSizes.sizeId, sId)));
+    await db2.delete(dishesToSizes).where(and7(eq21(dishesToSizes.dishId, dId), eq21(dishesToSizes.sizeId, sId)));
     return { success: true, isLinked: false };
   } else {
     await db2.insert(dishesToSizes).values({ dishId: dId, sizeId: sId });
@@ -5600,7 +6814,7 @@ async function toggleSizeLink(dishId, sizeId) {
 // server/routers/admin/dishes.ts
 init_db();
 init_schema();
-import { eq as eq21 } from "drizzle-orm";
+import { eq as eq22 } from "drizzle-orm";
 var adminDishesRouter = router({
   listCategories: adminProcedure.query(async () => {
     return await getLocalCategories();
@@ -5626,7 +6840,7 @@ var adminDishesRouter = router({
   getById: adminProcedure.input(z16.number()).query(async ({ input }) => {
     const dish = await getDishById(input);
     if (!dish) {
-      throw new TRPCError14({
+      throw new TRPCError16({
         code: "NOT_FOUND",
         message: "Prato n\xE3o encontrado."
       });
@@ -5644,7 +6858,7 @@ var adminDishesRouter = router({
     isActive: z16.boolean()
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    await db2.update(dishes).set({ isActive: input.isActive }).where(eq21(dishes.id, input.id));
+    await db2.update(dishes).set({ isActive: input.isActive }).where(eq22(dishes.id, input.id));
     return {
       success: true,
       message: input.isActive ? `Prato "${input.name || "item"}" ativado para venda!` : `Prato "${input.name || "item"}" pausado no card\xE1pio.`
@@ -5720,19 +6934,19 @@ var adminDishesRouter = router({
 init_db();
 init_schema();
 import { z as z17 } from "zod";
-import { eq as eq22, asc as asc6 } from "drizzle-orm";
-import { TRPCError as TRPCError15 } from "@trpc/server";
+import { eq as eq23, asc as asc7 } from "drizzle-orm";
+import { TRPCError as TRPCError17 } from "@trpc/server";
 var adminCategoriesRouter = router({
   // Lista todas as categorias
   list: adminProcedure.input(z17.object({ onlyActive: z17.boolean().optional() }).optional()).query(async ({ input }) => {
     try {
       const db2 = await getDb();
-      const whereClause = input?.onlyActive ? eq22(categories.isActive, true) : void 0;
-      const results = await db2.select().from(categories).where(whereClause).orderBy(asc6(categories.displayOrder), asc6(categories.name));
+      const whereClause = input?.onlyActive ? eq23(categories.isActive, true) : void 0;
+      const results = await db2.select().from(categories).where(whereClause).orderBy(asc7(categories.displayOrder), asc7(categories.name));
       return results || [];
     } catch (error) {
       console.error("Error fetching categories:", error);
-      throw new TRPCError15({
+      throw new TRPCError17({
         code: "INTERNAL_SERVER_ERROR",
         message: "Falha ao listar categorias."
       });
@@ -5760,7 +6974,7 @@ var adminCategoriesRouter = router({
     };
     try {
       if (input.id) {
-        await db2.update(categories).set(data).where(eq22(categories.id, input.id));
+        await db2.update(categories).set(data).where(eq23(categories.id, input.id));
         return { success: true };
       } else {
         await db2.insert(categories).values({
@@ -5771,12 +6985,12 @@ var adminCategoriesRouter = router({
       }
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ER_DUP_ENTRY") {
-        throw new TRPCError15({
+        throw new TRPCError17({
           code: "CONFLICT",
           message: "J\xE1 existe uma categoria com este nome ou slug."
         });
       }
-      throw new TRPCError15({
+      throw new TRPCError17({
         code: "INTERNAL_SERVER_ERROR",
         message: error instanceof Error ? error.message : "Erro ao processar categoria"
       });
@@ -5786,13 +7000,13 @@ var adminCategoriesRouter = router({
   delete: adminProcedure.input(z17.object({ id: z17.number(), name: z17.string().optional() })).mutation(async ({ input }) => {
     try {
       const db2 = await getDb();
-      await db2.delete(categories).where(eq22(categories.id, input.id));
+      await db2.delete(categories).where(eq23(categories.id, input.id));
       return {
         success: true,
         message: input.name ? `Categoria "${input.name}" removida.` : "Removida com sucesso."
       };
     } catch {
-      throw new TRPCError15({
+      throw new TRPCError17({
         code: "INTERNAL_SERVER_ERROR",
         message: "N\xE3o foi poss\xEDvel excluir. Verifique se existem produtos vinculados."
       });
@@ -5824,42 +7038,40 @@ var adminReviewsRouter = router({
 });
 
 // server/routers/admin/sizes.ts
+import { TRPCError as TRPCError18 } from "@trpc/server";
+import { and as and8, eq as eq24 } from "drizzle-orm";
+import { z as z19 } from "zod";
 init_db();
 init_schema();
-import { z as z19 } from "zod";
-import { eq as eq23, and as and7 } from "drizzle-orm";
 var adminSizesRouter = router({
-  // 1. LISTAR TODOS OS TAMANHOS
   list: adminProcedure.query(async () => {
     const db2 = await getDb();
     const result = await db2.select().from(dishSizes).orderBy(dishSizes.displayOrder);
     return result.map((size) => ({
       ...size,
-      groupsOrder: typeof size.groupsOrder === "string" ? JSON.parse(size.groupsOrder) : size.groupsOrder || []
+      groupsOrder: typeof size.groupsOrder === "string" ? safeJsonParse(size.groupsOrder, []) : Array.isArray(size.groupsOrder) ? size.groupsOrder : []
     }));
   }),
-  // 2. BUSCAR VÍNCULOS
   getAccompanimentGroups: adminProcedure.query(async () => {
     const db2 = await getDb();
-    return await db2.select().from(sizeAccompanimentGroups);
+    return db2.select().from(sizeAccompanimentGroups);
   }),
-  /**
-   * ✅ SALVAR (CRIAR OU EDITAR)
-   */
-  upsert: adminProcedure.input(z19.object({
-    id: z19.number().optional(),
-    name: z19.string().min(1).optional(),
-    price: z19.coerce.string().optional(),
-    priceModifier: z19.coerce.string().optional(),
-    iconKey: z19.string().optional().nullable(),
-    color: z19.string().optional().nullable(),
-    isActive: z19.boolean().optional(),
-    description: z19.string().optional().nullable(),
-    weight: z19.string().optional().nullable(),
-    mainDishWeight: z19.coerce.number().optional().nullable(),
-    groupsOrder: z19.array(z19.number()).optional().nullable(),
-    displayOrder: z19.number().optional()
-  }).passthrough()).mutation(async ({ input }) => {
+  upsert: adminProcedure.input(
+    z19.object({
+      id: z19.number().optional(),
+      name: z19.string().min(1).optional(),
+      price: z19.coerce.string().optional(),
+      priceModifier: z19.coerce.string().optional(),
+      iconKey: z19.string().optional().nullable(),
+      color: z19.string().optional().nullable(),
+      isActive: z19.boolean().optional(),
+      description: z19.string().optional().nullable(),
+      weight: z19.string().optional().nullable(),
+      mainDishWeight: z19.coerce.number().optional().nullable(),
+      groupsOrder: z19.array(z19.number()).optional().nullable(),
+      displayOrder: z19.number().optional()
+    }).passthrough()
+  ).mutation(async ({ input }) => {
     const db2 = await getDb();
     const { id, groupsOrder, displayOrder, ...data } = input;
     const payload = {
@@ -5876,66 +7088,70 @@ var adminSizesRouter = router({
       displayOrder: displayOrder ?? 0
     };
     if (id) {
-      await db2.update(dishSizes).set(payload).where(eq23(dishSizes.id, id));
+      await db2.update(dishSizes).set(payload).where(eq24(dishSizes.id, id));
       return {
         success: true,
         id,
         message: `Tamanho "${data.name}" atualizado com sucesso!`
       };
     }
-    const [res] = await db2.insert(dishSizes).values(payload);
+    const [insertResult] = await db2.insert(dishSizes).values(payload);
+    const insertId = insertResult?.insertId;
+    if (!insertId) {
+      throw new TRPCError18({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Erro operacional ao gerar o ID do registro no banco."
+      });
+    }
     return {
       success: true,
-      id: res.insertId,
+      id: insertId,
       message: `Novo tamanho "${data.name}" criado!`
     };
   }),
-  /**
-   * ✅ DELETAR
-   */
   delete: adminProcedure.input(z19.object({ id: z19.number(), name: z19.string().optional() })).mutation(async ({ input }) => {
     const db2 = await getDb();
     await db2.transaction(async (tx) => {
-      await tx.delete(sizeAccompanimentGroups).where(eq23(sizeAccompanimentGroups.sizeId, input.id));
-      await tx.delete(dishesToSizes).where(eq23(dishesToSizes.sizeId, input.id));
-      await tx.delete(dishSizes).where(eq23(dishSizes.id, input.id));
+      await tx.delete(sizeAccompanimentGroups).where(eq24(sizeAccompanimentGroups.sizeId, input.id));
+      await tx.delete(dishesToSizes).where(eq24(dishesToSizes.sizeId, input.id));
+      await tx.delete(dishSizes).where(eq24(dishSizes.id, input.id));
     });
     return {
       success: true,
       message: input.name ? `Tamanho "${input.name}" removido.` : "Tamanho exclu\xEDdo do sistema."
     };
   }),
-  /**
-   * ✅ REORDENAR (A ROTA QUE ESTAVA FALTANDO!)
-   */
   reorder: adminProcedure.input(z19.object({ ids: z19.array(z19.number()) })).mutation(async ({ input }) => {
     const db2 = await getDb();
     await db2.transaction(async (tx) => {
       for (let i = 0; i < input.ids.length; i++) {
-        await tx.update(dishSizes).set({ displayOrder: i }).where(eq23(dishSizes.id, input.ids[i]));
+        await tx.update(dishSizes).set({ displayOrder: i }).where(eq24(dishSizes.id, input.ids[i]));
       }
     });
     return { success: true, message: "Ordem dos tamanhos atualizada!" };
   }),
-  /**
-   * ✅ VÍNCULOS (TOGGLE LINK + AUTO SYNC)
-   */
-  toggleLink: adminProcedure.input(z19.object({
-    sizeId: z19.number(),
-    accompanimentGroupId: z19.number()
-  })).mutation(async ({ input }) => {
+  toggleLink: adminProcedure.input(
+    z19.object({
+      sizeId: z19.number(),
+      accompanimentGroupId: z19.number()
+    })
+  ).mutation(async ({ input }) => {
     const db2 = await getDb();
-    return await db2.transaction(async (tx) => {
-      const existing = await tx.select().from(sizeAccompanimentGroups).where(and7(
-        eq23(sizeAccompanimentGroups.sizeId, input.sizeId),
-        eq23(sizeAccompanimentGroups.accompanimentGroupId, input.accompanimentGroupId)
-      )).limit(1);
+    return db2.transaction(async (tx) => {
+      const existing = await tx.select().from(sizeAccompanimentGroups).where(
+        and8(
+          eq24(sizeAccompanimentGroups.sizeId, input.sizeId),
+          eq24(sizeAccompanimentGroups.accompanimentGroupId, input.accompanimentGroupId)
+        )
+      ).limit(1);
       let linked = false;
       if (existing.length > 0) {
-        await tx.delete(sizeAccompanimentGroups).where(and7(
-          eq23(sizeAccompanimentGroups.sizeId, input.sizeId),
-          eq23(sizeAccompanimentGroups.accompanimentGroupId, input.accompanimentGroupId)
-        ));
+        await tx.delete(sizeAccompanimentGroups).where(
+          and8(
+            eq24(sizeAccompanimentGroups.sizeId, input.sizeId),
+            eq24(sizeAccompanimentGroups.accompanimentGroupId, input.accompanimentGroupId)
+          )
+        );
       } else {
         await tx.insert(sizeAccompanimentGroups).values({
           sizeId: input.sizeId,
@@ -5943,9 +7159,9 @@ var adminSizesRouter = router({
         });
         linked = true;
       }
-      const currentLinks = await tx.select({ id: sizeAccompanimentGroups.accompanimentGroupId }).from(sizeAccompanimentGroups).where(eq23(sizeAccompanimentGroups.sizeId, input.sizeId));
-      const newOrder = currentLinks.map((l) => l.id);
-      await tx.update(dishSizes).set({ groupsOrder: JSON.stringify(newOrder) }).where(eq23(dishSizes.id, input.sizeId));
+      const currentLinks = await tx.select({ id: sizeAccompanimentGroups.accompanimentGroupId }).from(sizeAccompanimentGroups).where(eq24(sizeAccompanimentGroups.sizeId, input.sizeId));
+      const newOrder = currentLinks.map((link) => link.id);
+      await tx.update(dishSizes).set({ groupsOrder: JSON.stringify(newOrder) }).where(eq24(dishSizes.id, input.sizeId));
       return {
         success: true,
         message: linked ? "Grupo de acompanhamento vinculado!" : "V\xEDnculo removido e lista sincronizada."
@@ -5955,31 +7171,35 @@ var adminSizesRouter = router({
 });
 
 // server/routers/admin/groups.ts
-init_db();
 init_schema();
+init_db();
+import { TRPCError as TRPCError19 } from "@trpc/server";
+import { asc as asc8, eq as eq25 } from "drizzle-orm";
 import { z as z20 } from "zod";
-import { eq as eq24, asc as asc7 } from "drizzle-orm";
-function createSlug(text19) {
-  return text19.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
+function createSlug(text20) {
+  return text20.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 var adminGroupsRouter = router({
   list: adminProcedure.query(async () => {
     const db2 = await getDb();
-    return await db2.select().from(accompanimentGroups).orderBy(asc7(accompanimentGroups.name));
+    return db2.select().from(accompanimentGroups).orderBy(asc8(accompanimentGroups.name));
   }),
-  upsert: adminProcedure.input(z20.object({
-    id: z20.number().optional(),
-    name: z20.string().min(1, "O nome do grupo \xE9 obrigat\xF3rio"),
-    isActive: z20.boolean().optional(),
-    minSelections: z20.coerce.number().optional().default(0),
-    maxSelections: z20.coerce.number().optional().default(1),
-    defaultGrammage: z20.coerce.number().optional().default(100),
-    // ✅ Removido displayOrder daqui pois o Schema não possui essa coluna
-    itemsOrder: z20.array(z20.object({
+  upsert: adminProcedure.input(
+    z20.object({
       id: z20.number().optional(),
-      group_id: z20.number().optional()
-    })).optional().nullable()
-  }).passthrough()).mutation(async ({ input }) => {
+      name: z20.string().min(1, "O nome do grupo \xE9 obrigat\xF3rio"),
+      isActive: z20.boolean().optional(),
+      minSelections: z20.coerce.number().optional().default(0),
+      maxSelections: z20.coerce.number().optional().default(1),
+      defaultGrammage: z20.coerce.number().optional().default(100),
+      itemsOrder: z20.array(
+        z20.object({
+          id: z20.number().optional(),
+          group_id: z20.number().optional()
+        })
+      ).optional().nullable()
+    }).passthrough()
+  ).mutation(async ({ input }) => {
     const db2 = await getDb();
     const { id, itemsOrder, ...data } = input;
     const baseSlug = createSlug(data.name);
@@ -5992,27 +7212,31 @@ var adminGroupsRouter = router({
       maxSelections: data.maxSelections,
       defaultGrammage: String(data.defaultGrammage || "100.00"),
       itemsOrder: itemsOrder ? JSON.stringify(itemsOrder) : "[]"
-      // ✅ Removido displayOrder daqui para satisfazer o TypeScript (TS2353)
     };
-    return await db2.transaction(async (tx) => {
+    return db2.transaction(async (tx) => {
       let finalId;
       if (id) {
-        await tx.update(accompanimentGroups).set(payload).where(eq24(accompanimentGroups.id, id));
+        await tx.update(accompanimentGroups).set(payload).where(eq25(accompanimentGroups.id, id));
         finalId = id;
       } else {
-        const [res] = await tx.insert(accompanimentGroups).values(payload);
-        finalId = res.insertId;
+        const result = await tx.insert(accompanimentGroups).values(payload);
+        const insertId = result[0]?.insertId;
+        if (!insertId) {
+          throw new TRPCError19({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro operacional: N\xE3o foi poss\xEDvel gerar o identificador do registro."
+          });
+        }
+        finalId = insertId;
       }
-      if (finalId) {
-        await tx.delete(groupToOptions).where(eq24(groupToOptions.groupId, finalId));
-        if (itemsOrder && itemsOrder.length > 0) {
-          const inserts = itemsOrder.map((item) => ({
-            groupId: finalId,
-            optionId: Number(item.group_id || item.id)
-          })).filter((i) => i.optionId > 0);
-          if (inserts.length > 0) {
-            await tx.insert(groupToOptions).values(inserts);
-          }
+      await tx.delete(groupToOptions).where(eq25(groupToOptions.groupId, finalId));
+      if (itemsOrder && itemsOrder.length > 0) {
+        const inserts = itemsOrder.map((item) => ({
+          groupId: finalId,
+          optionId: Number(item.group_id || item.id)
+        })).filter((item) => item.optionId > 0);
+        if (inserts.length > 0) {
+          await tx.insert(groupToOptions).values(inserts);
         }
       }
       const message = id ? `Grupo "${data.name}" atualizado!` : `Novo grupo "${data.name}" criado com sucesso!`;
@@ -6021,10 +7245,10 @@ var adminGroupsRouter = router({
   }),
   delete: adminProcedure.input(z20.object({ id: z20.number(), name: z20.string().optional() })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    return await db2.transaction(async (tx) => {
-      await tx.delete(sizeAccompanimentGroups).where(eq24(sizeAccompanimentGroups.accompanimentGroupId, input.id));
-      await tx.delete(groupToOptions).where(eq24(groupToOptions.groupId, input.id));
-      await tx.delete(accompanimentGroups).where(eq24(accompanimentGroups.id, input.id));
+    return db2.transaction(async (tx) => {
+      await tx.delete(sizeAccompanimentGroups).where(eq25(sizeAccompanimentGroups.accompanimentGroupId, input.id));
+      await tx.delete(groupToOptions).where(eq25(groupToOptions.groupId, input.id));
+      await tx.delete(accompanimentGroups).where(eq25(accompanimentGroups.id, input.id));
       return {
         success: true,
         message: input.name ? `Grupo "${input.name}" exclu\xEDdo.` : "Grupo removido."
@@ -6034,13 +7258,15 @@ var adminGroupsRouter = router({
 });
 
 // server/routers/admin/accompaniments/options.ts
-import { z as z21 } from "zod";
 init_schema();
+import { TRPCError as TRPCError20 } from "@trpc/server";
+import { eq as eq27 } from "drizzle-orm";
+import { z as z21 } from "zod";
 
 // server/accompaniments.ts
 init_db();
 init_schema();
-import { eq as eq25, sql as sql13 } from "drizzle-orm";
+import { eq as eq26, sql as sql14 } from "drizzle-orm";
 async function getAccsWithNutrition() {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
@@ -6053,9 +7279,9 @@ async function getAccsWithNutrition() {
     // ID da Categoria (Pode ser null)
     accompanimentCategoryId: accompanimentOptions.accompanimentCategoryId,
     // ✅ Fallbacks seguros para campos de Join (evita erro de undefined no front)
-    categoryName: sql13`COALESCE(${accompanimentCategories.name}, 'Sem Categoria')`,
-    iconKey: sql13`COALESCE(${accompanimentCategories.iconKey}, NULL)`,
-    categoryColor: sql13`COALESCE(${accompanimentCategories.color}, '#CBD5E1')`,
+    categoryName: sql14`COALESCE(${accompanimentCategories.name}, 'Sem Categoria')`,
+    iconKey: sql14`COALESCE(${accompanimentCategories.iconKey}, NULL)`,
+    categoryColor: sql14`COALESCE(${accompanimentCategories.color}, '#CBD5E1')`,
     // Nutrientes
     energyKcal: accompanimentOptions.energyKcal,
     energyKj: accompanimentOptions.energyKj,
@@ -6072,42 +7298,42 @@ async function getAccsWithNutrition() {
     // Ficha Técnica (JSON/String)
     nutritionalInfo: accompanimentOptions.nutritionalInfo,
     // Placeholder para vínculos de grupos
-    linkedGroupIds: sql13`'[]'`
+    linkedGroupIds: sql14`'[]'`
   }).from(accompanimentOptions).leftJoin(
     accompanimentCategories,
-    eq25(accompanimentOptions.accompanimentCategoryId, accompanimentCategories.id)
+    eq26(accompanimentOptions.accompanimentCategoryId, accompanimentCategories.id)
   ).orderBy(accompanimentOptions.name);
 }
 
 // server/routers/admin/accompaniments/options.ts
-import { eq as eq26 } from "drizzle-orm";
-import { TRPCError as TRPCError16 } from "@trpc/server";
-var generateSlug2 = (text19) => text19.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "-");
+var generateSlug2 = (text20) => text20.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "-");
 var adminOptionsRouter = router({
   listAll: adminProcedure.query(async () => {
-    return await getAccsWithNutrition();
+    return getAccsWithNutrition();
   }),
-  upsert: adminProcedure.input(z21.object({
-    id: z21.number().optional(),
-    name: z21.string().min(1, "O nome \xE9 obrigat\xF3rio"),
-    accompanimentCategoryId: z21.number().nullable().optional(),
-    energyKcal: z21.unknown().optional(),
-    energyKj: z21.unknown().optional(),
-    proteins: z21.unknown().optional(),
-    carbs: z21.unknown().optional(),
-    fatTotal: z21.unknown().optional(),
-    fatSaturated: z21.unknown().optional(),
-    fatTrans: z21.unknown().optional(),
-    fiber: z21.unknown().optional(),
-    sodium: z21.unknown().optional(),
-    calcium: z21.unknown().optional(),
-    iron: z21.unknown().optional(),
-    ingredients: z21.string().optional().nullable(),
-    composition: z21.unknown().optional(),
-    isActive: z21.boolean().optional(),
-    showNutrition: z21.boolean().optional(),
-    priceModifier: z21.unknown().optional()
-  }).passthrough()).mutation(async ({ ctx, input }) => {
+  upsert: adminProcedure.input(
+    z21.object({
+      id: z21.number().optional(),
+      name: z21.string().min(1, "O nome \xE9 obrigat\xF3rio"),
+      accompanimentCategoryId: z21.number().nullable().optional(),
+      energyKcal: z21.unknown().optional(),
+      energyKj: z21.unknown().optional(),
+      proteins: z21.unknown().optional(),
+      carbs: z21.unknown().optional(),
+      fatTotal: z21.unknown().optional(),
+      fatSaturated: z21.unknown().optional(),
+      fatTrans: z21.unknown().optional(),
+      fiber: z21.unknown().optional(),
+      sodium: z21.unknown().optional(),
+      calcium: z21.unknown().optional(),
+      iron: z21.unknown().optional(),
+      ingredients: z21.string().optional().nullable(),
+      composition: z21.unknown().optional(),
+      isActive: z21.boolean().optional(),
+      showNutrition: z21.boolean().optional(),
+      priceModifier: z21.unknown().optional()
+    }).passthrough()
+  ).mutation(async ({ ctx, input }) => {
     const { id, composition, ...data } = input;
     const toNum3 = (val) => {
       const normalized = typeof val === "string" ? val.replace(",", ".") : val;
@@ -6115,16 +7341,16 @@ var adminOptionsRouter = router({
     };
     const toDec = (val) => {
       const normalized = typeof val === "string" ? val.replace(",", ".") : val;
-      const p = safeNumber(normalized, Number.NaN);
-      return Number.isFinite(p) ? p.toFixed(2) : "0.00";
+      const parsed = safeNumber(normalized, Number.NaN);
+      return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
     };
     const toRequiredDec = (val, label) => {
       const normalized = typeof val === "string" ? val.replace(",", ".") : val;
-      const p = safeNumber(normalized, Number.NaN);
-      if (!Number.isFinite(p)) {
-        throw new TRPCError16({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
+      const parsed = safeNumber(normalized, Number.NaN);
+      if (!Number.isFinite(parsed)) {
+        throw new TRPCError20({ code: "BAD_REQUEST", message: `${label} inv\xE1lido.` });
       }
-      return p.toFixed(2);
+      return parsed.toFixed(2);
     };
     const nutritionalInfoString = typeof composition === "string" ? composition : JSON.stringify(composition || []);
     const payload = {
@@ -6146,31 +7372,37 @@ var adminOptionsRouter = router({
       nutritionalInfo: nutritionalInfoString,
       isActive: data.isActive ?? true,
       showNutrition: data.showNutrition ?? false,
-      priceModifier: toRequiredDec(data.priceModifier || 0, "Pre\xC3\xA7o adicional"),
+      priceModifier: toRequiredDec(data.priceModifier || 0, "Pre\xE7o adicional"),
       updatedAt: /* @__PURE__ */ new Date()
     };
     if (id) {
-      await ctx.db.update(accompanimentOptions).set(payload).where(eq26(accompanimentOptions.id, id));
+      await ctx.db.update(accompanimentOptions).set(payload).where(eq27(accompanimentOptions.id, id));
       return {
         success: true,
         id,
         message: `Acompanhamento "${data.name}" atualizado!`
       };
-    } else {
-      const [result] = await ctx.db.insert(accompanimentOptions).values({
-        ...payload,
-        createdAt: /* @__PURE__ */ new Date()
-      });
-      return {
-        success: true,
-        id: result.insertId,
-        message: `"${data.name}" adicionado aos acompanhamentos.`
-      };
     }
+    const result = await ctx.db.insert(accompanimentOptions).values({
+      ...payload,
+      createdAt: /* @__PURE__ */ new Date()
+    });
+    const insertId = result[0]?.insertId;
+    if (!insertId) {
+      throw new TRPCError20({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Erro operacional: N\xE3o foi poss\xEDvel gerar o identificador do registro."
+      });
+    }
+    return {
+      success: true,
+      id: insertId,
+      message: `"${data.name}" adicionado aos acompanhamentos.`
+    };
   }),
   delete: adminProcedure.input(z21.object({ id: z21.number(), name: z21.string().optional() })).mutation(async ({ ctx, input }) => {
-    await ctx.db.delete(groupToOptions).where(eq26(groupToOptions.optionId, input.id));
-    await ctx.db.delete(accompanimentOptions).where(eq26(accompanimentOptions.id, input.id));
+    await ctx.db.delete(groupToOptions).where(eq27(groupToOptions.optionId, input.id));
+    await ctx.db.delete(accompanimentOptions).where(eq27(accompanimentOptions.id, input.id));
     return {
       success: true,
       message: input.name ? `"${input.name}" removido com sucesso.` : "Item exclu\xEDdo."
@@ -6179,21 +7411,24 @@ var adminOptionsRouter = router({
 });
 
 // server/routers/admin/accompaniments/categories.ts
-import { z as z22 } from "zod";
 init_schema();
-import { eq as eq27 } from "drizzle-orm";
+import { TRPCError as TRPCError21 } from "@trpc/server";
+import { eq as eq28 } from "drizzle-orm";
+import { z as z22 } from "zod";
 var accompanimentCategoriesRouter = router({
   list: adminProcedure.query(async ({ ctx }) => {
-    return await ctx.db.select().from(accompanimentCategories).orderBy(accompanimentCategories.displayOrder);
+    return ctx.db.select().from(accompanimentCategories).orderBy(accompanimentCategories.displayOrder);
   }),
-  upsert: adminProcedure.input(z22.object({
-    id: z22.number().optional(),
-    name: z22.string().min(1, "O nome \xE9 obrigat\xF3rio"),
-    iconKey: z22.string().nullable().optional(),
-    color: z22.string().nullable().optional(),
-    isActive: z22.boolean().optional(),
-    displayOrder: z22.number().optional()
-  })).mutation(async ({ ctx, input }) => {
+  upsert: adminProcedure.input(
+    z22.object({
+      id: z22.number().optional(),
+      name: z22.string().min(1, "O nome \xE9 obrigat\xF3rio"),
+      iconKey: z22.string().nullable().optional(),
+      color: z22.string().nullable().optional(),
+      isActive: z22.boolean().optional(),
+      displayOrder: z22.number().optional()
+    })
+  ).mutation(async ({ ctx, input }) => {
     const { id, ...data } = input;
     const payload = {
       name: data.name,
@@ -6203,17 +7438,24 @@ var accompanimentCategoriesRouter = router({
       displayOrder: data.displayOrder ?? 0
     };
     if (id) {
-      await ctx.db.update(accompanimentCategories).set(payload).where(eq27(accompanimentCategories.id, id));
+      await ctx.db.update(accompanimentCategories).set(payload).where(eq28(accompanimentCategories.id, id));
       return {
         success: true,
         id,
         message: `Categoria "${data.name}" atualizada!`
       };
     }
-    const [result] = await ctx.db.insert(accompanimentCategories).values(payload);
+    const result = await ctx.db.insert(accompanimentCategories).values(payload);
+    const insertId = result[0]?.insertId;
+    if (!insertId) {
+      throw new TRPCError21({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Erro operacional: N\xE3o foi poss\xEDvel gerar o identificador do registro."
+      });
+    }
     return {
       success: true,
-      id: result.insertId,
+      id: insertId,
       message: `Nova categoria "${data.name}" criada com sucesso!`
     };
   })
@@ -6221,10 +7463,11 @@ var accompanimentCategoriesRouter = router({
 
 // server/routers/admin/packages.ts
 import { z as z23 } from "zod";
-import { TRPCError as TRPCError17 } from "@trpc/server";
+import { TRPCError as TRPCError22 } from "@trpc/server";
 init_db();
 init_schema();
-import { eq as eq28, desc as desc13, asc as asc8 } from "drizzle-orm";
+import { eq as eq29, desc as desc13, asc as asc9 } from "drizzle-orm";
+import { nanoid as nanoid3 } from "nanoid";
 var packageConfigSchema = z23.object({
   slots: z23.array(z23.object({
     name: z23.string(),
@@ -6244,7 +7487,7 @@ var parseConfig = (config) => {
 var requireMoneyString = (value, label) => {
   const amount = safeNumber(value, Number.NaN);
   if (!Number.isFinite(amount) || amount < 0) {
-    throw new TRPCError17({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
+    throw new TRPCError22({ code: "BAD_REQUEST", message: `${label} inv\xC3\xA1lido.` });
   }
   return amount.toFixed(2);
 };
@@ -6252,7 +7495,7 @@ var adminPackagesRouter = router({
   // 1. LISTAGEM
   list: adminProcedure.query(async () => {
     const db2 = await getDb();
-    const result = await db2.select().from(packages).orderBy(asc8(packages.displayOrder), desc13(packages.createdAt));
+    const result = await db2.select().from(packages).orderBy(asc9(packages.displayOrder), desc13(packages.createdAt));
     return result.map((pkg) => ({
       ...pkg,
       id: String(pkg.id),
@@ -6275,7 +7518,7 @@ var adminPackagesRouter = router({
       id: dishSizes.id,
       name: dishSizes.name,
       defaultMainWeight: dishSizes.mainDishWeight
-    }).from(dishSizes).where(eq28(dishSizes.isActive, true)).orderBy(asc8(dishSizes.displayOrder));
+    }).from(dishSizes).where(eq29(dishSizes.isActive, true)).orderBy(asc9(dishSizes.displayOrder));
   }),
   // ✅ 3. PRATOS — agora inclui sizeIds via join com dishes_to_sizes
   getDishes: adminProcedure.query(async () => {
@@ -6295,7 +7538,7 @@ var adminPackagesRouter = router({
       fatTotal: dishes.fatTotal,
       fiber: dishes.fiber,
       sodium: dishes.sodium
-    }).from(dishes).leftJoin(categories, eq28(dishes.categoryId, categories.id)).where(eq28(dishes.isActive, true)).orderBy(asc8(dishes.name));
+    }).from(dishes).leftJoin(categories, eq29(dishes.categoryId, categories.id)).where(eq29(dishes.isActive, true)).orderBy(asc9(dishes.name));
     const sizeLinks = await db2.select({
       dishId: dishesToSizes.dishId,
       sizeId: dishesToSizes.sizeId
@@ -6328,7 +7571,7 @@ var adminPackagesRouter = router({
   // 4. ACOMPANHAMENTOS
   getAllAccompanimentOptions: adminProcedure.query(async () => {
     const db2 = await getDb();
-    const result = await db2.select().from(accompanimentOptions).where(eq28(accompanimentOptions.isActive, true)).orderBy(asc8(accompanimentOptions.name));
+    const result = await db2.select().from(accompanimentOptions).where(eq29(accompanimentOptions.isActive, true)).orderBy(asc9(accompanimentOptions.name));
     return result.map((opt) => ({
       id: String(opt.id),
       name: opt.name,
@@ -6343,7 +7586,7 @@ var adminPackagesRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     const targetId = String(input.id);
-    await db2.update(packages).set({ status: input.status, isActive: input.status === "active" }).where(eq28(packages.id, targetId));
+    await db2.update(packages).set({ status: input.status, isActive: input.status === "active" }).where(eq29(packages.id, targetId));
     await logAction(ctx, "UPDATE_PACKAGE_STATUS", "packages", {
       entityId: targetId,
       new: { status: input.status }
@@ -6369,16 +7612,17 @@ var adminPackagesRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     try {
+      const newId = nanoid3();
       const valuesToInsert = {
         name: input.name,
         slug: input.slug,
-        price: requireMoneyString(input.base_price, "Pre\xC3\xA7o"),
+        price: requireMoneyString(input.base_price, "Pre\xE7o"),
         description: input.description || "",
         highlights: input.highlights || "",
         category: input.category || "",
         isPopular: input.is_popular,
         imageUrl: input.image_url || "",
-        salePrice: input.sale_price ? requireMoneyString(input.sale_price, "Pre\xC3\xA7o promocional") : null,
+        salePrice: input.sale_price ? requireMoneyString(input.sale_price, "Pre\xE7o promocional") : null,
         displayOrder: input.display_order,
         numberOfOptions: input.number_of_options,
         isActive: input.isActive,
@@ -6386,18 +7630,17 @@ var adminPackagesRouter = router({
         status: input.isActive ? "active" : "hidden",
         // @ts-ignore
         config: input.config,
-        id: ""
+        id: newId
       };
-      const [result] = await db2.insert(packages).values(valuesToInsert);
-      const newId = result.insertId;
+      await db2.insert(packages).values(valuesToInsert);
       await logAction(ctx, "CREATE_PACKAGE", "packages", {
-        entityId: String(newId),
+        entityId: newId,
         new: { name: input.name }
       });
       return { success: true, id: newId };
     } catch (error) {
       const err = error;
-      throw new TRPCError17({ code: "INTERNAL_SERVER_ERROR", message: err.sqlMessage || "Erro ao salvar." });
+      throw new TRPCError22({ code: "INTERNAL_SERVER_ERROR", message: err.sqlMessage || "Erro ao salvar." });
     }
   }),
   // 7. UPDATE
@@ -6439,7 +7682,7 @@ var adminPackagesRouter = router({
         status: data.isActive ? "active" : "hidden",
         // @ts-ignore
         config: data.config
-      }).where(eq28(packages.id, targetId));
+      }).where(eq29(packages.id, targetId));
       await logAction(ctx, "UPDATE_PACKAGE", "packages", {
         entityId: targetId,
         new: { name: data.name }
@@ -6447,13 +7690,13 @@ var adminPackagesRouter = router({
       return { success: true };
     } catch (error) {
       const err = error;
-      throw new TRPCError17({ code: "BAD_REQUEST", message: err.sqlMessage || "Erro ao atualizar." });
+      throw new TRPCError22({ code: "BAD_REQUEST", message: err.sqlMessage || "Erro ao atualizar." });
     }
   }),
   // 8. DELETE
   delete: adminProcedure.input(z23.object({ id: z23.union([z23.string(), z23.number()]) })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    await db2.delete(packages).where(eq28(packages.id, String(input.id)));
+    await db2.delete(packages).where(eq29(packages.id, String(input.id)));
     return { success: true };
   })
 });
@@ -6462,15 +7705,15 @@ var adminPackagesRouter = router({
 import { z as z24 } from "zod";
 init_db();
 init_schema();
-import { eq as eq29, asc as asc9 } from "drizzle-orm";
-import { TRPCError as TRPCError18 } from "@trpc/server";
+import { eq as eq30, asc as asc10 } from "drizzle-orm";
+import { TRPCError as TRPCError23 } from "@trpc/server";
 var adminShowcaseRouter = router({
   /**
    * 📋 LISTAGEM ADMIN
    */
   list: adminProcedure.query(async () => {
     const db2 = await getDb();
-    return await db2.select().from(showcases).orderBy(asc9(showcases.order));
+    return await db2.select().from(showcases).orderBy(asc10(showcases.order));
   }),
   /**
    * 🔄 UPSERT (Cria ou Atualiza)
@@ -6490,11 +7733,11 @@ var adminShowcaseRouter = router({
     const db2 = await getDb();
     const { id, ...data } = input;
     if (id) {
-      const [exists] = await db2.select().from(showcases).where(eq29(showcases.id, id)).limit(1);
+      const [exists] = await db2.select().from(showcases).where(eq30(showcases.id, id)).limit(1);
       if (!exists) {
-        throw new TRPCError18({ code: "NOT_FOUND", message: "Vitrine n\xE3o encontrada." });
+        throw new TRPCError23({ code: "NOT_FOUND", message: "Vitrine n\xE3o encontrada." });
       }
-      await db2.update(showcases).set(data).where(eq29(showcases.id, id));
+      await db2.update(showcases).set(data).where(eq30(showcases.id, id));
       await logAction(ctx, "UPDATE_SHOWCASE", "showcase", {
         entityId: String(id),
         new: data
@@ -6519,11 +7762,11 @@ var adminShowcaseRouter = router({
     title: z24.string().optional()
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
-    const [exists] = await db2.select().from(showcases).where(eq29(showcases.id, input.id)).limit(1);
+    const [exists] = await db2.select().from(showcases).where(eq30(showcases.id, input.id)).limit(1);
     if (!exists) {
-      throw new TRPCError18({ code: "NOT_FOUND", message: "Vitrine n\xE3o encontrada." });
+      throw new TRPCError23({ code: "NOT_FOUND", message: "Vitrine n\xE3o encontrada." });
     }
-    await db2.delete(showcases).where(eq29(showcases.id, input.id));
+    await db2.delete(showcases).where(eq30(showcases.id, input.id));
     await logAction(ctx, "DELETE_SHOWCASE", "showcase", {
       entityId: String(input.id),
       old: { title: exists.title }
@@ -6537,15 +7780,198 @@ var adminShowcaseRouter = router({
 
 // server/routers/admin/users.ts
 import { z as z25 } from "zod";
-import { eq as eq30, sql as sql14, sum, or as or3, like as like4, asc as asc10, and as and8, desc as desc14 } from "drizzle-orm";
+import { eq as eq32, sql as sql15, sum, or as or6, like as like5, asc as asc11, and as and10, desc as desc14, isNull as isNull2 } from "drizzle-orm";
 init_db();
 init_encryption();
-import { TRPCError as TRPCError19 } from "@trpc/server";
-init_schema();
+import { TRPCError as TRPCError25 } from "@trpc/server";
 import { v4 as uuidv42 } from "uuid";
 import { hash } from "@node-rs/argon2";
-import crypto8 from "node:crypto";
-function unseal2(val) {
+
+// server/auth.ts
+init_db();
+init_schema();
+import { Lucia } from "lucia";
+import { DrizzleMySQLAdapter } from "@lucia-auth/adapter-drizzle";
+import { eq as eq31, and as and9, isNull, or as or5 } from "drizzle-orm";
+init_encryption();
+var db = await getDb();
+if (!db) {
+  throw new Error("N\xE3o foi poss\xEDvel inicializar o banco de dados no m\xF3dulo de autentica\xE7\xE3o.");
+}
+var adapter = new DrizzleMySQLAdapter(db, sessions, users);
+function normalizeJson(value) {
+  if (value === null || value === void 0) return null;
+  if (typeof value === "string") {
+    try {
+      return normalizeJson(JSON.parse(value));
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(value)) return value.map(normalizeJson);
+  if (typeof value === "object") {
+    return Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = normalizeJson(value[key]);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+function sameCartConfiguration(a, b) {
+  return JSON.stringify(normalizeJson(a)) === JSON.stringify(normalizeJson(b));
+}
+var lucia = new Lucia(adapter, {
+  sessionCookie: {
+    attributes: {
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
+    }
+  },
+  getUserAttributes: (attributes) => {
+    let cleanName = attributes.name || "";
+    if (cleanName && cleanName.includes(":")) {
+      try {
+        cleanName = decrypt(cleanName) || cleanName;
+      } catch {
+      }
+    }
+    return {
+      email: attributes.email,
+      name: cleanName,
+      role: attributes.role ?? "user",
+      referralCode: attributes.referralCode ?? null,
+      needsPasswordReset: Number(attributes.needsPasswordReset) === 1 || attributes.needsPasswordReset === true,
+      deletedAt: attributes.deletedAt ?? null
+    };
+  },
+  getSessionAttributes: (attributes) => {
+    return {
+      referralCode: attributes.referralCode ?? null,
+      guestId: attributes.guestId ?? null,
+      userAgent: attributes.userAgent ?? null,
+      ipAddress: attributes.ipAddress ?? null
+    };
+  }
+});
+async function promoteCart(guestSessionId, userId) {
+  if (!guestSessionId || ["undefined", "null", ""].includes(String(guestSessionId))) return;
+  const userIdStr = String(userId);
+  try {
+    const guestCheck = await db.query.guests.findFirst({
+      where: eq31(guests.id, guestSessionId),
+      columns: { id: true, convertedUserId: true, referralCode: true }
+    });
+    if (!guestCheck) return;
+    if (guestCheck.convertedUserId && String(guestCheck.convertedUserId) !== userIdStr) {
+      return;
+    }
+    await db.transaction(async (tx) => {
+      if (guestCheck.referralCode) {
+        await tx.update(users).set({ referralCode: guestCheck.referralCode }).where(and9(eq31(users.id, userIdStr), isNull(users.referralCode)));
+      }
+      const userCart = await tx.query.carts.findFirst({
+        where: and9(eq31(carts.userId, userIdStr), eq31(carts.status, "active"))
+      });
+      const guestCart = await tx.query.carts.findFirst({
+        where: and9(
+          or5(eq31(carts.guestId, guestSessionId), eq31(carts.sessionId, guestSessionId)),
+          eq31(carts.status, "active")
+        )
+      });
+      if (!guestCart) return;
+      if (userCart && userCart.id !== guestCart.id) {
+        const guestItems = await tx.select().from(cartItems).where(eq31(cartItems.cartId, guestCart.id));
+        const userItems = await tx.select().from(cartItems).where(eq31(cartItems.cartId, userCart.id));
+        for (const item of guestItems) {
+          const duplicate = userItems.find(
+            (candidate) => String(candidate.dishId ?? "") === String(item.dishId ?? "") && String(candidate.packageId ?? "") === String(item.packageId ?? "") && sameCartConfiguration(candidate.options, item.options)
+          );
+          if (duplicate) {
+            const newQty = (duplicate.quantity || 0) + (item.quantity || 0);
+            await tx.update(cartItems).set({ quantity: newQty }).where(eq31(cartItems.id, duplicate.id));
+            duplicate.quantity = newQty;
+            await tx.delete(cartItems).where(eq31(cartItems.id, item.id));
+          } else {
+            await tx.update(cartItems).set({ cartId: userCart.id }).where(eq31(cartItems.id, item.id));
+            userItems.push({ ...item, cartId: userCart.id });
+          }
+        }
+        await tx.delete(carts).where(eq31(carts.id, guestCart.id));
+      } else if (!userCart) {
+        await tx.update(carts).set({ userId: userIdStr, guestId: null, sessionId: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq31(carts.id, guestCart.id));
+      }
+      await tx.update(guests).set({ convertedUserId: userIdStr, lastActive: /* @__PURE__ */ new Date() }).where(eq31(guests.id, guestSessionId));
+    });
+    logger.info({ userId: userIdStr, guestId: guestSessionId }, "Promo\xE7\xE3o de carrinho conclu\xEDda");
+  } catch (error) {
+    const dbError = error;
+    if (dbError.errno === 1020 || dbError.code === "ER_CHECKREAD") {
+      return;
+    }
+    logger.error(
+      { err: dbError.message, guestId: guestSessionId, userId: userIdStr },
+      "Erro ao promover carrinho"
+    );
+  }
+}
+
+// server/routers/storefront/auth/auth-security.ts
+import { TRPCError as TRPCError24 } from "@trpc/server";
+function normalizeAuthIdentifier(value) {
+  return (value || "").trim().toLowerCase();
+}
+function getAuthInputKey(input) {
+  if (!input || typeof input !== "object") return null;
+  const data = input;
+  const value = typeof data.identifier === "string" ? data.identifier : typeof data.email === "string" ? data.email : null;
+  return value ? normalizeAuthIdentifier(value) : null;
+}
+function assertPasswordPolicy(password, email) {
+  const trimmed = password.trim();
+  if (password.length < 8 || trimmed.length < 8) {
+    throw new TRPCError24({
+      code: "BAD_REQUEST",
+      message: "A senha deve ter pelo menos 8 caracteres."
+    });
+  }
+  const normalizedEmail = normalizeAuthIdentifier(email);
+  if (normalizedEmail && trimmed.toLowerCase() === normalizedEmail) {
+    throw new TRPCError24({
+      code: "BAD_REQUEST",
+      message: "A senha nao pode ser igual ao e-mail."
+    });
+  }
+}
+function getAuthActor(ctx, userId) {
+  const userAgent = ctx?.req?.headers?.["user-agent"];
+  return {
+    userId: userId || ctx?.user?.id || "anonymous",
+    ipAddress: ctx?.req?.ip || ctx?.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+    userAgent: Array.isArray(userAgent) ? userAgent[0] : userAgent || "unknown",
+    requestId: ctx?.req?.requestId
+  };
+}
+function recordAuthEvent(args) {
+  void AuditLogService.record({
+    actor: getAuthActor(args.ctx, args.userId),
+    module: "auth",
+    action: args.action,
+    severity: args.severity,
+    entityType: "auth_event",
+    entityId: args.entityId || args.userId || null,
+    entityLabel: args.identifier ? normalizeAuthIdentifier(args.identifier) : void 0,
+    newValues: {
+      identifier: args.identifier ? normalizeAuthIdentifier(args.identifier) : void 0,
+      reason: args.reason,
+      ...args.metadata || {}
+    }
+  });
+}
+
+// server/routers/admin/users.ts
+init_schema();
+import crypto10 from "node:crypto";
+function unseal3(val) {
   if (val === null || val === void 0) return "";
   const str = String(val).trim();
   if (!str) return "";
@@ -6557,17 +7983,17 @@ function unseal2(val) {
     return "";
   }
 }
-function normalizeForSearch(text19) {
-  if (!text19) return "";
-  return text19.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+function normalizeForSearch(text20) {
+  if (!text20) return "";
+  return text20.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 var mapUser = (u) => {
   if (!u) return null;
   return {
     ...u,
-    name: unseal2(u.name),
-    phone: unseal2(u.phone),
-    customerDocument: unseal2(u.customerDocument),
+    name: unseal3(u.name),
+    phone: unseal3(u.phone),
+    customerDocument: unseal3(u.customerDocument),
     needsPasswordReset: Number(u.needsPasswordReset ?? 0)
   };
 };
@@ -6580,26 +8006,32 @@ var usersAdminRouter = router({
     const db2 = await getDb();
     const { page, limit, search } = input;
     const offset = (page - 1) * limit;
-    let searchCondition = void 0;
+    let searchCondition = isNull2(users.deletedAt);
     if (search && search.trim().length >= 2) {
       const term = search.trim();
       const termNorm = normalizeForSearch(term);
       const cleanDigits = normalizeDigits(term);
       const digitHash = cleanDigits.length >= 3 ? piiHash(cleanDigits) : null;
-      searchCondition = or3(
-        like4(users.email, `%${term.toLowerCase()}%`),
-        like4(users.nameIndex, `%${termNorm}%`),
-        eq30(users.id, term),
-        digitHash ? eq30(users.documentIndex, digitHash) : void 0,
-        digitHash ? eq30(users.phoneIndex, digitHash) : void 0
+      const orConditions = [
+        like5(users.email, `%${term.toLowerCase()}%`),
+        like5(users.nameIndex, `%${termNorm}%`),
+        eq32(users.id, term)
+      ];
+      if (digitHash) {
+        orConditions.push(eq32(users.documentIndex, digitHash));
+        orConditions.push(eq32(users.phoneIndex, digitHash));
+      }
+      searchCondition = and10(
+        isNull2(users.deletedAt),
+        or6(...orConditions)
       );
     }
     const [userList, totalResult] = await Promise.all([
       db2.select({
         user: users,
         address: userAddresses
-      }).from(users).leftJoin(userAddresses, and8(eq30(users.id, userAddresses.userId), eq30(userAddresses.isDefault, true))).where(searchCondition).limit(limit).offset(offset).orderBy(asc10(users.nameIndex)),
-      db2.select({ count: sql14`count(*)` }).from(users).where(searchCondition).limit(1).offset(0)
+      }).from(users).leftJoin(userAddresses, and10(eq32(users.id, userAddresses.userId), eq32(userAddresses.isDefault, true))).where(searchCondition).limit(limit).offset(offset).orderBy(asc11(users.nameIndex)),
+      db2.select({ count: sql15`count(*)` }).from(users).where(searchCondition).limit(1).offset(0)
     ]);
     const items = userList.map(({ user, address }) => {
       const base = mapUser(user);
@@ -6607,13 +8039,13 @@ var usersAdminRouter = router({
       let mappedAddress = null;
       if (address) {
         mappedAddress = {
-          shipping_address: unseal2(address.street),
-          shipping_address_number: unseal2(address.number),
-          shipping_neighborhood: unseal2(address.neighborhood),
-          shipping_address_complement: unseal2(address.complement),
-          shipping_zip_code: unseal2(address.zipCode),
-          shipping_city: unseal2(address.city),
-          shipping_state: unseal2(address.state)
+          shipping_address: unseal3(address.street),
+          shipping_address_number: unseal3(address.number),
+          shipping_neighborhood: unseal3(address.neighborhood),
+          shipping_address_complement: unseal3(address.complement),
+          shipping_zip_code: unseal3(address.zipCode),
+          shipping_city: unseal3(address.city),
+          shipping_state: unseal3(address.state)
         };
       }
       return {
@@ -6630,20 +8062,20 @@ var usersAdminRouter = router({
       user: users,
       city: user_profiles.city,
       state: user_profiles.state
-    }).from(users).leftJoin(user_profiles, eq30(users.id, user_profiles.userId)).where(eq30(users.id, input.id)).limit(1);
-    if (!data) throw new TRPCError19({ code: "NOT_FOUND", message: "Usu\xE1rio n\xE3o encontrado" });
+    }).from(users).leftJoin(user_profiles, eq32(users.id, user_profiles.userId)).where(eq32(users.id, input.id)).limit(1);
+    if (!data) throw new TRPCError25({ code: "NOT_FOUND", message: "Usu\xE1rio n\xE3o encontrado" });
     const userBase = mapUser(data.user);
-    const spentResult = await db2.select({ total: sum(orders.total) }).from(orders).where(eq30(orders.userId, input.id));
+    const spentResult = await db2.select({ total: sum(orders.total) }).from(orders).where(eq32(orders.userId, input.id));
     const recentOrders = await db2.select({
       id: orders.id,
       status: orders.status,
       total: orders.total,
       createdAt: orders.createdAt
-    }).from(orders).where(eq30(orders.userId, input.id)).orderBy(desc14(orders.createdAt)).limit(10);
+    }).from(orders).where(eq32(orders.userId, input.id)).orderBy(desc14(orders.createdAt)).limit(10);
     return {
       ...userBase,
-      city: unseal2(data.city),
-      state: unseal2(data.state),
+      city: unseal3(data.city),
+      state: unseal3(data.state),
       stats: {
         totalSpent: String(spentResult[0]?.total || "0.00"),
         loyaltyPointsAvailable: Number(data.user.availablePoints || 0)
@@ -6663,8 +8095,8 @@ var usersAdminRouter = router({
     label: z25.string().optional().default("Endere\xE7o Admin")
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
-    const [targetUser] = await db2.select({ id: users.id }).from(users).where(eq30(users.id, input.userId)).limit(1);
-    if (!targetUser) throw new TRPCError19({ code: "NOT_FOUND", message: "Usu\xE1rio alvo n\xE3o encontrado." });
+    const [targetUser] = await db2.select({ id: users.id }).from(users).where(eq32(users.id, input.userId)).limit(1);
+    if (!targetUser) throw new TRPCError25({ code: "NOT_FOUND", message: "Usu\xE1rio alvo n\xE3o encontrado." });
     const id = uuidv42();
     const payload = {
       id,
@@ -6696,12 +8128,12 @@ var usersAdminRouter = router({
     role: z25.enum(["admin", "user", "nutri"]).default("user")
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
-    const [exists] = await db2.select().from(users).where(eq30(users.email, input.email)).limit(1);
-    if (exists) throw new TRPCError19({ code: "CONFLICT", message: "Este e-mail j\xE1 est\xE1 em uso." });
+    const [exists] = await db2.select().from(users).where(eq32(users.email, input.email)).limit(1);
+    if (exists) throw new TRPCError25({ code: "CONFLICT", message: "Este e-mail j\xE1 est\xE1 em uso." });
     const id = uuidv42();
     const cleanCpf = normalizeDigits(input.customerDocument);
     const cleanPhone = normalizeDigits(input.phone);
-    const tempPassword = crypto8.randomBytes(16).toString("hex");
+    const tempPassword = crypto10.randomBytes(16).toString("hex");
     const hashedPassword = await hash(tempPassword);
     await db2.transaction(async (tx) => {
       await tx.insert(users).values({
@@ -6761,32 +8193,71 @@ var usersAdminRouter = router({
     if (data.needsPasswordReset !== void 0) {
       updateData.needsPasswordReset = data.needsPasswordReset;
     }
-    const result = await db2.update(users).set(updateData).where(eq30(users.id, id));
-    if (result[0]?.affectedRows === 0) throw new TRPCError19({ code: "NOT_FOUND" });
+    const result = await db2.update(users).set(updateData).where(eq32(users.id, id));
+    if (result[0]?.affectedRows === 0) throw new TRPCError25({ code: "NOT_FOUND" });
     await logAction(ctx, "UPDATE_USER", "users", { entityId: id });
     return { success: true, message: "Perfil atualizado!" };
   }),
   delete: adminProcedure.input(z25.object({ id: z25.string().min(1) })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     await db2.transaction(async (tx) => {
-      await tx.delete(userAddresses).where(eq30(userAddresses.userId, input.id));
-      await tx.delete(loyaltyHistory).where(eq30(loyaltyHistory.userId, input.id));
-      await tx.delete(user_profiles).where(eq30(user_profiles.userId, input.id));
-      const result = await tx.delete(users).where(eq30(users.id, input.id));
-      if (result[0]?.affectedRows === 0) throw new TRPCError19({ code: "NOT_FOUND" });
+      await tx.delete(userAddresses).where(eq32(userAddresses.userId, input.id));
+      await tx.delete(user_profiles).where(eq32(user_profiles.userId, input.id));
+      const result = await tx.update(users).set({
+        deletedAt: /* @__PURE__ */ new Date(),
+        email: `deleted-${input.id}@gourmetsaudavel.local`,
+        password: null,
+        name: encrypt("Usu\xE1rio Exclu\xEDdo"),
+        nameIndex: normalizeForSearch("usuario excluido"),
+        customerDocument: null,
+        documentIndex: null,
+        phone: null,
+        phoneIndex: null,
+        availablePoints: 0,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq32(users.id, input.id));
+      if (result[0]?.affectedRows === 0) throw new TRPCError25({ code: "NOT_FOUND" });
+    });
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "users",
+      action: "SOFT_DELETE_USER",
+      severity: "critical",
+      entityType: "users",
+      entityId: input.id,
+      entityLabel: "Exclus\xE3o de Usu\xE1rio (Soft Delete)",
+      oldValues: null,
+      newValues: { email: `deleted-${input.id}@gourmetsaudavel.local`, deletedAt: /* @__PURE__ */ new Date() }
     });
     await logAction(ctx, "DELETE_USER", "users", { entityId: input.id });
     return { success: true, message: "Usu\xE1rio removido permanentemente!" };
   }),
-  setPassword: adminProcedure.input(z25.object({ userId: z25.string().min(1), password: z25.string().min(6) })).mutation(async ({ ctx, input }) => {
+  setPassword: adminProcedure.input(z25.object({ userId: z25.string().min(1), password: z25.string().min(8) })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
+    const [targetUser] = await db2.select({ email: users.email }).from(users).where(eq32(users.id, input.userId)).limit(1);
+    assertPasswordPolicy(input.password, targetUser?.email);
     const hashedPassword = await hash(input.password);
     const result = await db2.update(users).set({
       password: hashedPassword,
       needsPasswordReset: 0
-    }).where(eq30(users.id, input.userId));
-    if (result[0]?.affectedRows === 0) throw new TRPCError19({ code: "NOT_FOUND" });
+    }).where(eq32(users.id, input.userId));
+    if (result[0]?.affectedRows === 0) throw new TRPCError25({ code: "NOT_FOUND" });
+    await lucia.invalidateUserSessions(input.userId);
     await logAction(ctx, "SET_PASSWORD", "users", { entityId: input.userId });
+    recordAuthEvent({
+      ctx,
+      action: "PASSWORD_CHANGED",
+      severity: "warning",
+      userId: input.userId,
+      identifier: targetUser?.email,
+      reason: "admin_set_password"
+    });
     return { success: true, message: "Senha atualizada pelo administrador." };
   })
 });
@@ -6795,12 +8266,12 @@ var usersAdminRouter = router({
 import { z as z26 } from "zod";
 init_db();
 init_schema();
-import { inArray as inArray4, eq as eq31, sql as sql15 } from "drizzle-orm";
-import { TRPCError as TRPCError20 } from "@trpc/server";
+import { inArray as inArray4, eq as eq33, sql as sql16 } from "drizzle-orm";
+import { TRPCError as TRPCError26 } from "@trpc/server";
 
 // server/utils/label-compiler.ts
 function compileToZPL(elementsJson, data) {
-  const elements = JSON.parse(elementsJson);
+  const elements = safeJsonParse(elementsJson, []);
   let zpl = "^XA^CI28";
   elements.forEach((el) => {
     const rawValue = el.field ? data[el.field] : el.staticText;
@@ -6829,15 +8300,15 @@ var adminLabelsRouter = router({
    */
   getTemplates: adminProcedure.query(async () => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    if (!db2) throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
     return await db2.select().from(labelTemplates);
   }),
   /**
    * 2. Busca pedidos que precisam de impressão (Fila de Produção)
    */
-  getPending: adminProcedure.query(async () => {
+  getPending: operatorProcedure.query(async () => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    if (!db2) throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
     const validStatuses = [
       "pending",
       "preparing",
@@ -6853,34 +8324,34 @@ var adminLabelsRouter = router({
         status: orders.status,
         createdAt: orders.createdAt,
         // ✅ Subquery para somar as marmitas sem depender de colunas inexistentes
-        totalItems: sql15`(SELECT SUM(quantity) FROM order_items WHERE order_id = ${orders.id})`.mapWith(Number)
+        totalItems: sql16`(SELECT SUM(quantity) FROM order_items WHERE order_id = ${orders.id})`.mapWith(Number)
       }).from(orders).where(
         inArray4(orders.status, validStatuses)
-      ).orderBy(sql15`${orders.createdAt} DESC`);
+      ).orderBy(sql16`${orders.createdAt} DESC`);
     } catch (err) {
       console.error("Erro ao buscar fila de etiquetas:", err);
-      throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao carregar fila." });
+      throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao carregar fila." });
     }
   }),
   /**
    * 📄 3. Gera o ZPL em lote para os pedidos selecionados
    */
-  generateBatchZPL: adminProcedure.input(z26.object({
+  generateBatchZPL: operatorProcedure.input(z26.object({
     orderIds: z26.array(z26.string().min(1)),
     templateId: z26.number()
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
-    const [template] = await db2.select().from(labelTemplates).where(eq31(labelTemplates.id, input.templateId)).limit(1);
-    if (!template) throw new TRPCError20({ code: "NOT_FOUND", message: "Template n\xE3o encontrado" });
+    if (!db2) throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    const [template] = await db2.select().from(labelTemplates).where(eq33(labelTemplates.id, input.templateId)).limit(1);
+    if (!template) throw new TRPCError26({ code: "NOT_FOUND", message: "Template n\xE3o encontrado" });
     const orders2 = await db2.select().from(orders).where(inArray4(orders.id, input.orderIds));
-    if (orders2.length === 0) throw new TRPCError20({ code: "NOT_FOUND", message: "Pedidos n\xE3o encontrados" });
+    if (orders2.length === 0) throw new TRPCError26({ code: "NOT_FOUND", message: "Pedidos n\xE3o encontrados" });
     let fullZPL = "";
     for (const order of orders2) {
       const items = await db2.select({
         orderItem: orderItems,
         dish: dishes
-      }).from(orderItems).leftJoin(dishes, eq31(orderItems.dishId, dishes.id)).where(eq31(orderItems.orderId, order.id));
+      }).from(orderItems).leftJoin(dishes, eq33(orderItems.dishId, dishes.id)).where(eq33(orderItems.orderId, order.id));
       const totalItemsInOrder = items.reduce((acc, i) => acc + (i.orderItem.quantity || 1), 0);
       let currentLabelIndex = 1;
       for (const item of items) {
@@ -6917,7 +8388,7 @@ var adminLabelsRouter = router({
     isDefault: z26.boolean().optional()
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    if (!db2) throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
     const values = {
       name: input.name,
       width: input.width,
@@ -6927,1726 +8398,41 @@ var adminLabelsRouter = router({
     };
     try {
       if (input.id) {
-        await db2.update(labelTemplates).set(values).where(eq31(labelTemplates.id, input.id));
+        await db2.update(labelTemplates).set(values).where(eq33(labelTemplates.id, input.id));
         return { id: input.id, updated: true };
       }
       const [res] = await db2.insert(labelTemplates).values(values);
       return { id: res.insertId, updated: false };
     } catch (err) {
       console.error("Erro no upsert:", err);
-      throw new TRPCError20({ code: "BAD_REQUEST", message: "Erro ao salvar template." });
+      throw new TRPCError26({ code: "BAD_REQUEST", message: "Erro ao salvar template." });
     }
   }),
   deleteTemplate: adminProcedure.input(z26.object({ id: z26.number() })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError20({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    if (!db2) throw new TRPCError26({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
     try {
-      await db2.delete(labelTemplates).where(eq31(labelTemplates.id, input.id));
+      await db2.delete(labelTemplates).where(eq33(labelTemplates.id, input.id));
       return { success: true };
     } catch (err) {
       console.error("Erro ao excluir template:", err);
-      throw new TRPCError20({ code: "BAD_REQUEST", message: "Erro ao excluir template." });
+      throw new TRPCError26({ code: "BAD_REQUEST", message: "Erro ao excluir template." });
     }
   })
 });
 
 // server/routers/admin/adminStoreSettingsRouter.ts
-import { z as z27 } from "zod";
-init_db();
-init_schema();
-init_encryption();
-import { eq as eq32, sql as sql16 } from "drizzle-orm";
-import { TRPCError as TRPCError21 } from "@trpc/server";
-
-// server/backup.ts
-import { execSync } from "child_process";
-async function generateDatabaseBackup() {
-  const containerName = "gourmet_db";
-  const dbName = "gourmet_saudavel";
-  try {
-    const command = `docker exec ${containerName} /usr/bin/mysqldump -u root --password=root ${dbName}`;
-    const output = execSync(command, {
-      maxBuffer: 1024 * 1024 * 64,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    return output;
-  } catch (error) {
-    const processError = error;
-    const stderr = processError.stderr?.toString() || "";
-    const message = processError.message || "";
-    if (stderr.includes("Unknown database")) {
-      throw new Error(`O banco '${dbName}' n\xE3o existe no container.`);
-    }
-    if (stderr.includes("Access denied")) {
-      throw new Error("Senha do banco incorreta no script de backup.");
-    }
-    throw new Error(`Erro no Docker: ${stderr || message}`);
-  }
-}
-
-// server/routers/admin/adminStoreSettingsRouter.ts
-async function forceSaveAppConfig(db2, key, value) {
-  try {
-    const rawValue = value === void 0 || value === null ? "" : String(value);
-    let finalValue = rawValue;
-    const sensitiveKeys = ["gemini_api_key", "google_login_config", "smtp_pass", "ga_service_account"];
-    if (sensitiveKeys.includes(key) && rawValue.length > 0 && !rawValue.includes(":")) {
-      finalValue = encrypt(rawValue) || rawValue;
-    }
-    await db2.execute(sql16`
-      INSERT INTO app_configs (config_key, config_value, updated_at) 
-      VALUES (${key}, ${finalValue}, NOW()) 
-      ON DUPLICATE KEY UPDATE config_value = ${finalValue}, updated_at = NOW()
-    `);
-  } catch (error) {
-    logger.error({ key, error }, "Falha ao salvar configura\xE7\xE3o em app_configs");
-    throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gravar configura\xE7\xE3o." });
-  }
-}
-var saveSettingsLogic = adminProcedure.input(z27.record(z27.unknown())).mutation(async ({ ctx, input }) => {
-  const db2 = await getDb();
-  if (!db2) throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
-  const dataInput = input;
-  try {
-    const configsToSave = [
-      { key: "success_order_message", val: dataInput.success_order_message ?? dataInput.successOrderMessage ?? void 0 },
-      { key: "partners_json", val: dataInput.partners_json ?? dataInput.partnersJson ?? void 0 },
-      { key: "label_design_elements", val: dataInput.label_design_elements ?? dataInput.labelDesignElements },
-      { key: "accessibility_vlibras_active", val: String(dataInput.accessibility?.vLibrasActive ?? dataInput.vLibrasActive ?? "false") },
-      { key: "accessibility_high_contrast", val: String(dataInput.accessibility?.highContrastActive ?? dataInput.highContrastActive ?? "false") },
-      { key: "favicon_url", val: dataInput.favicon ?? void 0 },
-      { key: "gemini_api_key", val: dataInput.geminiApiKey },
-      { key: "google_login_config", val: dataInput.googleLoginConfig },
-      { key: "google_analytics_id", val: dataInput.googleAnalyticsId },
-      { key: "ga_service_account", val: dataInput.gaServiceAccount },
-      { key: "ga4_property_id", val: dataInput.ga4PropertyId }
-    ];
-    for (const config of configsToSave) {
-      if (config.val !== void 0) {
-        await forceSaveAppConfig(db2, config.key, config.val);
-      }
-    }
-    const storeUpdate = { updatedAt: /* @__PURE__ */ new Date() };
-    if (dataInput.logoUrl !== void 0) storeUpdate.logoUrl = dataInput.logoUrl;
-    if (dataInput.generalMinOrderAmount !== void 0) storeUpdate.generalMinOrderAmount = String(dataInput.generalMinOrderAmount);
-    if (dataInput.minOrderMessage !== void 0) storeUpdate.minOrderMessage = dataInput.minOrderMessage;
-    if (Object.keys(storeUpdate).length > 1) {
-      await db2.update(storeSettings).set(storeUpdate).where(eq32(storeSettings.id, "1"));
-    }
-    await logAction(ctx, "UPDATE_SETTINGS_UNIFIED", "settings", { entityId: "global" });
-    return { success: true, message: "Configura\xE7\xF5es sincronizadas com sucesso!" };
-  } catch (err) {
-    logger.error({ err }, "Erro ao salvar configura\xE7\xF5es globais");
-    throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao processar a grava\xE7\xE3o dos dados." });
-  }
-});
-var adminStoreSettingsRouter = router({
-  /**
-   * ✅ LEITURA GLOBAL
-   * Descriptografa segredos para exibição segura no painel Admin.
-   */
-  get: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    if (!db2) throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR" });
-    const generalSettings = await getStoreSettings();
-    const extraConfigs = await db2.select().from(appConfigs);
-    const [shipData] = await db2.select().from(shippingSettings).limit(1);
-    const getRaw = (key) => extraConfigs.find((r) => r.configKey === key)?.configValue || "";
-    const getSecret = (key) => {
-      const val = getRaw(key);
-      if (!val) return "";
-      if (val.split(":").length === 3) {
-        return decrypt(val) || val;
-      }
-      return val;
-    };
-    return {
-      ...generalSettings,
-      favicon: getRaw("favicon_url") || generalSettings.favicon || "",
-      success_order_message: getRaw("success_order_message") || "",
-      partners_json: getRaw("partners_json") || "[]",
-      label_design_elements: getRaw("label_design_elements") || null,
-      pickupEnabled: Boolean(shipData?.pickupEnabled ?? false),
-      pickupLabel: shipData?.pickupLabel || "Retirada no Local",
-      pickupInstruction: shipData?.pickupInstruction || "",
-      geminiApiKey: getSecret("gemini_api_key"),
-      googleLoginConfig: getSecret("google_login_config"),
-      googleAnalyticsId: getRaw("google_analytics_id"),
-      gaServiceAccount: getSecret("ga_service_account"),
-      ga4PropertyId: getRaw("ga4_property_id"),
-      accessibility: {
-        vLibrasActive: getRaw("accessibility_vlibras_active") === "true",
-        highContrastActive: getRaw("accessibility_high_contrast") === "true"
-      }
-    };
-  }),
-  /**
-   * ✅ LEITURA POR CHAVE
-   */
-  getByKey: adminProcedure.input(z27.object({
-    key: z27.string().optional(),
-    configKey: z27.string().optional()
-  })).query(async ({ input }) => {
-    const db2 = await getDb();
-    if (!db2) throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR" });
-    const targetKey = input.key || input.configKey;
-    if (!targetKey) return { value: "" };
-    const [config] = await db2.select().from(appConfigs).where(eq32(appConfigs.configKey, targetKey)).limit(1);
-    let val = config?.configValue || "";
-    if (val && val.split(":").length === 3) {
-      val = decrypt(val) || val;
-    }
-    return {
-      value: val,
-      configValue: val
-    };
-  }),
-  saveConfig: adminProcedure.input(z27.object({
-    key: z27.string().optional(),
-    value: z27.string().optional(),
-    configKey: z27.string().optional(),
-    configValue: z27.string().optional()
-  })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    if (!db2) throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR" });
-    const targetKey = input.key || input.configKey;
-    const targetValue = input.value || input.configValue;
-    if (!targetKey) throw new TRPCError21({ code: "BAD_REQUEST", message: "Chave \xE9 obrigat\xF3ria." });
-    await forceSaveAppConfig(db2, targetKey, targetValue || "");
-    return { success: true };
-  }),
-  upsert: saveSettingsLogic,
-  update: saveSettingsLogic,
-  saveCompanyInfo: saveSettingsLogic,
-  /**
-   * ✅ DOWNLOAD DE BACKUP
-   */
-  downloadBackup: adminProcedure.mutation(async () => {
-    const sqlContent = await generateDatabaseBackup();
-    return {
-      sql: sqlContent,
-      filename: `backup_gourmet_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.sql`
-    };
-  }),
-  // ✅ Lista todas as tabelas do banco — usado pelo InfrastructureCard
-  listTables: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    if (!db2) throw new TRPCError21({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
-    const result = await db2.execute(sql16`SHOW TABLES`);
-    const rows = result;
-    return rows.map((row) => Object.values(row)[0]);
-  })
-});
-
-// server/routers/admin/orders/ordersAdminRouter.ts
 import { z as z28 } from "zod";
-
-// server/routers/admin/orders/AdminOrderDraftService.ts
-init_db();
-init_schema();
-import { eq as eq33, and as and9, sql as sql17, like as like5 } from "drizzle-orm";
-import { v4 as uuidv43 } from "uuid";
-
-// server/routers/admin/orders/AdminOrderHelpers.ts
-init_encryption();
-import crypto9 from "crypto";
-var unseal3 = (val) => {
-  if (!val) return "";
-  const str = String(val).trim();
-  try {
-    if (str.split(":").length === 3) {
-      const decrypted = decrypt(str);
-      return decrypted ?? str;
-    }
-    return str;
-  } catch {
-    return str;
-  }
-};
-function generateFriendlyOrderId() {
-  const date = /* @__PURE__ */ new Date();
-  const year = String(date.getFullYear()).slice(-2);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const random = crypto9.randomBytes(2).toString("hex").slice(0, 3).toUpperCase();
-  return `GS-${year}${month}-${random}`;
-}
-var processDraftMetadata = (metadataJson) => {
-  try {
-    const data = safeJsonParse(metadataJson, {});
-    const fieldsToRemove = [
-      "paymentMethod",
-      "notes",
-      "deliveryMode",
-      "couponCode",
-      "couponValue",
-      "loyaltyPointsUsed",
-      "loyaltyValue",
-      "discountSource",
-      "currentStep",
-      "discountValue",
-      "shippingValue",
-      "paymentDiscountValue"
-    ];
-    fieldsToRemove.forEach((field) => delete data[field]);
-    const encryptFields = (obj, fields) => {
-      if (!obj) return;
-      fields.forEach((f) => {
-        if (obj[f]) obj[f] = encrypt(String(obj[f]));
-      });
-    };
-    if (data.customer) encryptFields(data.customer, ["name", "phone"]);
-    if (data.address) {
-      encryptFields(data.address, [
-        "shipping_address",
-        "shipping_address_number",
-        "shipping_neighborhood",
-        "shipping_address_complement",
-        "zipCode",
-        "shipping_city",
-        "shipping_state"
-      ]);
-    }
-    return JSON.stringify(data);
-  } catch (error) {
-    console.error("Erro ao processar metadata do rascunho:", error);
-    return metadataJson;
-  }
-};
-
-// server/routers/admin/orders/AdminOrderDraftService.ts
-import { TRPCError as TRPCError22 } from "@trpc/server";
-var AdminOrderDraftService = {
-  async init(adminId) {
-    const db2 = await getDb();
-    const [existing] = await db2.select().from(adminOrderDrafts).where(and9(eq33(adminOrderDrafts.adminId, adminId), eq33(adminOrderDrafts.status, "active"))).limit(1);
-    if (existing) return { id: existing.id, isExisting: true };
-    const newId = uuidv43();
-    await db2.insert(adminOrderDrafts).values({
-      id: newId,
-      adminId,
-      status: "active",
-      shippingValue: "0.00",
-      discountValue: "0.00",
-      updatedAt: /* @__PURE__ */ new Date()
-    });
-    return { id: newId, isExisting: false };
-  },
-  async update(input) {
-    const db2 = await getDb();
-    const rawData = safeJsonParse(input.metadataJson, {});
-    const totalDiscount = (safeNumber(rawData.couponValue) + safeNumber(rawData.loyaltyValue) + safeNumber(rawData.paymentDiscountValue)).toFixed(2);
-    await db2.update(adminOrderDrafts).set({
-      userId: input.userId,
-      shippingValue: input.shippingValue !== void 0 ? safeNumber(input.shippingValue).toFixed(2) : void 0,
-      discountValue: totalDiscount,
-      metadataJson: processDraftMetadata(input.metadataJson || "{}"),
-      discountsSnapshot: JSON.stringify(rawData),
-      updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq33(adminOrderDrafts.id, input.draftId));
-    return { success: true };
-  },
-  async getDraft(adminId) {
-    const db2 = await getDb();
-    const [draft] = await db2.select().from(adminOrderDrafts).where(and9(eq33(adminOrderDrafts.adminId, adminId), eq33(adminOrderDrafts.status, "active"))).limit(1);
-    if (!draft) return null;
-    const items = await db2.select().from(adminOrderDraftItems).where(eq33(adminOrderDraftItems.draftId, draft.id));
-    const meta = safeJsonParse(draft.metadataJson, {});
-    if (meta.customer) {
-      meta.customer.name = unseal3(meta.customer.name || "");
-      meta.customer.phone = unseal3(meta.customer.phone || "");
-    }
-    if (meta.address) {
-      const address = meta.address;
-      meta.address = {
-        shipping_address: unseal3(meta.address.shipping_address || ""),
-        shipping_address_number: unseal3(meta.address.shipping_address_number || ""),
-        shipping_neighborhood: unseal3(meta.address.shipping_neighborhood || ""),
-        shipping_address_complement: unseal3(meta.address.shipping_address_complement || ""),
-        zipCode: unseal3(meta.address.zipCode || meta.address.shipping_zip_code || ""),
-        // ✅ Padronizado para zipCode
-        shipping_city: unseal3(meta.address.shipping_city || ""),
-        shipping_state: unseal3(meta.address.shipping_state || "")
-      };
-    }
-    return {
-      ...draft,
-      metadataJson: JSON.stringify({
-        ...meta,
-        discountValue: safeNumber(draft.discountValue),
-        shippingValue: safeNumber(draft.shippingValue)
-      }),
-      items: items.map((it) => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
-    };
-  },
-  async updateItem(itemId, data) {
-    const db2 = await getDb();
-    const updatePayload = {};
-    if (data.quantity !== void 0) updatePayload.quantity = data.quantity;
-    if (data.unitPrice !== void 0) updatePayload.unitPrice = String(safeNumber(data.unitPrice).toFixed(2));
-    if (Object.keys(updatePayload).length === 0) return { success: false };
-    await db2.update(adminOrderDraftItems).set(updatePayload).where(eq33(adminOrderDraftItems.id, itemId));
-    return { success: true };
-  },
-  async applyLoyalty(draftId, pointsRequested) {
-    const db2 = await getDb();
-    const [settings] = await db2.select().from(loyaltySettings).limit(1);
-    const [draft] = await db2.select().from(adminOrderDrafts).where(eq33(adminOrderDrafts.id, draftId)).limit(1);
-    if (!draft) throw new TRPCError22({ code: "NOT_FOUND", message: "Rascunho n\xE3o encontrado." });
-    if (!settings?.enabled) throw new TRPCError22({ code: "BAD_REQUEST", message: "Programa de fidelidade desativado." });
-    const items = await db2.select().from(adminOrderDraftItems).where(eq33(adminOrderDraftItems.draftId, draftId));
-    const subtotal = items.reduce((acc, it) => acc + safeNumber(it.unitPrice) * (it.quantity || 0), 0);
-    const ptsToUse = Math.max(0, safeNumber(pointsRequested));
-    const ratePoints = safeNumber(settings.redemptionRatePoints, 100);
-    const rateMoney = safeNumber(settings.redemptionRateMoney, 1);
-    const pointValueUnit = rateMoney / ratePoints;
-    const discountAmount = safeNumber((ptsToUse * pointValueUnit).toFixed(2));
-    if (discountAmount > subtotal) {
-      throw new TRPCError22({ code: "BAD_REQUEST", message: "Desconto de pontos n\xE3o pode ser maior que o total dos itens." });
-    }
-    const meta = safeJsonParse(draft.metadataJson, {});
-    const currentCouponValue = safeNumber(meta.couponValue);
-    const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
-    const totalDiscountSum = (currentCouponValue + discountAmount + currentPaymentDiscount).toFixed(2);
-    const updatedMeta = {
-      ...meta,
-      loyaltyPointsUsed: ptsToUse,
-      loyaltyValue: discountAmount,
-      discountSource: "loyalty"
-    };
-    await db2.update(adminOrderDrafts).set({
-      metadataJson: JSON.stringify(updatedMeta),
-      discountValue: totalDiscountSum,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq33(adminOrderDrafts.id, draftId));
-    return { success: true, discountAmount, pointsUsed: ptsToUse };
-  },
-  async removeLoyalty(draftId) {
-    const db2 = await getDb();
-    const [draft] = await db2.select().from(adminOrderDrafts).where(eq33(adminOrderDrafts.id, draftId)).limit(1);
-    if (!draft) return { success: false };
-    const meta = safeJsonParse(draft.metadataJson, {});
-    const { ...rest } = meta;
-    delete rest.loyaltyPointsUsed;
-    delete rest.loyaltyValue;
-    const currentCouponValue = safeNumber(meta.couponValue);
-    const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
-    await db2.update(adminOrderDrafts).set({
-      metadataJson: JSON.stringify({ ...rest, loyaltyPointsUsed: 0, loyaltyValue: 0 }),
-      discountValue: (currentCouponValue + currentPaymentDiscount).toFixed(2),
-      updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq33(adminOrderDrafts.id, draftId));
-    return { success: true };
-  },
-  async addItem(input) {
-    const db2 = await getDb();
-    const finalOptions = input.options || "{}";
-    await db2.insert(adminOrderDraftItems).values({
-      id: uuidv43(),
-      draftId: input.draftId,
-      dishId: input.dishId ? String(input.dishId) : null,
-      packageId: input.packageId ? String(input.packageId) : null,
-      name: input.name,
-      unitPrice: String(safeNumber(input.unitPrice).toFixed(2)),
-      quantity: input.quantity || 1,
-      options: finalOptions,
-      appliedNutrition: input.applied_nutrition || null
-    });
-    return { success: true };
-  },
-  async removeItem(itemId) {
-    const db2 = await getDb();
-    await db2.delete(adminOrderDraftItems).where(eq33(adminOrderDraftItems.id, itemId));
-    return { success: true };
-  },
-  async cancelSession(draftId) {
-    const db2 = await getDb();
-    await db2.transaction(async (tx) => {
-      await tx.delete(adminOrderDraftItems).where(eq33(adminOrderDraftItems.draftId, draftId));
-      await tx.delete(adminOrderDrafts).where(eq33(adminOrderDrafts.id, draftId));
-    });
-    return { success: true };
-  },
-  async applyCoupon(draftId, code) {
-    const db2 = await getDb();
-    const [coupon] = await db2.select().from(coupons).where(eq33(coupons.code, code.toUpperCase().trim())).limit(1);
-    if (!coupon) throw new TRPCError22({ code: "NOT_FOUND", message: "Cupom n\xE3o encontrado." });
-    if (!coupon.isActive) throw new TRPCError22({ code: "BAD_REQUEST", message: "Cupom inativo." });
-    const [draft] = await db2.select().from(adminOrderDrafts).where(eq33(adminOrderDrafts.id, draftId)).limit(1);
-    if (!draft) throw new TRPCError22({ code: "NOT_FOUND", message: "Rascunho n\xE3o encontrado." });
-    const meta = safeJsonParse(draft.metadataJson, {});
-    const updatedMeta = { ...meta, couponCode: coupon.code, discountSource: "coupon" };
-    await db2.update(adminOrderDrafts).set({ metadataJson: JSON.stringify(updatedMeta), updatedAt: /* @__PURE__ */ new Date() }).where(eq33(adminOrderDrafts.id, draftId));
-    return {
-      success: true,
-      coupon: { code: coupon.code, type: coupon.discountType, value: safeNumber(coupon.discountValue) }
-    };
-  },
-  async listPackages(input) {
-    const db2 = await getDb();
-    const offset = (input.page - 1) * input.perPage;
-    const whereClause = and9(
-      eq33(packages.status, "active"),
-      input.search ? like5(packages.name, `%${input.search}%`) : void 0
-    );
-    const data = await db2.select().from(packages).where(whereClause).limit(input.perPage).offset(offset);
-    const [totalRes] = await db2.select({ count: sql17`count(*)` }).from(packages).where(whereClause);
-    return {
-      data: data.map((p) => ({ ...p, price: safeNumber(p.price) })),
-      total: safeNumber(totalRes?.count)
-    };
-  }
-};
-
-// server/routers/admin/orders/AdminOrderFinalizeService.ts
-init_db();
-init_encryption();
-init_schema();
-import { eq as eq34, sql as sql18 } from "drizzle-orm";
-import { TRPCError as TRPCError23 } from "@trpc/server";
-var AdminOrderFinalizeService = {
-  async finalize(draftId) {
-    const db2 = await getDb();
-    const [draft] = await db2.select().from(adminOrderDrafts).where(eq34(adminOrderDrafts.id, draftId)).limit(1);
-    const items = await db2.select().from(adminOrderDraftItems).where(eq34(adminOrderDraftItems.draftId, draftId));
-    if (!draft || !items.length) {
-      throw new TRPCError23({ code: "BAD_REQUEST", message: "Carrinho vazio ou n\xE3o encontrado." });
-    }
-    const meta = safeJsonParse(draft.metadataJson, {});
-    const snap = safeJsonParse(draft.discountsSnapshot, {});
-    const addr = meta.address || {};
-    const editingOrderId = typeof meta.editingOrderId === "string" ? meta.editingOrderId : "";
-    const paymentStatus = meta.paymentStatus === "paid" ? "paid" : "pending";
-    const notes = typeof meta.notes === "string" ? meta.notes : "";
-    const orderDate = typeof meta.orderDate === "string" || typeof meta.orderDate === "number" ? meta.orderDate : null;
-    const subtotal = items.reduce((acc, it) => acc + safeNumber(it.unitPrice) * (it.quantity || 1), 0);
-    const orderId = generateFriendlyOrderId();
-    await db2.transaction(async (tx) => {
-      if (editingOrderId) {
-        await tx.update(orders).set({
-          status: "cancelled",
-          notes: sql18`CONCAT(COALESCE(${orders.notes}, ''), ' | Substituído pelo: ', ${orderId})`,
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq34(orders.id, editingOrderId));
-      }
-      const newOrder = {
-        id: orderId,
-        userId: draft.userId || "admin_system",
-        status: paymentStatus === "paid" ? "preparing" : "pending",
-        // ✅ REMOVIDO: 'origin' (não existe no schema)
-        paymentMethod: String(meta.paymentMethod || snap.paymentMethodName || "Presencial"),
-        paymentStatus,
-        notes,
-        subtotal: subtotal.toFixed(2),
-        total: (subtotal + safeNumber(draft.shippingValue) - safeNumber(draft.discountValue)).toFixed(2),
-        shippingCost: safeNumber(draft.shippingValue).toFixed(2),
-        totalDiscount: safeNumber(draft.discountValue).toFixed(2),
-        customerName: encrypt(unseal3(meta.customer?.name || "") || "Cliente PDV"),
-        customerPhone: encrypt(unseal3(meta.customer?.phone || "") || ""),
-        shippingAddress: encrypt(unseal3(addr.shipping_address || "") || "Venda Presencial"),
-        shippingAddressNumber: encrypt(unseal3(addr.shipping_address_number || "") || ""),
-        shippingAddressComplement: encrypt(unseal3(addr.shipping_address_complement || "") || ""),
-        shippingNeighborhood: encrypt(unseal3(addr.shipping_neighborhood || "") || ""),
-        shippingCity: unseal3(addr.shipping_city || ""),
-        shippingState: unseal3(addr.shipping_state || ""),
-        shippingZipCode: unseal3(addr.zipCode || addr.shipping_zip_code || ""),
-        discountsSnapshot: draft.discountsSnapshot,
-        createdAt: orderDate ? new Date(orderDate) : /* @__PURE__ */ new Date(),
-        updatedAt: /* @__PURE__ */ new Date()
-      };
-      await tx.insert(orders).values(newOrder);
-      for (const it of items) {
-        const qty = it.quantity ?? 1;
-        const newItem = {
-          id: it.id,
-          orderId,
-          dishId: it.dishId,
-          packageId: it.packageId,
-          dishName: encrypt(it.name || "Item") || "Item",
-          unitPrice: String(it.unitPrice),
-          quantity: qty,
-          options: it.options,
-          appliedNutrition: it.appliedNutrition,
-          totalPrice: (safeNumber(it.unitPrice) * qty).toFixed(2)
-        };
-        await tx.insert(orderItems).values(newItem);
-      }
-      if (draft.userId) {
-        const pointsUsed = safeNumber(meta.loyaltyPointsUsed);
-        const pointsEarned = Math.floor(subtotal);
-        await tx.execute(sql18`
-          UPDATE users 
-          SET loyalty_balance = GREATEST(COALESCE(loyalty_balance, 0) - ${pointsUsed} + ${pointsEarned}, 0)
-          WHERE id = ${draft.userId}
-        `);
-      }
-      await tx.delete(adminOrderDraftItems).where(eq34(adminOrderDraftItems.draftId, draftId));
-      await tx.delete(adminOrderDrafts).where(eq34(adminOrderDrafts.id, draftId));
-    });
-    return { success: true, orderId };
-  }
-};
-
-// server/routers/admin/orders/OrderManagerService.ts
-init_db();
-init_schema();
-import { eq as eq35, and as and10, sql as sql19, isNull, lt, desc as desc15, inArray as inArray5 } from "drizzle-orm";
-import { randomUUID as randomUUID2 } from "crypto";
-function getNumericOrderId2(orderId) {
-  const onlyNumbers = orderId.replace(/\D/g, "");
-  if (onlyNumbers.length > 0 && onlyNumbers.length < 10) return safeNumber(onlyNumbers);
-  let hash5 = 0;
-  for (let i = 0; i < orderId.length; i++) {
-    hash5 = (hash5 << 5) - hash5 + orderId.charCodeAt(i);
-    hash5 |= 0;
-  }
-  return Math.abs(hash5);
-}
-var OrderManagerService = {
-  /**
-   * 📋 LISTAGEM DE PEDIDOS COM DESCRIPTOGRAFIA
-   */
-  async listOrders(input) {
-    const db2 = await getDb();
-    const offset = (input.page - 1) * input.perPage;
-    const data = await db2.select().from(orders).limit(input.perPage).offset(offset).orderBy(desc15(orders.createdAt));
-    const [totalRes] = await db2.select({
-      count: sql19`count(*)`
-    }).from(orders);
-    return {
-      data: data.map((order) => ({
-        ...order,
-        customerName: unseal3(order.customerName),
-        customerPhone: unseal3(order.customerPhone)
-      })),
-      total: safeNumber(totalRes?.count)
-    };
-  },
-  /**
-   * 🔍 DETALHES COMPLETOS DO PEDIDO (INCLUINDO INGREDIENTES)
-   */
-  async getById(id) {
-    const db2 = await getDb();
-    const [order] = await db2.select().from(orders).where(eq35(orders.id, id)).limit(1);
-    if (!order) return null;
-    const itemsData = await db2.select({
-      id: orderItems.id,
-      orderId: orderItems.orderId,
-      dishId: orderItems.dishId,
-      name: orderItems.dishName,
-      quantity: orderItems.quantity,
-      unitPrice: orderItems.unitPrice,
-      options: orderItems.options,
-      appliedNutrition: orderItems.appliedNutrition,
-      mainDishIngredients: sql19`(SELECT ingredients FROM dishes WHERE dishes.id = ${orderItems.dishId} LIMIT 1)`
-    }).from(orderItems).where(eq35(orderItems.orderId, id));
-    const accompanimentIds = /* @__PURE__ */ new Set();
-    itemsData.forEach((item) => {
-      try {
-        const opts = typeof item.options === "string" ? safeJsonParse(item.options, {}) : safeJsonParse(item.options, {});
-        if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
-          opts.accompaniments.forEach((acc) => {
-            if (acc.id) accompanimentIds.add(safeNumber(acc.id));
-          });
-        }
-      } catch {
-      }
-    });
-    const accompMap = /* @__PURE__ */ new Map();
-    if (accompanimentIds.size > 0) {
-      const accompData = await db2.select({
-        id: accompanimentOptions.id,
-        name: accompanimentOptions.name,
-        ingredients: accompanimentOptions.ingredients
-      }).from(accompanimentOptions).where(inArray5(accompanimentOptions.id, Array.from(accompanimentIds)));
-      accompData.forEach((acc) => {
-        const text19 = acc.ingredients ? `${acc.name} (${acc.ingredients})` : acc.name;
-        accompMap.set(acc.id, text19);
-      });
-    }
-    return {
-      ...order,
-      customerName: unseal3(order.customerName),
-      customerPhone: unseal3(order.customerPhone),
-      items: itemsData.map((item) => {
-        let accompText = "";
-        try {
-          const opts = typeof item.options === "string" ? safeJsonParse(item.options, {}) : safeJsonParse(item.options, {});
-          if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
-            accompText = opts.accompaniments.map((acc) => accompMap.get(safeNumber(acc.id))).filter((val) => Boolean(val)).join(", ");
-          }
-        } catch {
-        }
-        return {
-          ...item,
-          ingredients: item.mainDishIngredients || "",
-          accompaniments_ingredients: accompText || "",
-          applied_nutrition: item.appliedNutrition
-        };
-      })
-    };
-  },
-  /**
-   * 🔄 ATUALIZAR STATUS E DISPARAR ANALYTICS
-   */
-  async updateStatus(id, status) {
-    const db2 = await getDb();
-    const result = await db2.update(orders).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq35(orders.id, id));
-    if (status === "completed" || status === "concluded") {
-      try {
-        await enqueueBIAnalyticsJob(id, {
-          removeOnComplete: true,
-          attempts: 3,
-          backoff: 5e3
-        });
-      } catch (err) {
-        console.error("[BI-ANALYTICS] Erro ao disparar fila:", err);
-      }
-    }
-    if (status === "cancelled") {
-      const numericId = getNumericOrderId2(id.replace("#", ""));
-      if (!isNaN(numericId)) {
-        await db2.delete(biSalesFacts).where(eq35(biSalesFacts.orderId, numericId));
-        await db2.delete(biFinancialFacts).where(eq35(biFinancialFacts.orderId, numericId));
-      }
-    }
-    return result;
-  },
-  /**
-   * ❌ EXCLUSÃO DE PEDIDO COM ESTORNO DE PONTOS E LIMPEZA DE BI
-   */
-  async delete(id) {
-    const db2 = await getDb();
-    const cleanId = id.replace("#", "");
-    const numericId = getNumericOrderId2(cleanId);
-    return await db2.transaction(async (tx) => {
-      const historyEntries = await tx.select().from(loyaltyHistory).where(eq35(loyaltyHistory.orderId, cleanId));
-      for (const entry of historyEntries) {
-        const refundAmount = -safeNumber(entry.pointsChange);
-        if (refundAmount === 0) continue;
-        await tx.insert(loyaltyHistory).values({
-          id: randomUUID2(),
-          userId: entry.userId,
-          orderId: cleanId,
-          pointsChange: refundAmount,
-          type: refundAmount > 0 ? "refund_redeem" : "refund_earned",
-          reason: "Pedido Exclu\xEDdo (Admin)",
-          description: `Estorno autom\xE1tico: Pedido #${cleanId} removido`,
-          createdAt: /* @__PURE__ */ new Date()
-        });
-        await tx.update(users).set({ availablePoints: sql19`${users.availablePoints} + ${refundAmount}` }).where(eq35(users.id, entry.userId));
-      }
-      if (!isNaN(numericId)) {
-        await tx.delete(biSalesFacts).where(eq35(biSalesFacts.orderId, numericId));
-        await tx.delete(biFinancialFacts).where(eq35(biFinancialFacts.orderId, numericId));
-      }
-      await tx.delete(orderItems).where(eq35(orderItems.orderId, cleanId));
-      await tx.delete(orders).where(eq35(orders.id, cleanId));
-      return { success: true };
-    });
-  },
-  /**
-   * 🛒 BUSCA CARRINHOS ABANDONADOS COM ITENS
-   */
-  async getAbandonedCarts() {
-    const db2 = await getDb();
-    const result = await db2.select({
-      id: carts.id,
-      customerName: users.name,
-      customerPhone: users.phone,
-      updatedAt: carts.updatedAt,
-      subtotal: sql19`SUM(${cartItems.unitPrice} * ${cartItems.quantity})`,
-      itemCount: sql19`COUNT(${cartItems.id})`
-    }).from(carts).leftJoin(users, eq35(carts.userId, users.id)).innerJoin(cartItems, eq35(cartItems.cartId, carts.id)).where(eq35(carts.status, "active")).groupBy(carts.id).orderBy(desc15(carts.updatedAt)).limit(50);
-    return result.map((cart) => ({
-      ...cart,
-      customerName: unseal3(cart.customerName) || "Visitante An\xF4nimo",
-      customerPhone: unseal3(cart.customerPhone),
-      total: safeNumber(cart.subtotal)
-    }));
-  },
-  /**
-   * 🔍 1. LISTA CARRINHOS ANTIGOS E VAZIOS
-   * Usado pelo .query() no router para renderizar o painel sem dar erro.
-   */
-  async getEmptyOldCarts() {
-    const db2 = await getDb();
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
-    return db2.select({ id: carts.id }).from(carts).leftJoin(cartItems, eq35(cartItems.cartId, carts.id)).where(and10(
-      isNull(cartItems.id),
-      eq35(carts.status, "active"),
-      lt(carts.updatedAt, oneDayAgo)
-    )).groupBy(carts.id).limit(500);
-  },
-  /**
-   * 🧹 2. DELETA CARRINHOS ANTIGOS E VAZIOS
-   * Usado pelo .mutation() no router quando você clica em "Limpar"
-   */
-  async clearEmptyOldCarts() {
-    const db2 = await getDb();
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
-    await db2.delete(carts).where(
-      and10(
-        eq35(carts.status, "active"),
-        lt(carts.updatedAt, oneDayAgo),
-        sql19`NOT EXISTS (SELECT 1 FROM cart_items WHERE cart_items.cart_id = ${carts.id})`
-      )
-    );
-    return { success: true };
-  },
-  /**
-   * 🗑️ EXCLUSÃO EM MASSA DE CARRINHOS
-   */
-  async bulkDeleteCarts(ids) {
-    if (!ids.length) return { success: true, count: 0 };
-    const db2 = await getDb();
-    await db2.delete(carts).where(inArray5(carts.id, ids));
-    return { success: true, count: ids.length };
-  }
-};
-
-// server/routers/admin/orders/services/PagSeguroService.ts
-import axios from "axios";
-var PAGSEGURO_TOKEN = process.env.PAGSEGURO_TOKEN;
-var API_URL = "https://api.pagseguro.com/checkouts";
-var PagSeguroService = {
-  async createPaymentLink(order) {
-    const payload = {
-      reference_id: order.id,
-      customer: {
-        name: order.customerName,
-        // Lembre-se de descriptografar antes de enviar
-        phone: { number: order.customerPhone.replace(/\D/g, "") }
-      },
-      items: [
-        {
-          reference_id: "PEDIDO_" + order.id,
-          name: "Pedido Gourmet Saud\xE1vel",
-          quantity: 1,
-          unit_amount: Math.round(safeNumber(order.total) * 100)
-          // PagSeguro usa centavos (inteiro)
-        }
-      ],
-      payment_methods: [
-        { type: "CREDIT_CARD" },
-        { type: "PIX" },
-        { type: "BOLETO" }
-      ],
-      redirect_url: "https://gourmetsaudavel.com/meus-pedidos"
-    };
-    const response = await axios.post(API_URL, payload, {
-      headers: {
-        "Authorization": `Bearer ${PAGSEGURO_TOKEN}`,
-        "Content-Type": "application/json"
-      }
-    });
-    return response.data.links.find((l) => l.rel === "PAY")?.href;
-  }
-};
-
-// server/routers/admin/orders/ordersAdminRouter.ts
-init_encryption();
-init_db();
-init_schema();
-import { eq as eq36, sql as sql20, desc as desc16 } from "drizzle-orm";
-import { TRPCError as TRPCError24 } from "@trpc/server";
-var ordersAdminRouter = router({
-  /**
-   * 📋 LISTAGEM DE PEDIDOS
-   */
-  list: adminProcedure.input(z28.object({
-    search: z28.string().optional(),
-    status: z28.string().optional(),
-    page: z28.number().default(1),
-    perPage: z28.number().default(10)
-  })).query(async ({ input }) => {
-    const result = await OrderManagerService.listOrders(input);
-    return {
-      orders: result.data,
-      meta: {
-        totalItems: result.total,
-        totalPages: Math.ceil(result.total / input.perPage),
-        currentPage: input.page
-      }
-    };
-  }),
-  /**
-   * 🔍 DETALHES DO PEDIDO
-   */
-  getById: adminProcedure.input(z28.object({ orderId: z28.string() })).query(async ({ input }) => {
-    const db2 = await getDb();
-    const [order] = await db2.select().from(orders).where(eq36(orders.id, input.orderId)).limit(1);
-    if (!order) throw new TRPCError24({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
-    const items = await db2.select().from(orderItems).where(eq36(orderItems.orderId, input.orderId));
-    return {
-      ...order,
-      items: items.map((it) => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
-    };
-  }),
-  /**
-   * 🔄 ATUALIZAR STATUS
-   */
-  updateStatus: adminProcedure.input(z28.object({
-    id: z28.string(),
-    status: z28.string()
-  })).mutation(async ({ input }) => {
-    await OrderManagerService.updateStatus(input.id, input.status);
-    return { success: true };
-  }),
-  /**
-   * 🛒 CARRINHOS ABANDONADOS
-   */
-  getAbandonedCarts: adminProcedure.input(z28.object({
-    page: z28.number().default(1),
-    perPage: z28.number().default(10)
-  }).optional()).query(async ({ input }) => {
-    const db2 = await getDb();
-    const page = input?.page || 1;
-    const perPage = input?.perPage || 10;
-    const offset = (page - 1) * perPage;
-    const abandonedCarts = await db2.select({
-      id: carts.id,
-      userId: carts.userId,
-      updatedAt: carts.updatedAt,
-      customerName: users.name,
-      customerEmail: users.email,
-      itemCount: sql20`count(${cartItems.id})`
-    }).from(carts).innerJoin(users, eq36(carts.userId, users.id)).leftJoin(cartItems, eq36(carts.id, cartItems.cartId)).where(sql20`${carts.updatedAt} < NOW() - INTERVAL 2 HOUR`).groupBy(carts.id, users.id).limit(perPage).offset(offset).orderBy(desc16(carts.updatedAt));
-    return {
-      carts: abandonedCarts.map((c) => ({
-        ...c,
-        customerName: c.customerName ? decrypt(c.customerName) || "Cliente" : "Cliente",
-        customerEmail: c.customerEmail || "E-mail indispon\xEDvel"
-      }))
-    };
-  }),
-  /**
-   * 📝 EDITAR PEDIDO
-   */
-  editOrder: adminProcedure.input(z28.object({ orderId: z28.string() })).mutation(async ({ input, ctx }) => {
-    const db2 = await getDb();
-    const adminId = ctx.user.id;
-    const [orderResult] = await db2.select({ order: orders, customerName: users.name }).from(orders).leftJoin(users, eq36(users.id, orders.userId)).where(eq36(orders.id, input.orderId)).limit(1);
-    if (!orderResult) throw new TRPCError24({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
-    const { order, customerName } = orderResult;
-    const customerCleanName = customerName ? decrypt(customerName) || "Cliente" : "Cliente";
-    let snap = {};
-    if (order.discountsSnapshot) {
-      try {
-        const rawSnap = decrypt(order.discountsSnapshot);
-        snap = safeJsonParse(rawSnap, {});
-      } catch {
-        snap = {};
-      }
-    }
-    const items = await db2.select().from(orderItems).where(eq36(orderItems.orderId, input.orderId));
-    const session = await AdminOrderDraftService.init(adminId);
-    const pdvDraftId = session.id;
-    await db2.delete(adminOrderDraftItems).where(eq36(adminOrderDraftItems.draftId, pdvDraftId));
-    const snapTotals = snap.totals || {};
-    await AdminOrderDraftService.update({
-      draftId: pdvDraftId,
-      userId: order.userId ? String(order.userId) : void 0,
-      shippingValue: safeNumber(order.shippingCost),
-      metadataJson: JSON.stringify({
-        customer: order.userId ? { id: String(order.userId), name: customerCleanName } : null,
-        address: {
-          shipping_address: order.shippingAddress,
-          shipping_address_number: order.shippingAddressNumber,
-          shipping_neighborhood: order.shippingNeighborhood,
-          shipping_city: order.shippingCity,
-          shipping_state: order.shippingState,
-          zipCode: order.shippingZipCode
-        },
-        deliveryMode: order.shippingCity ? "delivery" : "pickup",
-        notes: order.notes || "",
-        couponCode: snap.couponCode || null,
-        couponValue: safeNumber(snapTotals.couponDiscount),
-        loyaltyValue: safeNumber(snap.loyaltyValue),
-        loyaltyPointsUsed: safeNumber(snap.pointsUsed),
-        discountValue: safeNumber(order.totalDiscount),
-        editingOrderId: order.id,
-        discountsSnapshot: JSON.stringify(snap)
-      })
-    });
-    for (const item of items) {
-      await AdminOrderDraftService.addItem({
-        draftId: pdvDraftId,
-        dishId: item.dishId ? safeNumber(item.dishId) : void 0,
-        packageId: item.packageId ? safeNumber(item.packageId) : void 0,
-        name: item.dishName || "Item do Pedido",
-        unitPrice: safeNumber(item.unitPrice),
-        quantity: safeNumber(item.quantity),
-        options: typeof item.options === "string" ? item.options : JSON.stringify(item.options || {}),
-        applied_nutrition: item.appliedNutrition ? String(item.appliedNutrition) : void 0
-      });
-    }
-    return { success: true, newDraftId: pdvDraftId };
-  }),
-  /**
-   * ➕ ADICIONAR ITEM AO RASCUNHO
-   */
-  addItem: adminProcedure.input(z28.object({
-    draftId: z28.string(),
-    dishId: z28.coerce.number().nullish(),
-    packageId: z28.coerce.number().nullish(),
-    name: z28.string(),
-    unitPrice: z28.number(),
-    quantity: z28.number().default(1),
-    options: z28.string().optional(),
-    applied_nutrition: z28.string().optional()
-  })).mutation(({ input }) => AdminOrderDraftService.addItem({
-    ...input,
-    dishId: input.dishId ?? void 0,
-    packageId: input.packageId ?? void 0
-  })),
-  /**
-   * 🏁 FINALIZAR PEDIDO MANUAL
-   */
-  placeOrder: adminProcedure.input(z28.object({ draftId: z28.string() })).mutation(({ input }) => AdminOrderFinalizeService.finalize(input.draftId)),
-  /**
-   * 💳 GERAR LINK DE PAGAMENTO
-   */
-  generatePaymentLink: adminProcedure.input(z28.object({ orderId: z28.string() })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    const [order] = await db2.select().from(orders).where(eq36(orders.id, input.orderId)).limit(1);
-    if (!order) throw new TRPCError24({ code: "NOT_FOUND" });
-    const orderForPayment = {
-      ...order,
-      customerName: order.customerName || "Cliente"
-    };
-    const link = await PagSeguroService.createPaymentLink(
-      orderForPayment
-    );
-    if (!link) throw new TRPCError24({ code: "BAD_GATEWAY", message: "Erro ao gerar link de pagamento." });
-    return { link };
-  }),
-  /**
-   * 🔍 LISTAGEM DE CARRINHOS ANTIGOS (Usado pelo useQuery no Front para ler/contar)
-   */
-  getEmptyOldCarts: adminProcedure.query(async () => {
-    return await OrderManagerService.getEmptyOldCarts();
-  }),
-  /**
-   * 🧹 LIMPEZA DE CARRINHOS ANTIGOS (Usado pelo useMutation no Front no botão Limpar)
-   */
-  clearEmptyOldCarts: adminProcedure.mutation(async () => {
-    return await OrderManagerService.clearEmptyOldCarts();
-  }),
-  /**
-   * ❌ EXCLUIR PEDIDO
-   */
-  deleteOrder: adminProcedure.input(z28.object({ id: z28.string() })).mutation(async ({ input }) => {
-    await OrderManagerService.delete(input.id);
-    return { success: true };
-  })
-});
-
-// server/routers/admin/shipping/shippingRules.ts
-import { z as z29 } from "zod";
-init_db();
-init_schema();
-import { eq as eq37, asc as asc11, or as or4, notLike, isNull as isNull2, and as and11, like as like6 } from "drizzle-orm";
-var shippingRuleSchema = z29.object({
-  id: z29.number().optional(),
-  name: z29.string().min(1),
-  price: z29.coerce.number().min(0),
-  active: z29.boolean().default(true),
-  type: z29.enum(["zipcode", "polygon", "circle"]),
-  cepStart: z29.string().optional().nullable(),
-  cepEnd: z29.string().optional().nullable(),
-  polygonCoords: z29.string().optional().nullable(),
-  storeSlug: z29.string().optional().default("default")
-});
-var shippingRulesRouter = router({
-  getSettings: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    const [s] = await db2.select().from(shippingSettings).limit(1);
-    return s || {
-      pickupEnabled: false,
-      pickupLabel: "Retirada no Balc\xE3o",
-      pickupInstruction: ""
-    };
-  }),
-  updateSettings: adminProcedure.input(z29.object({
-    pickupEnabled: z29.boolean().optional(),
-    pickupLabel: z29.string().optional(),
-    pickupInstruction: z29.string().optional()
-  })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    const existing = await db2.select().from(shippingSettings).limit(1);
-    if (existing.length === 0) {
-      await db2.insert(shippingSettings).values({
-        pickupEnabled: input.pickupEnabled ?? false,
-        pickupLabel: input.pickupLabel ?? "Retirada no Balc\xE3o",
-        pickupInstruction: input.pickupInstruction ?? ""
-      });
-    } else {
-      await db2.update(shippingSettings).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq37(shippingSettings.id, existing[0].id));
-    }
-    return { success: true };
-  }),
-  /**
-   * ✅ BUSCA REGRAS (Flexível: Loja Selecionada + Default)
-   */
-  getRules: adminProcedure.input(z29.object({ storeSlug: z29.string().optional().default("default") })).query(async ({ input }) => {
-    const db2 = await getDb();
-    return await db2.select({
-      id: shippingZones.id,
-      name: shippingZones.name,
-      description: shippingZones.description,
-      type: shippingZones.type,
-      zipCodeStart: shippingZones.zipCodeStart,
-      zipCodeEnd: shippingZones.zipCodeEnd,
-      shippingCost: shippingZones.shippingCost,
-      polygonCoords: shippingZones.polygonCoords,
-      isActive: shippingZones.isActive,
-      estimatedDays: shippingZones.estimatedDays,
-      storeSlug: shippingZones.storeSlug
-    }).from(shippingZones).where(
-      and11(
-        // 🟢 Filtro de Unidade: Carrega a selecionada OU registros 'default'
-        or4(
-          eq37(shippingZones.storeSlug, input.storeSlug),
-          eq37(shippingZones.storeSlug, "default"),
-          isNull2(shippingZones.storeSlug)
-        ),
-        // Filtro de Descrição: Evita poluir com CEPs individuais do radar
-        or4(
-          eq37(shippingZones.description, "Regra Mestra"),
-          isNull2(shippingZones.description),
-          notLike(shippingZones.description, "via pol\xEDgono:%")
-        )
-      )
-    ).orderBy(asc11(shippingZones.name));
-  }),
-  /**
-   * ✅ UPSERT: Cria ou Atualiza
-   */
-  createRule: adminProcedure.input(shippingRuleSchema).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    const payload = {
-      name: input.name,
-      type: input.type,
-      shippingCost: String(input.price),
-      isActive: input.active,
-      zipCodeStart: input.type === "zipcode" ? input.cepStart || "00000000" : "00000000",
-      zipCodeEnd: input.type === "zipcode" ? input.cepEnd || "99999999" : "99999999",
-      polygonCoords: input.polygonCoords,
-      description: "Regra Mestra",
-      storeSlug: input.storeSlug
-    };
-    if (input.id) {
-      await db2.update(shippingZones).set({ ...payload, updatedAt: /* @__PURE__ */ new Date() }).where(eq37(shippingZones.id, input.id));
-    } else {
-      await db2.insert(shippingZones).values(payload);
-    }
-    return { success: true };
-  }),
-  deleteRule: adminProcedure.input(z29.object({ id: z29.number() })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    const [rule] = await db2.select().from(shippingZones).where(eq37(shippingZones.id, input.id)).limit(1);
-    if (!rule) return { success: false, error: "Regra n\xE3o encontrada" };
-    await db2.delete(shippingZones).where(eq37(shippingZones.id, input.id));
-    await db2.delete(shippingZones).where(like6(shippingZones.description, `via pol\xEDgono: ${rule.name}%`));
-    return { success: true };
-  })
-});
-
-// server/routers/admin/shipping/shippingMesh.ts
-import { z as z30 } from "zod";
 init_db();
 init_schema();
 init_encryption();
-import { eq as eq38, sql as sql21, like as like7, and as and12, inArray as inArray6 } from "drizzle-orm";
-function calculateDistance(p1, p2) {
-  const R = 6371e3;
-  const dLat = (Number(p2.lat) - Number(p1.lat)) * Math.PI / 180;
-  const dLon = (Number(p2.lng) - Number(p1.lng)) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(Number(p1.lat) * Math.PI / 180) * Math.cos(Number(p2.lat) * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-function isPointInPolygon(point, polygon) {
-  let inside = false;
-  const { lat, lng } = point;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = Number(polygon[i].lat), yi = Number(polygon[i].lng);
-    const xj = Number(polygon[j].lat), yj = Number(polygon[j].lng);
-    const intersect = yi > lng !== yj > lng && lat < (xj - xi) * (lng - yi) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-async function processCityScan(storeSlug, cidade) {
-  const db2 = await getDb();
-  const queryBase = sql21`SELECT * FROM base_ceps WHERE cidade = ${cidade}`;
-  const resultBase = await db2.execute(queryBase);
-  const rawRows = resultBase[0] || resultBase;
-  const cepsDaCidade = Array.isArray(rawRows) ? rawRows : [];
-  if (cepsDaCidade.length === 0) return { totalLidos: 0, totalNaMalha: 0 };
-  const rules = await db2.select().from(shippingZones).where(and12(eq38(shippingZones.storeSlug, storeSlug), eq38(shippingZones.isActive, true)));
-  const cepsParaInserir = [];
-  for (const item of cepsDaCidade) {
-    const point = { lat: Number(item.lat), lng: Number(item.lng) };
-    if (!point.lat || !point.lng) continue;
-    for (const rule of rules) {
-      if (!rule.polygonCoords) continue;
-      const geoData = typeof rule.polygonCoords === "string" ? JSON.parse(rule.polygonCoords) : rule.polygonCoords;
-      let isInside = false;
-      if (rule.type === "circle" && geoData.center) {
-        isInside = calculateDistance(point, geoData.center) <= Number(geoData.radius);
-      } else if (rule.type === "polygon" && Array.isArray(geoData)) {
-        isInside = isPointInPolygon(point, geoData);
-      }
-      if (isInside) {
-        cepsParaInserir.push({
-          zipCode: String(item.cep).replace(/\D/g, ""),
-          city: item.cidade,
-          neighborhood: item.bairro || "N\xE3o Informado",
-          lat: String(item.lat),
-          lng: String(item.lng),
-          price: String(rule.shippingCost || 0),
-          storeSlug,
-          lastSeen: /* @__PURE__ */ new Date()
-        });
-        break;
-      }
-    }
-  }
-  await db2.transaction(async (tx) => {
-    await tx.execute(sql21`DELETE FROM geo_mesh WHERE store_slug = ${storeSlug} AND city = ${cidade}`);
-    if (cepsParaInserir.length > 0) {
-      const chunkSize = 500;
-      for (let i = 0; i < cepsParaInserir.length; i += chunkSize) {
-        await tx.insert(geoMesh).values(cepsParaInserir.slice(i, i + chunkSize));
-      }
-    }
-  });
-  return { totalLidos: cepsDaCidade.length, totalNaMalha: cepsParaInserir.length };
-}
-var shippingMeshRouter = router({
-  bindOperativeCity: adminProcedure.input(z30.object({
-    rows: z30.array(z30.object({
-      cep: z30.string(),
-      cidade: z30.string(),
-      bairro: z30.string().optional(),
-      lat: z30.string().or(z30.number()),
-      lng: z30.string().or(z30.number())
-    }))
-  })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    let count6 = 0;
-    await db2.transaction(async (tx) => {
-      for (const item of input.rows) {
-        const cleanLat = parseFloat(String(item.lat)).toFixed(6);
-        const cleanLng = parseFloat(String(item.lng)).toFixed(6);
-        if (isNaN(Number(cleanLat)) || isNaN(Number(cleanLng))) continue;
-        await tx.execute(sql21`
-            INSERT INTO base_ceps (cep, cidade, bairro, lat, lng) 
-            VALUES (${item.cep.replace(/\D/g, "")}, ${item.cidade}, ${item.bairro || "Centro"}, ${cleanLat}, ${cleanLng})
-            ON DUPLICATE KEY UPDATE lat = VALUES(lat), lng = VALUES(lng)
-          `);
-        count6++;
-      }
-    });
-    return { success: true, count: count6 };
-  }),
-  deleteImportedCity: adminProcedure.input(z30.object({ cidade: z30.string() })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    await db2.execute(sql21`DELETE FROM base_ceps WHERE cidade = ${input.cidade}`);
-    await db2.execute(sql21`DELETE FROM geo_mesh WHERE city = ${input.cidade}`);
-    return { success: true };
-  }),
-  getImportedCities: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    const result = await db2.execute(sql21`SELECT DISTINCT cidade FROM base_ceps ORDER BY cidade ASC`);
-    const rows = result[0] || result;
-    return rows.map((row) => row.cidade);
-  }),
-  /**
-   * 🔄 SINCRONIZAÇÃO TOTAL (Cidades x Desenhos)
-   */
-  syncMeshWithRules: adminProcedure.mutation(async () => {
-    const db2 = await getDb();
-    const storeConfigs = await db2.select().from(appConfigs).where(like7(appConfigs.configKey, "store_address_%"));
-    let total = 0;
-    const resultCities = await db2.execute(sql21`SELECT DISTINCT cidade FROM base_ceps`);
-    const cepsCities = resultCities[0] || resultCities;
-    for (const config of storeConfigs) {
-      try {
-        const slug = config.configKey.replace("store_address_", "");
-        for (const row of cepsCities) {
-          const res = await processCityScan(slug, row.cidade);
-          total += res.totalNaMalha;
-        }
-      } catch (err) {
-        logger.error({ err }, "Erro ao sincronizar unidade de malha log\xEDstica");
-      }
-    }
-    return { insertedCount: total };
-  }),
-  listStores: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    const configs = await db2.select().from(appConfigs).where(like7(appConfigs.configKey, "store_address_%"));
-    return configs.map((config) => {
-      try {
-        const slug = config.configKey.replace("store_address_", "");
-        const decrypted = decrypt(config.configValue || "");
-        const parsed = JSON.parse(decrypted || "{}");
-        return { slug, name: parsed.companyName || slug.toUpperCase() };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
-  }),
-  getStoreBase: adminProcedure.input(z30.object({ storeSlug: z30.string().default("default") })).query(async ({ input }) => {
-    const db2 = await getDb();
-    const configs = await db2.select().from(appConfigs).where(inArray6(appConfigs.configKey, [`store_address_${input.storeSlug}`, `store_pickup_${input.storeSlug}`]));
-    const result = {
-      companyName: "",
-      address: "",
-      lat: 0,
-      lng: 0,
-      allowedCities: [],
-      pickupEnabled: false,
-      pickupLabel: "",
-      pickupInstruction: "",
-      minOrderValue: 0,
-      minOrderMessage: ""
-    };
-    for (const config of configs) {
-      try {
-        const decrypted = decrypt(config.configValue || "");
-        const parsed = JSON.parse(decrypted || "{}");
-        if (config.configKey.includes("address")) {
-          Object.assign(result, parsed);
-        } else {
-          result.pickupEnabled = !!parsed.pickupEnabled;
-          result.pickupLabel = parsed.pickupLabel || "";
-          result.pickupInstruction = parsed.pickupInstruction || "";
-        }
-      } catch {
-      }
-    }
-    return result;
-  }),
-  updateStoreLocation: adminProcedure.input(z30.object({
-    storeSlug: z30.string(),
-    companyName: z30.string(),
-    address: z30.string().optional().default(""),
-    lat: z30.number().optional().default(0),
-    lng: z30.number().optional().default(0),
-    allowedCities: z30.array(z30.string()).optional().default([]),
-    pickupEnabled: z30.boolean(),
-    pickupLabel: z30.string(),
-    pickupInstruction: z30.string(),
-    minOrderValue: z30.number().optional().default(0),
-    minOrderMessage: z30.string().optional().default("")
-  })).mutation(async ({ input }) => {
-    const db2 = await getDb();
-    const addressData = {
-      companyName: input.companyName,
-      address: input.address,
-      lat: input.lat,
-      lng: input.lng,
-      allowedCities: input.allowedCities,
-      minOrderValue: input.minOrderValue,
-      minOrderMessage: input.minOrderMessage
-    };
-    const encryptedAddress = encrypt(JSON.stringify(addressData));
-    const pickupData = {
-      pickupEnabled: input.pickupEnabled,
-      pickupLabel: input.pickupLabel,
-      pickupInstruction: input.pickupInstruction
-    };
-    const encryptedPickup = encrypt(JSON.stringify(pickupData));
-    await db2.transaction(async (tx) => {
-      await tx.insert(appConfigs).values({ configKey: `store_address_${input.storeSlug}`, configValue: encryptedAddress }).onDuplicateKeyUpdate({ set: { configValue: encryptedAddress, updatedAt: /* @__PURE__ */ new Date() } });
-      await tx.insert(appConfigs).values({ configKey: `store_pickup_${input.storeSlug}`, configValue: encryptedPickup }).onDuplicateKeyUpdate({ set: { configValue: encryptedPickup, updatedAt: /* @__PURE__ */ new Date() } });
-    });
-    return { success: true };
-  }),
-  getMesh: adminProcedure.query(async () => {
-    const db2 = await getDb();
-    return await db2.select().from(geoMesh).limit(1e3);
-  })
-});
-
-// server/routers/admin/api.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
-init_schema();
-init_analytics();
-init_encryption();
-import { z as z31 } from "zod";
-import { desc as desc17, eq as eq39, gte as gte3, lte as lte2, and as and13, sql as sql22, count as count4, sum as sum2 } from "drizzle-orm";
-function createIntegrationToken() {
-  return `gia_${randomBytes2(24).toString("hex")}`;
-}
-function parseDateRange(input) {
-  const start = input.start ? new Date(input.start) : (() => {
-    const d = /* @__PURE__ */ new Date();
-    d.setDate(d.getDate() - 30);
-    return d;
-  })();
-  const end = input.end ? new Date(input.end) : /* @__PURE__ */ new Date();
-  return { start, end };
-}
-var dateRangeInput = z31.object({
-  start: z31.string().optional(),
-  // ISO date, ex: "2024-01-01"
-  end: z31.string().optional()
-}).optional();
-var adminApiRouter = router({
-  // ══════════════════════════════════════════════════════════════
-  // 🔑 TOKEN — geração pelo admin, leitura pelo sistema interno
-  // ══════════════════════════════════════════════════════════════
-  generateToken: adminProcedure.mutation(async ({ ctx }) => {
-    const token = createIntegrationToken();
-    const encryptedToken = encrypt(token) || token;
-    await ctx.db.insert(appConfigs).values({ configKey: "BRIDGE_TOKEN", configValue: encryptedToken }).onDuplicateKeyUpdate({ set: { configValue: encryptedToken, updatedAt: /* @__PURE__ */ new Date() } });
-    return {
-      token,
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "Nova chave do GourmetIA Bridge gerada. Atualize o servi\xE7o externo para usar o token atual."
-    };
-  }),
-  // ══════════════════════════════════════════════════════════════
-  // 📦 CATÁLOGO — leitura pelo app Python
-  // ══════════════════════════════════════════════════════════════
-  /**
-   * GET /trpc/admin.api.catalog
-   * Retorna cardápio completo com macros e categorias.
-   * Fonte principal para o SmartGenerator Python.
-   */
-  catalog: internalProcedure.query(async ({ ctx }) => {
-    const dishRows = await ctx.db.select({
-      id: dishes.id,
-      name: dishes.name,
-      categoryId: dishes.categoryId,
-      category: categories.name,
-      price: dishes.basePrice,
-      isActive: dishes.isActive,
-      energyKcal: dishes.energyKcal,
-      proteins: dishes.proteins,
-      carbs: dishes.carbs,
-      fatTotal: dishes.fatTotal,
-      fiber: dishes.fiber,
-      sodium: dishes.sodium
-    }).from(dishes).leftJoin(categories, eq39(dishes.categoryId, categories.id)).where(eq39(dishes.isActive, true)).orderBy(dishes.name);
-    return dishRows.map((d) => ({
-      ...d,
-      id: Number(d.id),
-      categoryId: d.categoryId ? Number(d.categoryId) : null,
-      price: Number(d.price ?? 0),
-      energyKcal: Number(d.energyKcal ?? 0),
-      proteins: Number(d.proteins ?? 0),
-      carbs: Number(d.carbs ?? 0),
-      fatTotal: Number(d.fatTotal ?? 0),
-      fiber: Number(d.fiber ?? 0),
-      sodium: Number(d.sodium ?? 0)
-    }));
-  }),
-  /**
-   * GET /trpc/admin.api.packages
-   * Retorna pacotes ativos com estrutura de slots.
-   */
-  packages: internalProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db.select({
-      id: packages.id,
-      name: packages.name,
-      price: packages.price,
-      salePrice: packages.salePrice,
-      isActive: packages.isActive,
-      numberOfOptions: packages.numberOfOptions,
-      config: packages.config
-    }).from(packages).where(eq39(packages.isActive, true)).orderBy(packages.name);
-    return rows.map((p) => ({
-      ...p,
-      price: Number(p.price ?? 0),
-      salePrice: p.salePrice ? Number(p.salePrice) : null,
-      config: typeof p.config === "string" ? JSON.parse(p.config) : p.config
-    }));
-  }),
-  // ══════════════════════════════════════════════════════════════
-  // 📊 VENDAS — BI de pedidos para o app Python
-  // ══════════════════════════════════════════════════════════════
-  /**
-   * GET /trpc/admin.api.salesSummary
-   * Resumo de vendas por período: total, ticket médio, quantidade.
-   */
-  salesSummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const [result] = await ctx.db.select({
-      totalOrders: count4(orders.id),
-      totalRevenue: sum2(orders.total),
-      totalDiscount: sum2(orders.totalDiscount),
-      totalShipping: sum2(orders.shippingCost)
-    }).from(orders).where(
-      and13(
-        gte3(orders.createdAt, start),
-        lte2(orders.createdAt, end),
-        sql22`${orders.status} NOT IN ('cancelled')`
-      )
-    );
-    const totalRev = Number(result.totalRevenue ?? 0);
-    const totalOrd = Number(result.totalOrders ?? 0);
-    return {
-      period: { start: start.toISOString(), end: end.toISOString() },
-      totalOrders: totalOrd,
-      totalRevenue: totalRev,
-      totalDiscount: Number(result.totalDiscount ?? 0),
-      totalShipping: Number(result.totalShipping ?? 0),
-      averageTicket: totalOrd > 0 ? +(totalRev / totalOrd).toFixed(2) : 0
-    };
-  }),
-  /**
-   * GET /trpc/admin.api.salesByDay
-   * Vendas agrupadas por dia — ideal para gráfico de série temporal.
-   */
-  salesByDay: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const rows = await ctx.db.select({
-      day: sql22`DATE(${orders.createdAt})`,
-      orders: count4(orders.id),
-      revenue: sum2(orders.total)
-    }).from(orders).where(
-      and13(
-        gte3(orders.createdAt, start),
-        lte2(orders.createdAt, end),
-        sql22`${orders.status} NOT IN ('cancelled')`
-      )
-    ).groupBy(sql22`DATE(${orders.createdAt})`).orderBy(sql22`DATE(${orders.createdAt})`);
-    return rows.map((r) => ({
-      day: r.day,
-      orders: Number(r.orders),
-      revenue: Number(r.revenue ?? 0)
-    }));
-  }),
-  /**
-   * GET /trpc/admin.api.topDishes
-   * Pratos mais vendidos no período com receita gerada.
-   */
-  topDishes: internalProcedure.input(z31.object({
-    start: z31.string().optional(),
-    end: z31.string().optional(),
-    limit: z31.number().min(1).max(100).default(20)
-  }).optional()).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const limit = input?.limit ?? 20;
-    const rows = await ctx.db.select({
-      dishId: orderItems.dishId,
-      dishName: dishes.name,
-      quantity: sum2(orderItems.quantity),
-      revenue: sum2(orderItems.totalPrice)
-    }).from(orderItems).leftJoin(orders, eq39(orderItems.orderId, orders.id)).leftJoin(dishes, eq39(orderItems.dishId, sql22`CAST(${dishes.id} AS CHAR)`)).where(
-      and13(
-        gte3(orders.createdAt, start),
-        lte2(orders.createdAt, end),
-        sql22`${orders.status} NOT IN ('cancelled')`
-      )
-    ).groupBy(orderItems.dishId, dishes.name).orderBy(desc17(sum2(orderItems.quantity))).limit(limit);
-    return rows.map((r) => ({
-      dishId: r.dishId,
-      dishName: r.dishName ?? "Prato removido",
-      quantity: Number(r.quantity ?? 0),
-      revenue: Number(r.revenue ?? 0)
-    }));
-  }),
-  /**
-   * GET /trpc/admin.api.paymentMix
-   * Distribuição de métodos de pagamento no período.
-   */
-  paymentMix: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const rows = await ctx.db.select({
-      method: orders.paymentMethod,
-      orders: count4(orders.id),
-      revenue: sum2(orders.total)
-    }).from(orders).where(
-      and13(
-        gte3(orders.createdAt, start),
-        lte2(orders.createdAt, end),
-        sql22`${orders.status} NOT IN ('cancelled')`
-      )
-    ).groupBy(orders.paymentMethod).orderBy(desc17(count4(orders.id)));
-    return rows.map((r) => ({
-      method: r.method,
-      orders: Number(r.orders),
-      revenue: Number(r.revenue ?? 0)
-    }));
-  }),
-  // ══════════════════════════════════════════════════════════════
-  // 💰 FINANCEIRO — margens, descontos, fidelidade
-  // ══════════════════════════════════════════════════════════════
-  /**
-   * GET /trpc/admin.api.financialSummary
-   * Consolidado financeiro: bruto, descontos por tipo, líquido.
-   * Usa bi_financial_facts se populada, senão cai em orders direto.
-   */
-  financialSummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const [biFacts] = await ctx.db.select({
-      grossTotal: sum2(biFinancialFacts.grossTotal),
-      deliveryFee: sum2(biFinancialFacts.deliveryFee),
-      discountCoupon: sum2(biFinancialFacts.discountCoupon),
-      discountLoyalty: sum2(biFinancialFacts.discountLoyalty),
-      discountAuto: sum2(biFinancialFacts.discountAuto),
-      netTotal: sum2(biFinancialFacts.netTotal),
-      orderCount: count4(biFinancialFacts.orderId)
-    }).from(biFinancialFacts).where(
-      and13(
-        gte3(biFinancialFacts.createdAt, start),
-        lte2(biFinancialFacts.createdAt, end)
-      )
-    );
-    if (!biFacts.orderCount || Number(biFacts.orderCount) === 0) {
-      const [fallback] = await ctx.db.select({
-        grossTotal: sum2(orders.subtotal),
-        netTotal: sum2(orders.total),
-        discount: sum2(orders.totalDiscount),
-        shipping: sum2(orders.shippingCost),
-        loyalty: sum2(orders.loyaltyDiscount),
-        orderCount: count4(orders.id)
-      }).from(orders).where(
-        and13(
-          gte3(orders.createdAt, start),
-          lte2(orders.createdAt, end),
-          sql22`${orders.status} NOT IN ('cancelled')`
-        )
-      );
-      return {
-        source: "orders",
-        period: { start: start.toISOString(), end: end.toISOString() },
-        grossTotal: Number(fallback.grossTotal ?? 0),
-        netTotal: Number(fallback.netTotal ?? 0),
-        totalDiscount: Number(fallback.discount ?? 0),
-        discountLoyalty: Number(fallback.loyalty ?? 0),
-        deliveryFee: Number(fallback.shipping ?? 0),
-        orderCount: Number(fallback.orderCount ?? 0)
-      };
-    }
-    return {
-      source: "bi_facts",
-      period: { start: start.toISOString(), end: end.toISOString() },
-      grossTotal: Number(biFacts.grossTotal ?? 0),
-      netTotal: Number(biFacts.netTotal ?? 0),
-      deliveryFee: Number(biFacts.deliveryFee ?? 0),
-      discountCoupon: Number(biFacts.discountCoupon ?? 0),
-      discountLoyalty: Number(biFacts.discountLoyalty ?? 0),
-      discountAuto: Number(biFacts.discountAuto ?? 0),
-      totalDiscount: Number(biFacts.discountCoupon ?? 0) + Number(biFacts.discountLoyalty ?? 0) + Number(biFacts.discountAuto ?? 0),
-      orderCount: Number(biFacts.orderCount ?? 0)
-    };
-  }),
-  // ══════════════════════════════════════════════════════════════
-  // 👥 CLIENTES — comportamento e retenção
-  // ══════════════════════════════════════════════════════════════
-  /**
-   * GET /trpc/admin.api.customerStats
-   * Total de clientes, novos no período, recorrentes.
-   */
-  customerStats: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const [total] = await ctx.db.select({ count: count4(users.id) }).from(users);
-    const [newUsers] = await ctx.db.select({ count: count4(users.id) }).from(users).where(
-      and13(
-        gte3(users.createdAt, start),
-        lte2(users.createdAt, end)
-      )
-    );
-    const [buyers] = await ctx.db.select({ count: sql22`COUNT(DISTINCT ${orders.userId})` }).from(orders).where(
-      and13(
-        gte3(orders.createdAt, start),
-        lte2(orders.createdAt, end),
-        sql22`${orders.status} NOT IN ('cancelled')`
-      )
-    );
-    return {
-      period: { start: start.toISOString(), end: end.toISOString() },
-      totalCustomers: Number(total.count),
-      newInPeriod: Number(newUsers.count),
-      buyersInPeriod: Number(buyers.count)
-    };
-  }),
-  /**
-   * GET /trpc/admin.api.loyaltySummary
-   * Resumo do programa de fidelidade: pontos emitidos, resgatados, expirados.
-   */
-  loyaltySummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
-    const { start, end } = parseDateRange(input ?? {});
-    const rows = await ctx.db.select({
-      type: loyaltyHistory.type,
-      total: sum2(loyaltyHistory.pointsChange),
-      count: count4(loyaltyHistory.id)
-    }).from(loyaltyHistory).where(
-      and13(
-        gte3(loyaltyHistory.createdAt, start),
-        lte2(loyaltyHistory.createdAt, end)
-      )
-    ).groupBy(loyaltyHistory.type);
-    const byType = {};
-    for (const r of rows) {
-      byType[r.type ?? "unknown"] = {
-        points: Number(r.total ?? 0),
-        transactions: Number(r.count ?? 0)
-      };
-    }
-    return {
-      period: { start: start.toISOString(), end: end.toISOString() },
-      earned: byType["earned"] ?? { points: 0, transactions: 0 },
-      burned: byType["burned"] ?? { points: 0, transactions: 0 },
-      expired: byType["expired"] ?? { points: 0, transactions: 0 },
-      manual: byType["manual"] ?? { points: 0, transactions: 0 }
-    };
-  }),
-  // ══════════════════════════════════════════════════════════════
-  // 🧠 INTELIGÊNCIA — escrever resultados do Python de volta
-  // ══════════════════════════════════════════════════════════════
-  /**
-   * POST /trpc/admin.api.writeDishIntelligence
-   * O app Python envia scores calculados por prato para persistir.
-   * O SmartGenerator pode ler esse score no processo de seleção.
-   */
-  writeDishIntelligence: internalProcedure.input(z31.array(z31.object({
-    dishId: z31.number(),
-    proteinGrams: z31.number().optional(),
-    carbGrams: z31.number().optional(),
-    fatGrams: z31.number().optional(),
-    popularityScore: z31.number().min(0).max(10).optional(),
-    avgRating: z31.number().min(0).max(5).optional(),
-    salesVelocity: z31.number().optional(),
-    // unidades/semana
-    recommendedPersonas: z31.array(z31.string()).optional()
-  }))).mutation(async ({ ctx, input }) => {
-    let upserted = 0;
-    for (const item of input) {
-      await ctx.db.insert(biDishIntelligence).values({
-        dishId: item.dishId,
-        proteinGrams: String(item.proteinGrams ?? 0),
-        carbGrams: String(item.carbGrams ?? 0),
-        fatGrams: String(item.fatGrams ?? 0),
-        popularityScore: String(item.popularityScore ?? 5),
-        avgRating: String(item.avgRating ?? 0),
-        salesVelocity: String(item.salesVelocity ?? 0)
-      }).onDuplicateKeyUpdate({
-        set: {
-          proteinGrams: sql22`VALUES(protein_grams)`,
-          carbGrams: sql22`VALUES(carb_grams)`,
-          fatGrams: sql22`VALUES(fat_grams)`,
-          popularityScore: sql22`VALUES(popularity_score)`,
-          avgRating: sql22`VALUES(avg_rating)`,
-          salesVelocity: sql22`VALUES(sales_velocity)`
-        }
-      });
-      upserted++;
-    }
-    return { success: true, upserted };
-  })
-});
+import { eq as eq34, sql as sql17 } from "drizzle-orm";
+import { TRPCError as TRPCError28 } from "@trpc/server";
+import { spawn as spawn2 } from "node:child_process";
+import { createWriteStream as createWriteStream2, promises as fs3 } from "node:fs";
 
 // server/routers/admin/backups.ts
-import { TRPCError as TRPCError25 } from "@trpc/server";
+import { TRPCError as TRPCError27 } from "@trpc/server";
 import { createWriteStream } from "node:fs";
 import {
   createReadStream,
@@ -8655,134 +8441,7 @@ import {
 } from "node:fs";
 import path2 from "node:path";
 import { spawn } from "node:child_process";
-import { z as z32 } from "zod";
-
-// server/auth.ts
-init_db();
-init_schema();
-import { Lucia } from "lucia";
-import { DrizzleMySQLAdapter } from "@lucia-auth/adapter-drizzle";
-import { eq as eq40, and as and14, isNull as isNull3, or as or5 } from "drizzle-orm";
-init_encryption();
-var db = await getDb();
-if (!db) {
-  throw new Error("N\xE3o foi poss\xEDvel inicializar o banco de dados no m\xF3dulo de autentica\xE7\xE3o.");
-}
-var adapter = new DrizzleMySQLAdapter(db, sessions, users);
-function normalizeJson(value) {
-  if (value === null || value === void 0) return null;
-  if (typeof value === "string") {
-    try {
-      return normalizeJson(JSON.parse(value));
-    } catch {
-      return value;
-    }
-  }
-  if (Array.isArray(value)) return value.map(normalizeJson);
-  if (typeof value === "object") {
-    return Object.keys(value).sort().reduce((acc, key) => {
-      acc[key] = normalizeJson(value[key]);
-      return acc;
-    }, {});
-  }
-  return value;
-}
-function sameCartConfiguration(a, b) {
-  return JSON.stringify(normalizeJson(a)) === JSON.stringify(normalizeJson(b));
-}
-var lucia = new Lucia(adapter, {
-  sessionCookie: {
-    attributes: {
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax"
-    }
-  },
-  getUserAttributes: (attributes) => {
-    let cleanName = attributes.name || "";
-    if (cleanName && cleanName.includes(":")) {
-      try {
-        cleanName = decrypt(cleanName) || cleanName;
-      } catch {
-      }
-    }
-    return {
-      email: attributes.email,
-      name: cleanName,
-      role: attributes.role ?? "user",
-      referralCode: attributes.referralCode ?? null,
-      needsPasswordReset: Number(attributes.needsPasswordReset) === 1 || attributes.needsPasswordReset === true
-    };
-  },
-  getSessionAttributes: (attributes) => {
-    return {
-      referralCode: attributes.referralCode ?? null,
-      guestId: attributes.guestId ?? null
-    };
-  }
-});
-async function promoteCart(guestSessionId, userId) {
-  if (!guestSessionId || ["undefined", "null", ""].includes(String(guestSessionId))) return;
-  const userIdStr = String(userId);
-  try {
-    const guestCheck = await db.query.guests.findFirst({
-      where: eq40(guests.id, guestSessionId),
-      columns: { id: true, convertedUserId: true, referralCode: true }
-    });
-    if (!guestCheck) return;
-    if (guestCheck.convertedUserId && String(guestCheck.convertedUserId) !== userIdStr) {
-      return;
-    }
-    await db.transaction(async (tx) => {
-      if (guestCheck.referralCode) {
-        await tx.update(users).set({ referralCode: guestCheck.referralCode }).where(and14(eq40(users.id, userIdStr), isNull3(users.referralCode)));
-      }
-      const userCart = await tx.query.carts.findFirst({
-        where: and14(eq40(carts.userId, userIdStr), eq40(carts.status, "active"))
-      });
-      const guestCart = await tx.query.carts.findFirst({
-        where: and14(
-          or5(eq40(carts.guestId, guestSessionId), eq40(carts.sessionId, guestSessionId)),
-          eq40(carts.status, "active")
-        )
-      });
-      if (!guestCart) return;
-      if (userCart && userCart.id !== guestCart.id) {
-        const guestItems = await tx.select().from(cartItems).where(eq40(cartItems.cartId, guestCart.id));
-        const userItems = await tx.select().from(cartItems).where(eq40(cartItems.cartId, userCart.id));
-        for (const item of guestItems) {
-          const duplicate = userItems.find(
-            (candidate) => String(candidate.dishId ?? "") === String(item.dishId ?? "") && String(candidate.packageId ?? "") === String(item.packageId ?? "") && sameCartConfiguration(candidate.options, item.options)
-          );
-          if (duplicate) {
-            const newQty = (duplicate.quantity || 0) + (item.quantity || 0);
-            await tx.update(cartItems).set({ quantity: newQty }).where(eq40(cartItems.id, duplicate.id));
-            duplicate.quantity = newQty;
-            await tx.delete(cartItems).where(eq40(cartItems.id, item.id));
-          } else {
-            await tx.update(cartItems).set({ cartId: userCart.id }).where(eq40(cartItems.id, item.id));
-            userItems.push({ ...item, cartId: userCart.id });
-          }
-        }
-        await tx.delete(carts).where(eq40(carts.id, guestCart.id));
-      } else if (!userCart) {
-        await tx.update(carts).set({ userId: userIdStr, guestId: null, sessionId: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq40(carts.id, guestCart.id));
-      }
-      await tx.update(guests).set({ convertedUserId: userIdStr, lastActive: /* @__PURE__ */ new Date() }).where(eq40(guests.id, guestSessionId));
-    });
-    logger.info({ userId: userIdStr, guestId: guestSessionId }, "Promo\xE7\xE3o de carrinho conclu\xEDda");
-  } catch (error) {
-    const dbError = error;
-    if (dbError.errno === 1020 || dbError.code === "ER_CHECKREAD") {
-      return;
-    }
-    logger.error(
-      { err: dbError.message, guestId: guestSessionId, userId: userIdStr },
-      "Erro ao promover carrinho"
-    );
-  }
-}
-
-// server/routers/admin/backups.ts
+import { z as z27 } from "zod";
 var BACKUP_DIR = "/var/backups";
 var BACKUP_FILE_REGEX = /^[a-zA-Z0-9._-]+\.sql\.gz$/;
 var createBackupRateLimit = createRateLimitMiddleware({
@@ -8809,7 +8468,7 @@ function formatBytes(bytes) {
 function resolveBackupPath(filename) {
   const safeFilename = sanitizeFilename(filename);
   if (!safeFilename) {
-    throw new TRPCError25({
+    throw new TRPCError27({
       code: "BAD_REQUEST",
       message: "Nome de arquivo inv\xE1lido."
     });
@@ -8818,13 +8477,13 @@ function resolveBackupPath(filename) {
   const resolvedDir = path2.resolve(BACKUP_DIR);
   const expectedPrefix = `${resolvedDir}${path2.sep}`;
   if (resolvedPath !== path2.join(resolvedDir, safeFilename) && !resolvedPath.startsWith(expectedPrefix)) {
-    throw new TRPCError25({
+    throw new TRPCError27({
       code: "BAD_REQUEST",
       message: "Arquivo fora do diret\xF3rio permitido."
     });
   }
   if (resolvedPath !== resolvedDir && !resolvedPath.startsWith(expectedPrefix)) {
-    throw new TRPCError25({
+    throw new TRPCError27({
       code: "BAD_REQUEST",
       message: "Arquivo fora do diret\xF3rio permitido."
     });
@@ -8877,7 +8536,7 @@ function getDatabaseCredentials() {
   const password = process.env.DB_PASSWORD || process.env.DB_PASS || parsedUrl?.password || "";
   const database = process.env.DB_NAME || parsedUrl?.pathname.replace(/^\//, "") || "gourmet_saudavel";
   if (!user || !password || !database) {
-    throw new TRPCError25({
+    throw new TRPCError27({
       code: "INTERNAL_SERVER_ERROR",
       message: "Configura\xE7\xE3o de banco incompleta para backup."
     });
@@ -9012,7 +8671,7 @@ async function requireAdminRequest(req) {
   const sessionId = lucia.readSessionCookie(req.headers.cookie ?? "");
   if (!sessionId) return null;
   const { session, user } = await lucia.validateSession(sessionId);
-  if (!session || !user || user.role !== "admin") {
+  if (!session || !user || user.role !== "super_admin") {
     return null;
   }
   return { session, user };
@@ -9031,6 +8690,33 @@ async function handleAdminBackupDownload(req, res) {
     if (!existsSync(filePath)) {
       return res.status(404).json({ error: "Backup n\xE3o encontrado." });
     }
+    const clientIp = typeof req.ip === "string" ? req.ip.split(",")[0].trim() : req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1";
+    const userAgent = req.headers["user-agent"] || "unknown";
+    const requestId = req.requestId || req.headers["x-request-id"] || req.headers["x-correlation-id"] || void 0;
+    let sizeBytes = 0;
+    try {
+      const stats = await fs2.stat(filePath);
+      sizeBytes = stats.size;
+    } catch {
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: auth.user.id,
+        ipAddress: clientIp,
+        userAgent,
+        requestId
+      },
+      module: "backup",
+      action: "DOWNLOAD",
+      severity: "critical",
+      entityType: "var/backups",
+      entityId: safeFilename,
+      entityLabel: `Backup F\xEDsico: ${safeFilename}`,
+      newValues: {
+        filename: safeFilename,
+        sizeBytes
+      }
+    });
     res.setHeader("Content-Type", "application/gzip");
     res.setHeader(
       "Content-Disposition",
@@ -9046,19 +8732,19 @@ async function handleAdminBackupDownload(req, res) {
   }
 }
 var backupsAdminRouter = router({
-  list: adminProcedure.query(async () => {
+  list: superAdminProcedure.query(async () => {
     return listBackupFiles();
   }),
-  create: adminProcedure.use(createBackupRateLimit).mutation(async () => {
+  create: superAdminProcedure.use(createBackupRateLimit).mutation(async () => {
     const now = Date.now();
     if (backupCreationInProgress) {
-      throw new TRPCError25({
+      throw new TRPCError27({
         code: "TOO_MANY_REQUESTS",
         message: "J\xE1 existe um backup manual em execu\xE7\xE3o."
       });
     }
     if (now - lastBackupCreatedAt < 15e3) {
-      throw new TRPCError25({
+      throw new TRPCError27({
         code: "TOO_MANY_REQUESTS",
         message: "Aguarde alguns segundos antes de gerar outro backup."
       });
@@ -9081,7 +8767,7 @@ var backupsAdminRouter = router({
         { err: error instanceof Error ? error.message : "unknown" },
         "Falha ao gerar backup manual."
       );
-      throw new TRPCError25({
+      throw new TRPCError27({
         code: "INTERNAL_SERVER_ERROR",
         message: "N\xE3o foi poss\xEDvel gerar o backup manual."
       });
@@ -9089,21 +8775,21 @@ var backupsAdminRouter = router({
       backupCreationInProgress = false;
     }
   }),
-  delete: adminProcedure.input(
-    z32.object({
-      filename: z32.string().min(1)
+  delete: superAdminProcedure.input(
+    z27.object({
+      filename: z27.string().min(1)
     })
   ).mutation(async ({ input }) => {
     const safeFilename = sanitizeFilename(input.filename);
     if (!safeFilename) {
-      throw new TRPCError25({
+      throw new TRPCError27({
         code: "BAD_REQUEST",
         message: "Nome de arquivo inv\xE1lido."
       });
     }
     const backups = await listBackupFiles();
     if (backups.length > 0 && backups[0]?.filename === safeFilename) {
-      throw new TRPCError25({
+      throw new TRPCError27({
         code: "BAD_REQUEST",
         message: "N\xE3o \xE9 permitido excluir o backup mais recente."
       });
@@ -9114,40 +8800,2364 @@ var backupsAdminRouter = router({
   })
 });
 
+// server/routers/admin/adminStoreSettingsRouter.ts
+async function forceSaveAppConfig(db2, key, value) {
+  try {
+    const rawValue = value === void 0 || value === null ? "" : String(value);
+    let finalValue = rawValue;
+    const sensitiveKeys = ["gemini_api_key", "google_login_config", "smtp_pass", "ga_service_account"];
+    if (sensitiveKeys.includes(key) && rawValue.length > 0 && !rawValue.includes(":")) {
+      finalValue = encrypt(rawValue) || rawValue;
+    }
+    await db2.execute(sql17`
+      INSERT INTO app_configs (config_key, config_value, updated_at) 
+      VALUES (${key}, ${finalValue}, NOW()) 
+      ON DUPLICATE KEY UPDATE config_value = ${finalValue}, updated_at = NOW()
+    `);
+  } catch (error) {
+    logger.error({ key, error }, "Falha ao salvar configura\xE7\xE3o em app_configs");
+    throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gravar configura\xE7\xE3o." });
+  }
+}
+var saveSettingsLogic = adminProcedure.input(z28.record(z28.unknown())).mutation(async ({ ctx, input }) => {
+  const db2 = await getDb();
+  if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+  const dataInput = input;
+  try {
+    const configsToSave = [
+      { key: "success_order_message", val: dataInput.success_order_message ?? dataInput.successOrderMessage ?? void 0 },
+      { key: "partners_json", val: dataInput.partners_json ?? dataInput.partnersJson ?? void 0 },
+      { key: "label_design_elements", val: dataInput.label_design_elements ?? dataInput.labelDesignElements },
+      { key: "accessibility_vlibras_active", val: String(dataInput.accessibility?.vLibrasActive ?? dataInput.vLibrasActive ?? "false") },
+      { key: "accessibility_high_contrast", val: String(dataInput.accessibility?.highContrastActive ?? dataInput.highContrastActive ?? "false") },
+      { key: "favicon_url", val: dataInput.favicon ?? void 0 },
+      { key: "gemini_api_key", val: dataInput.geminiApiKey },
+      { key: "google_login_config", val: dataInput.googleLoginConfig },
+      { key: "google_analytics_id", val: dataInput.googleAnalyticsId },
+      { key: "ga_service_account", val: dataInput.gaServiceAccount },
+      { key: "ga4_property_id", val: dataInput.ga4PropertyId }
+    ];
+    for (const config of configsToSave) {
+      if (config.val !== void 0) {
+        await forceSaveAppConfig(db2, config.key, config.val);
+      }
+    }
+    const storeUpdate = { updatedAt: /* @__PURE__ */ new Date() };
+    if (dataInput.logoUrl !== void 0) storeUpdate.logoUrl = dataInput.logoUrl;
+    if (dataInput.generalMinOrderAmount !== void 0) storeUpdate.generalMinOrderAmount = String(dataInput.generalMinOrderAmount);
+    if (dataInput.minOrderMessage !== void 0) storeUpdate.minOrderMessage = dataInput.minOrderMessage;
+    if (Object.keys(storeUpdate).length > 1) {
+      await db2.update(storeSettings).set(storeUpdate).where(eq34(storeSettings.id, "1"));
+    }
+    await logAction(ctx, "UPDATE_SETTINGS_UNIFIED", "settings", { entityId: "global" });
+    return { success: true, message: "Configura\xE7\xF5es sincronizadas com sucesso!" };
+  } catch (err) {
+    logger.error({ err }, "Erro ao salvar configura\xE7\xF5es globais");
+    throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao processar a grava\xE7\xE3o dos dados." });
+  }
+});
+var adminStoreSettingsRouter = router({
+  /**
+   * ✅ LEITURA GLOBAL
+   * Descriptografa segredos para exibição segura no painel Admin.
+   */
+  get: adminProcedure.query(async () => {
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR" });
+    const generalSettings = await getStoreSettings();
+    const extraConfigs = await db2.select().from(appConfigs);
+    const [shipData] = await db2.select().from(shippingSettings).limit(1);
+    const getRaw = (key) => extraConfigs.find((r) => r.configKey === key)?.configValue || "";
+    const getSecret = (key) => {
+      const val = getRaw(key);
+      if (!val) return "";
+      if (val.split(":").length === 3) {
+        return decrypt(val) || val;
+      }
+      return val;
+    };
+    return {
+      ...generalSettings,
+      favicon: getRaw("favicon_url") || generalSettings.favicon || "",
+      success_order_message: getRaw("success_order_message") || "",
+      partners_json: getRaw("partners_json") || "[]",
+      label_design_elements: getRaw("label_design_elements") || null,
+      pickupEnabled: Boolean(shipData?.pickupEnabled ?? false),
+      pickupLabel: shipData?.pickupLabel || "Retirada no Local",
+      pickupInstruction: shipData?.pickupInstruction || "",
+      geminiApiKey: getSecret("gemini_api_key"),
+      googleLoginConfig: getSecret("google_login_config"),
+      googleAnalyticsId: getRaw("google_analytics_id"),
+      gaServiceAccount: getSecret("ga_service_account"),
+      ga4PropertyId: getRaw("ga4_property_id"),
+      accessibility: {
+        vLibrasActive: getRaw("accessibility_vlibras_active") === "true",
+        highContrastActive: getRaw("accessibility_high_contrast") === "true"
+      }
+    };
+  }),
+  /**
+   * ✅ LEITURA POR CHAVE
+   */
+  getByKey: adminProcedure.input(z28.object({
+    key: z28.string().optional(),
+    configKey: z28.string().optional()
+  })).query(async ({ input }) => {
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR" });
+    const targetKey = input.key || input.configKey;
+    if (!targetKey) return { value: "" };
+    const [config] = await db2.select().from(appConfigs).where(eq34(appConfigs.configKey, targetKey)).limit(1);
+    let val = config?.configValue || "";
+    if (val && val.split(":").length === 3) {
+      val = decrypt(val) || val;
+    }
+    return {
+      value: val,
+      configValue: val
+    };
+  }),
+  saveConfig: adminProcedure.input(z28.object({
+    key: z28.string().optional(),
+    value: z28.string().optional(),
+    configKey: z28.string().optional(),
+    configValue: z28.string().optional()
+  })).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR" });
+    const targetKey = input.key || input.configKey;
+    const targetValue = input.value || input.configValue;
+    if (!targetKey) throw new TRPCError28({ code: "BAD_REQUEST", message: "Chave \xE9 obrigat\xF3ria." });
+    await forceSaveAppConfig(db2, targetKey, targetValue || "");
+    return { success: true };
+  }),
+  upsert: saveSettingsLogic,
+  update: saveSettingsLogic,
+  saveCompanyInfo: saveSettingsLogic,
+  toggleEmergency: superAdminProcedure.input(z28.union([
+    z28.boolean(),
+    z28.object({
+      enabled: z28.boolean(),
+      confirmationToken: z28.string().optional(),
+      confirmationReason: z28.string().optional()
+    })
+  ])).mutation(async ({ ctx, input }) => {
+    if (typeof input === "boolean") {
+      throw new TRPCError28({
+        code: "BAD_REQUEST",
+        message: "Modo emergencia exige confirmacao forte."
+      });
+    }
+    assertStrongConfirmation(input, "Alternancia do modo emergencia");
+    assertConfirmationReason(input, "Alternancia do modo emergencia");
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    const generalSettingsBefore = await getStoreSettings();
+    await db2.update(storeSettings).set({ emergencyMode: input.enabled, updatedAt: /* @__PURE__ */ new Date() }).where(eq34(storeSettings.id, "1"));
+    const generalSettingsAfter = await getStoreSettings();
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "settings",
+      action: "TOGGLE_EMERGENCY",
+      severity: "critical",
+      entityType: "settings",
+      entityId: "global",
+      entityLabel: "Configura\xE7\xF5es Globais (Modo Emerg\xEAncia)",
+      oldValues: { emergencyMode: generalSettingsBefore.emergencyMode },
+      newValues: {
+        emergencyMode: generalSettingsAfter.emergencyMode,
+        confirmationReason: input.confirmationReason?.trim()
+      }
+    });
+    return { success: true, newState: input.enabled };
+  }),
+  /**
+   * ✅ DOWNLOAD DE BACKUP SEGURO (STREAM COM SELEÇÃO DE TABELAS)
+   */
+  downloadBackup: superAdminProcedure.input(z28.object({
+    selectedTables: z28.array(z28.string()).optional()
+  })).mutation(async ({ ctx, input }) => {
+    const timestamp25 = buildTimestamp();
+    const filename = `infrastructure_backup_${timestamp25}.sql.gz`;
+    const targetPath = resolveBackupPath(filename);
+    const credentials = getDatabaseCredentials();
+    await new Promise((resolve, reject) => {
+      const dumpArgs = [
+        "-h",
+        credentials.host,
+        "-P",
+        credentials.port,
+        "-u",
+        credentials.user,
+        credentials.database
+      ];
+      if (input.selectedTables && input.selectedTables.length > 0) {
+        const validTableNames = input.selectedTables.filter((t2) => /^[a-zA-Z0-9_]+$/.test(t2));
+        dumpArgs.push(...validTableNames);
+      }
+      const dump = spawn2("mysqldump", dumpArgs, {
+        env: { ...process.env, MYSQL_PWD: credentials.password },
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      const gzip = spawn2("gzip", ["-c"], {
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      const output = createWriteStream2(targetPath, { flags: "wx" });
+      let dumpClosed = false;
+      let gzipClosed = false;
+      let outputFinished = false;
+      let dumpStderr = "";
+      let settled = false;
+      const finalize = (error) => {
+        if (settled) return;
+        settled = true;
+        dump.stdout?.unpipe();
+        gzip.stdout?.unpipe();
+        output.close();
+        if (error) {
+          try {
+            dump.kill("SIGTERM");
+          } catch {
+          }
+          try {
+            gzip.kill("SIGTERM");
+          } catch {
+          }
+          fs3.rm(targetPath, { force: true }).finally(() => reject(error));
+          return;
+        }
+        resolve();
+      };
+      dump.on("error", () => finalize(new Error("Falha ao iniciar mysqldump.")));
+      gzip.on("error", () => finalize(new Error("Falha ao iniciar gzip.")));
+      output.on("error", () => finalize(new Error("Falha ao escrever arquivo de backup.")));
+      dump.stderr.on("data", (chunk) => {
+        dumpStderr += chunk.toString("utf8");
+      });
+      dump.stdout.pipe(gzip.stdin);
+      gzip.stdout.pipe(output);
+      output.on("finish", () => {
+        outputFinished = true;
+        if (dumpClosed && gzipClosed) finalize();
+      });
+      dump.on("close", (code) => {
+        dumpClosed = true;
+        if (code !== 0) {
+          gzip.kill("SIGTERM");
+          finalize(new Error(dumpStderr || "mysqldump falhou."));
+        } else if (gzipClosed && outputFinished) {
+          finalize();
+        }
+      });
+      gzip.on("close", (code) => {
+        gzipClosed = true;
+        if (code !== 0) {
+          finalize(new Error("gzip falhou."));
+        } else if (dumpClosed && outputFinished) {
+          finalize();
+        }
+      });
+    });
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "backup",
+      action: "INFRASTRUCTURE_BACKUP",
+      severity: "critical",
+      entityType: "var/backups",
+      entityId: filename,
+      entityLabel: `Backup de Infraestrutura: ${filename}`,
+      newValues: {
+        filename,
+        tables: input.selectedTables || ["all_tables"]
+      }
+    });
+    return { filename, success: true };
+  }),
+  // ✅ Lista todas as tabelas do banco — usado pelo InfrastructureCard
+  listTables: adminProcedure.query(async () => {
+    const db2 = await getDb();
+    if (!db2) throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: "DB indispon\xEDvel" });
+    const result = await db2.execute(sql17`SHOW TABLES`);
+    const rows = result;
+    return rows.map((row) => Object.values(row)[0]);
+  })
+});
+
+// server/routers/admin/orders/ordersAdminRouter.ts
+import { z as z29 } from "zod";
+
+// server/routers/admin/orders/AdminOrderDraftService.ts
+init_db();
+init_schema();
+import { eq as eq36, and as and12, sql as sql19, like as like6 } from "drizzle-orm";
+import { v4 as uuidv43 } from "uuid";
+
+// server/routers/admin/orders/AdminOrderHelpers.ts
+init_encryption();
+import crypto11 from "crypto";
+var unseal4 = (val) => {
+  if (!val) return "";
+  const str = String(val).trim();
+  try {
+    if (str.split(":").length === 3) {
+      const decrypted = decrypt(str);
+      return decrypted ?? str;
+    }
+    return str;
+  } catch {
+    return str;
+  }
+};
+function generateFriendlyOrderId() {
+  const date2 = /* @__PURE__ */ new Date();
+  const year = String(date2.getFullYear()).slice(-2);
+  const month = String(date2.getMonth() + 1).padStart(2, "0");
+  const random = crypto11.randomBytes(2).toString("hex").slice(0, 3).toUpperCase();
+  return `GS-${year}${month}-${random}`;
+}
+var processDraftMetadata = (metadataJson) => {
+  try {
+    const data = safeJsonParse(metadataJson, {});
+    const fieldsToRemove = [
+      "paymentMethod",
+      "notes",
+      "deliveryMode",
+      "couponCode",
+      "couponValue",
+      "loyaltyPointsUsed",
+      "loyaltyValue",
+      "discountSource",
+      "currentStep",
+      "discountValue",
+      "shippingValue",
+      "paymentDiscountValue"
+    ];
+    fieldsToRemove.forEach((field) => delete data[field]);
+    const encryptFields = (obj, fields) => {
+      if (!obj) return;
+      fields.forEach((f) => {
+        if (obj[f]) obj[f] = encrypt(String(obj[f]));
+      });
+    };
+    if (data.customer) encryptFields(data.customer, ["name", "phone"]);
+    if (data.address) {
+      encryptFields(data.address, [
+        "shipping_address",
+        "shipping_address_number",
+        "shipping_neighborhood",
+        "shipping_address_complement",
+        "zipCode",
+        "shipping_city",
+        "shipping_state"
+      ]);
+    }
+    return JSON.stringify(data);
+  } catch (error) {
+    console.error("Erro ao processar metadata do rascunho:", error);
+    return metadataJson;
+  }
+};
+
+// server/routers/admin/orders/OrderManagerService.ts
+init_db();
+init_schema();
+import { eq as eq35, and as and11, sql as sql18, isNull as isNull3, lt, desc as desc15, inArray as inArray5 } from "drizzle-orm";
+import { randomUUID as randomUUID2 } from "crypto";
+import { TRPCError as TRPCError29 } from "@trpc/server";
+function getNumericOrderId2(orderId) {
+  const onlyNumbers = orderId.replace(/\D/g, "");
+  if (onlyNumbers.length > 0 && onlyNumbers.length < 10) return safeNumber(onlyNumbers);
+  let hash5 = 0;
+  for (let i = 0; i < orderId.length; i++) {
+    hash5 = (hash5 << 5) - hash5 + orderId.charCodeAt(i);
+    hash5 |= 0;
+  }
+  return Math.abs(hash5);
+}
+var FINALIZED_ORDER_STATUSES = ["completed", "cancelled", "delivered"];
+function isFinalizedOrderStatus(status) {
+  return FINALIZED_ORDER_STATUSES.includes(
+    String(status || "")
+  );
+}
+var OrderManagerService = {
+  async assertOrdersAreMutable(ids) {
+    if (!ids.length) return;
+    const db2 = await getDb();
+    const rows = await db2.select({ id: orders.id, status: orders.status }).from(orders).where(inArray5(orders.id, ids));
+    if (rows.length !== ids.length) {
+      throw new TRPCError29({
+        code: "NOT_FOUND",
+        message: "Pedido n\xE3o encontrado."
+      });
+    }
+    const blockedOrder = rows.find((row) => isFinalizedOrderStatus(row.status));
+    if (blockedOrder) {
+      throw new TRPCError29({
+        code: "BAD_REQUEST",
+        message: "Pedidos finalizados n\xE3o podem ser modificados."
+      });
+    }
+  },
+  /**
+   * 📋 LISTAGEM DE PEDIDOS COM DESCRIPTOGRAFIA
+   */
+  async listOrders(input) {
+    const db2 = await getDb();
+    const offset = (input.page - 1) * input.perPage;
+    const data = await db2.select().from(orders).limit(input.perPage).offset(offset).orderBy(desc15(orders.createdAt));
+    const [totalRes] = await db2.select({
+      count: sql18`count(*)`
+    }).from(orders);
+    return {
+      data: data.map((order) => ({
+        ...order,
+        customerName: unseal4(order.customerName),
+        customerPhone: unseal4(order.customerPhone)
+      })),
+      total: safeNumber(totalRes?.count)
+    };
+  },
+  /**
+   * 🔍 DETALHES COMPLETOS DO PEDIDO (INCLUINDO INGREDIENTES)
+   */
+  async getById(id) {
+    const db2 = await getDb();
+    const [order] = await db2.select().from(orders).where(eq35(orders.id, id)).limit(1);
+    if (!order) return null;
+    const itemsData = await db2.select({
+      id: orderItems.id,
+      orderId: orderItems.orderId,
+      dishId: orderItems.dishId,
+      name: orderItems.dishName,
+      quantity: orderItems.quantity,
+      unitPrice: orderItems.unitPrice,
+      options: orderItems.options,
+      appliedNutrition: orderItems.appliedNutrition,
+      mainDishIngredients: sql18`(SELECT ingredients FROM dishes WHERE dishes.id = ${orderItems.dishId} LIMIT 1)`
+    }).from(orderItems).where(eq35(orderItems.orderId, id));
+    const accompanimentIds = /* @__PURE__ */ new Set();
+    itemsData.forEach((item) => {
+      try {
+        const opts = typeof item.options === "string" ? safeJsonParse(item.options, {}) : safeJsonParse(item.options, {});
+        if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
+          opts.accompaniments.forEach((acc) => {
+            if (acc.id) accompanimentIds.add(safeNumber(acc.id));
+          });
+        }
+      } catch {
+      }
+    });
+    const accompMap = /* @__PURE__ */ new Map();
+    if (accompanimentIds.size > 0) {
+      const accompData = await db2.select({
+        id: accompanimentOptions.id,
+        name: accompanimentOptions.name,
+        ingredients: accompanimentOptions.ingredients
+      }).from(accompanimentOptions).where(inArray5(accompanimentOptions.id, Array.from(accompanimentIds)));
+      accompData.forEach((acc) => {
+        const text20 = acc.ingredients ? `${acc.name} (${acc.ingredients})` : acc.name;
+        accompMap.set(acc.id, text20);
+      });
+    }
+    return {
+      ...order,
+      customerName: unseal4(order.customerName),
+      customerPhone: unseal4(order.customerPhone),
+      items: itemsData.map((item) => {
+        let accompText = "";
+        try {
+          const opts = typeof item.options === "string" ? safeJsonParse(item.options, {}) : safeJsonParse(item.options, {});
+          if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
+            accompText = opts.accompaniments.map((acc) => accompMap.get(safeNumber(acc.id))).filter((val) => Boolean(val)).join(", ");
+          }
+        } catch {
+        }
+        return {
+          ...item,
+          ingredients: item.mainDishIngredients || "",
+          accompaniments_ingredients: accompText || "",
+          applied_nutrition: item.appliedNutrition
+        };
+      })
+    };
+  },
+  /**
+   * 🔄 ATUALIZAR STATUS E DISPARAR ANALYTICS
+   */
+  async updateStatus(id, status) {
+    const db2 = await getDb();
+    await this.assertOrdersAreMutable([id]);
+    const result = await db2.update(orders).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq35(orders.id, id));
+    if (status === "completed" || status === "concluded") {
+      try {
+        await enqueueBIAnalyticsJob(id, {
+          removeOnComplete: true,
+          attempts: 3,
+          backoff: 5e3
+        });
+      } catch (err) {
+        console.error("[BI-ANALYTICS] Erro ao disparar fila:", err);
+      }
+    }
+    if (status === "cancelled") {
+      const numericId = getNumericOrderId2(id.replace("#", ""));
+      if (!isNaN(numericId)) {
+        await db2.delete(biSalesFacts).where(eq35(biSalesFacts.orderId, numericId));
+        await db2.delete(biFinancialFacts).where(eq35(biFinancialFacts.orderId, numericId));
+      }
+    }
+    return result;
+  },
+  /**
+   * ❌ EXCLUSÃO DE PEDIDO COM ESTORNO DE PONTOS E LIMPEZA DE BI
+   */
+  async delete(id) {
+    const db2 = await getDb();
+    const cleanId = id.replace("#", "");
+    const numericId = getNumericOrderId2(cleanId);
+    await this.assertOrdersAreMutable([cleanId]);
+    return await db2.transaction(async (tx) => {
+      const historyEntries = await tx.select().from(loyaltyHistory).where(eq35(loyaltyHistory.orderId, cleanId));
+      for (const entry of historyEntries) {
+        const refundAmount = -safeNumber(entry.pointsChange);
+        if (refundAmount === 0) continue;
+        await tx.insert(loyaltyHistory).values({
+          id: randomUUID2(),
+          userId: entry.userId,
+          orderId: cleanId,
+          pointsChange: refundAmount,
+          type: refundAmount > 0 ? "refund_redeem" : "refund_earned",
+          reason: "Pedido Exclu\xEDdo (Admin)",
+          description: `Estorno autom\xE1tico: Pedido #${cleanId} removido`,
+          createdAt: /* @__PURE__ */ new Date()
+        });
+        await tx.update(users).set({ availablePoints: sql18`${users.availablePoints} + ${refundAmount}` }).where(eq35(users.id, entry.userId));
+      }
+      if (!isNaN(numericId)) {
+        await tx.delete(biSalesFacts).where(eq35(biSalesFacts.orderId, numericId));
+        await tx.delete(biFinancialFacts).where(eq35(biFinancialFacts.orderId, numericId));
+      }
+      await tx.delete(orderItems).where(eq35(orderItems.orderId, cleanId));
+      await tx.delete(orders).where(eq35(orders.id, cleanId));
+      return { success: true };
+    });
+  },
+  /**
+   * 🛒 BUSCA CARRINHOS ABANDONADOS COM ITENS
+   */
+  async getAbandonedCarts() {
+    const db2 = await getDb();
+    const result = await db2.select({
+      id: carts.id,
+      customerName: users.name,
+      customerPhone: users.phone,
+      updatedAt: carts.updatedAt,
+      subtotal: sql18`SUM(${cartItems.unitPrice} * ${cartItems.quantity})`,
+      itemCount: sql18`COUNT(${cartItems.id})`
+    }).from(carts).leftJoin(users, eq35(carts.userId, users.id)).innerJoin(cartItems, eq35(cartItems.cartId, carts.id)).where(eq35(carts.status, "active")).groupBy(carts.id).orderBy(desc15(carts.updatedAt)).limit(50);
+    return result.map((cart) => ({
+      ...cart,
+      customerName: unseal4(cart.customerName) || "Visitante An\xF4nimo",
+      customerPhone: unseal4(cart.customerPhone),
+      total: safeNumber(cart.subtotal)
+    }));
+  },
+  /**
+   * 🔍 1. LISTA CARRINHOS ANTIGOS E VAZIOS
+   * Usado pelo .query() no router para renderizar o painel sem dar erro.
+   */
+  async getEmptyOldCarts() {
+    const db2 = await getDb();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+    return db2.select({ id: carts.id }).from(carts).leftJoin(cartItems, eq35(cartItems.cartId, carts.id)).where(and11(
+      isNull3(cartItems.id),
+      eq35(carts.status, "active"),
+      lt(carts.updatedAt, oneDayAgo)
+    )).groupBy(carts.id).limit(500);
+  },
+  /**
+   * 🧹 2. DELETA CARRINHOS ANTIGOS E VAZIOS
+   * Usado pelo .mutation() no router quando você clica em "Limpar"
+   */
+  async clearEmptyOldCarts() {
+    const db2 = await getDb();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+    await db2.delete(carts).where(
+      and11(
+        eq35(carts.status, "active"),
+        lt(carts.updatedAt, oneDayAgo),
+        sql18`NOT EXISTS (SELECT 1 FROM cart_items WHERE cart_items.cart_id = ${carts.id})`
+      )
+    );
+    return { success: true };
+  },
+  /**
+   * 🗑️ EXCLUSÃO EM MASSA DE CARRINHOS
+   */
+  async bulkDeleteCarts(ids) {
+    if (!ids.length) return { success: true, count: 0 };
+    const db2 = await getDb();
+    await db2.delete(carts).where(inArray5(carts.id, ids));
+    return { success: true, count: ids.length };
+  }
+};
+
+// server/routers/admin/orders/AdminOrderDraftService.ts
+import { TRPCError as TRPCError30 } from "@trpc/server";
+import { nanoid as nanoid4 } from "nanoid";
+var AdminOrderDraftService = {
+  async init(adminId) {
+    const db2 = await getDb();
+    const [existing] = await db2.select().from(adminOrderDrafts).where(and12(eq36(adminOrderDrafts.adminId, adminId), eq36(adminOrderDrafts.status, "active"))).limit(1);
+    if (existing) return { id: existing.id, isExisting: true };
+    const newId = uuidv43();
+    await db2.insert(adminOrderDrafts).values({
+      id: newId,
+      adminId,
+      status: "active",
+      shippingValue: "0.00",
+      discountValue: "0.00",
+      updatedAt: /* @__PURE__ */ new Date()
+    });
+    return { id: newId, isExisting: false };
+  },
+  async update(input) {
+    const db2 = await getDb();
+    const rawData = safeJsonParse(input.metadataJson, {});
+    const totalDiscount = (safeNumber(rawData.couponValue) + safeNumber(rawData.loyaltyValue) + safeNumber(rawData.paymentDiscountValue)).toFixed(2);
+    await db2.update(adminOrderDrafts).set({
+      userId: input.userId,
+      shippingValue: input.shippingValue !== void 0 ? safeNumber(input.shippingValue).toFixed(2) : void 0,
+      discountValue: totalDiscount,
+      metadataJson: processDraftMetadata(input.metadataJson || "{}"),
+      discountsSnapshot: JSON.stringify(rawData),
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq36(adminOrderDrafts.id, input.draftId));
+    return { success: true };
+  },
+  async getDraft(adminId) {
+    const db2 = await getDb();
+    const [draft] = await db2.select().from(adminOrderDrafts).where(and12(eq36(adminOrderDrafts.adminId, adminId), eq36(adminOrderDrafts.status, "active"))).limit(1);
+    if (!draft) return null;
+    const items = await db2.select().from(adminOrderDraftItems).where(eq36(adminOrderDraftItems.draftId, draft.id));
+    const meta = safeJsonParse(draft.metadataJson, {});
+    if (meta.customer) {
+      meta.customer.name = unseal4(meta.customer.name || "");
+      meta.customer.phone = unseal4(meta.customer.phone || "");
+    }
+    if (meta.address) {
+      const address = meta.address;
+      meta.address = {
+        shipping_address: unseal4(meta.address.shipping_address || ""),
+        shipping_address_number: unseal4(meta.address.shipping_address_number || ""),
+        shipping_neighborhood: unseal4(meta.address.shipping_neighborhood || ""),
+        shipping_address_complement: unseal4(meta.address.shipping_address_complement || ""),
+        zipCode: unseal4(meta.address.zipCode || meta.address.shipping_zip_code || ""),
+        shipping_city: unseal4(meta.address.shipping_city || ""),
+        shipping_state: unseal4(meta.address.shipping_state || "")
+      };
+    }
+    return {
+      ...draft,
+      metadataJson: JSON.stringify({
+        ...meta,
+        discountValue: safeNumber(draft.discountValue),
+        shippingValue: safeNumber(draft.shippingValue)
+      }),
+      items: items.map((it) => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
+    };
+  },
+  async updateItem(itemId, data) {
+    const db2 = await getDb();
+    const updatePayload = {};
+    if (data.quantity !== void 0) updatePayload.quantity = data.quantity;
+    if (data.unitPrice !== void 0) updatePayload.unitPrice = String(safeNumber(data.unitPrice).toFixed(2));
+    if (Object.keys(updatePayload).length === 0) return { success: false };
+    await db2.update(adminOrderDraftItems).set(updatePayload).where(eq36(adminOrderDraftItems.id, itemId));
+    return { success: true };
+  },
+  async applyLoyalty(draftId, pointsRequested) {
+    const db2 = await getDb();
+    const [settings] = await db2.select().from(loyaltySettings).limit(1);
+    const [draft] = await db2.select().from(adminOrderDrafts).where(eq36(adminOrderDrafts.id, draftId)).limit(1);
+    if (!draft) throw new TRPCError30({ code: "NOT_FOUND", message: "Rascunho n\xE3o encontrado." });
+    if (!settings?.enabled) throw new TRPCError30({ code: "BAD_REQUEST", message: "Programa de fidelidade desativado." });
+    const items = await db2.select().from(adminOrderDraftItems).where(eq36(adminOrderDraftItems.draftId, draftId));
+    const subtotal = items.reduce((acc, it) => acc + safeNumber(it.unitPrice) * (it.quantity || 0), 0);
+    const ptsToUse = Math.max(0, safeNumber(pointsRequested));
+    const ratePoints = safeNumber(settings.redemptionRatePoints, 100);
+    const rateMoney = safeNumber(settings.redemptionRateMoney, 1);
+    const pointValueUnit = rateMoney / ratePoints;
+    const discountAmount = safeNumber((ptsToUse * pointValueUnit).toFixed(2));
+    if (discountAmount > subtotal) {
+      throw new TRPCError30({ code: "BAD_REQUEST", message: "Desconto de pontos n\xE3o pode ser maior que o total dos itens." });
+    }
+    const meta = safeJsonParse(draft.metadataJson, {});
+    const currentCouponValue = safeNumber(meta.couponValue);
+    const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
+    const totalDiscountSum = (currentCouponValue + discountAmount + currentPaymentDiscount).toFixed(2);
+    const updatedMeta = {
+      ...meta,
+      loyaltyPointsUsed: ptsToUse,
+      loyaltyValue: discountAmount,
+      discountSource: "loyalty"
+    };
+    await db2.update(adminOrderDrafts).set({
+      metadataJson: JSON.stringify(updatedMeta),
+      discountValue: totalDiscountSum,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq36(adminOrderDrafts.id, draftId));
+    return { success: true, discountAmount, pointsUsed: ptsToUse };
+  },
+  async removeLoyalty(draftId) {
+    const db2 = await getDb();
+    const [draft] = await db2.select().from(adminOrderDrafts).where(eq36(adminOrderDrafts.id, draftId)).limit(1);
+    if (!draft) return { success: false };
+    const meta = safeJsonParse(draft.metadataJson, {});
+    const { ...rest } = meta;
+    delete rest.loyaltyPointsUsed;
+    delete rest.loyaltyValue;
+    const currentCouponValue = safeNumber(meta.couponValue);
+    const currentPaymentDiscount = safeNumber(meta.paymentDiscountValue);
+    await db2.update(adminOrderDrafts).set({
+      metadataJson: JSON.stringify({ ...rest, loyaltyPointsUsed: 0, loyaltyValue: 0 }),
+      discountValue: (currentCouponValue + currentPaymentDiscount).toFixed(2),
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq36(adminOrderDrafts.id, draftId));
+    return { success: true };
+  },
+  async addItem(input) {
+    const db2 = await getDb();
+    const finalOptions = input.options || "{}";
+    await db2.insert(adminOrderDraftItems).values({
+      id: uuidv43(),
+      draftId: input.draftId,
+      dishId: input.dishId ? String(input.dishId) : null,
+      packageId: input.packageId ? String(input.packageId) : null,
+      name: input.name,
+      unitPrice: String(safeNumber(input.unitPrice).toFixed(2)),
+      quantity: input.quantity || 1,
+      options: finalOptions,
+      appliedNutrition: input.applied_nutrition || null
+    });
+    return { success: true };
+  },
+  async removeItem(itemId) {
+    const db2 = await getDb();
+    await db2.delete(adminOrderDraftItems).where(eq36(adminOrderDraftItems.id, itemId));
+    return { success: true };
+  },
+  async cancelSession(draftId) {
+    const db2 = await getDb();
+    await db2.transaction(async (tx) => {
+      await tx.delete(adminOrderDraftItems).where(eq36(adminOrderDraftItems.draftId, draftId));
+      await tx.delete(adminOrderDrafts).where(eq36(adminOrderDrafts.id, draftId));
+    });
+    return { success: true };
+  },
+  async applyCoupon(draftId, code) {
+    const db2 = await getDb();
+    const [coupon] = await db2.select().from(coupons).where(eq36(coupons.code, code.toUpperCase().trim())).limit(1);
+    if (!coupon) throw new TRPCError30({ code: "NOT_FOUND", message: "Cupom n\xE3o encontrado." });
+    if (!coupon.isActive) throw new TRPCError30({ code: "BAD_REQUEST", message: "Cupom inativo." });
+    const [draft] = await db2.select().from(adminOrderDrafts).where(eq36(adminOrderDrafts.id, draftId)).limit(1);
+    if (!draft) throw new TRPCError30({ code: "NOT_FOUND", message: "Rascunho n\xE3o encontrado." });
+    const meta = safeJsonParse(draft.metadataJson, {});
+    const updatedMeta = { ...meta, couponCode: coupon.code, discountSource: "coupon" };
+    await db2.update(adminOrderDrafts).set({ metadataJson: JSON.stringify(updatedMeta), updatedAt: /* @__PURE__ */ new Date() }).where(eq36(adminOrderDrafts.id, draftId));
+    return {
+      success: true,
+      coupon: { code: coupon.code, type: coupon.discountType, value: safeNumber(coupon.discountValue) }
+    };
+  },
+  async listPackages(input) {
+    const db2 = await getDb();
+    const offset = (input.page - 1) * input.perPage;
+    const whereClause = and12(
+      eq36(packages.status, "active"),
+      input.search ? like6(packages.name, `%${input.search}%`) : void 0
+    );
+    const data = await db2.select().from(packages).where(whereClause).limit(input.perPage).offset(offset);
+    const [totalRes] = await db2.select({ count: sql19`count(*)` }).from(packages).where(whereClause);
+    return {
+      data: data.map((p) => ({ ...p, price: safeNumber(p.price) })),
+      total: safeNumber(totalRes?.count)
+    };
+  },
+  // 🚀 MÉTODO ATÔMICO ATUALIZADO: APENAS EDITA QUANTIDADE/VALORES DE ITENS ATUAIS E FORMATA NOTA AMIGÁVEL
+  async applyAdministrativeChanges(input) {
+    const db2 = await getDb();
+    await OrderManagerService.assertOrdersAreMutable([input.orderId]);
+    return await db2.transaction(async (tx) => {
+      const [currentOrder] = await tx.select().from(orders).where(eq36(orders.id, input.orderId)).limit(1);
+      if (!currentOrder) {
+        throw new TRPCError30({
+          code: "NOT_FOUND",
+          message: "Pedido n\xE3o localizado na base de dados."
+        });
+      }
+      const currentItems = await tx.select().from(orderItems).where(eq36(orderItems.orderId, input.orderId));
+      let newSubtotal = 0;
+      const itemsToInsert = [];
+      for (const item of input.items) {
+        const originalItem = currentItems.find(
+          (ci) => ci.dishName?.toUpperCase().trim() === item.dishName.toUpperCase().trim()
+        );
+        if (!originalItem) {
+          continue;
+        }
+        newSubtotal += safeNumber(item.unitPrice) * safeNumber(item.quantity);
+        itemsToInsert.push({
+          id: nanoid4(),
+          orderId: input.orderId,
+          dishId: originalItem.dishId,
+          packageId: originalItem.packageId,
+          dishName: originalItem.dishName,
+          quantity: item.quantity,
+          unitPrice: String(item.unitPrice),
+          totalPrice: String(safeNumber(item.unitPrice) * safeNumber(item.quantity)),
+          options: typeof originalItem.options === "string" ? originalItem.options : JSON.stringify(originalItem.options || {}),
+          appliedNutrition: originalItem.appliedNutrition ? String(originalItem.appliedNutrition) : null
+        });
+      }
+      if (itemsToInsert.length === 0 && currentItems.length > 0) {
+        throw new TRPCError30({
+          code: "BAD_REQUEST",
+          message: "N\xE3o \xE9 permitido remover todos os pratos ou incluir novos itens por esta gaveta administrativa."
+        });
+      }
+      const finalTotal = newSubtotal + safeNumber(input.shippingCost) - safeNumber(input.discountAmount);
+      if (finalTotal < 0) {
+        throw new TRPCError30({
+          code: "BAD_REQUEST",
+          message: "O valor do desconto concedido n\xE3o pode ultrapassar o total do pedido."
+        });
+      }
+      await tx.delete(orderItems).where(eq36(orderItems.orderId, input.orderId));
+      await tx.insert(orderItems).values(itemsToInsert);
+      const dataAtualStr = (/* @__PURE__ */ new Date()).toLocaleDateString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      let detalhesComerciais = "";
+      if (safeNumber(input.discountAmount) > 0) detalhesComerciais += ` | Desconto: R$ ${safeNumber(input.discountAmount).toFixed(2)}`;
+      if (safeNumber(input.shippingCost) !== safeNumber(currentOrder.shippingCost)) detalhesComerciais += ` | Frete: R$ ${safeNumber(input.shippingCost).toFixed(2)}`;
+      const novaLinhaNota = `\u2022 [Ajuste Comercial em ${dataAtualStr}]: ${input.justification.trim()}${detalhesComerciais}`;
+      const existingNotes = currentOrder.notes ? `${currentOrder.notes}
+` : "";
+      const updatedNotes = `${existingNotes}${novaLinhaNota}`;
+      await tx.update(orders).set({
+        subtotal: String(newSubtotal),
+        shippingCost: String(input.shippingCost),
+        total: String(finalTotal),
+        notes: updatedNotes
+      }).where(eq36(orders.id, input.orderId));
+      const logPayload = {
+        justification: input.justification,
+        before: currentItems.map((i) => ({ dishName: i.dishName, quantity: i.quantity, unitPrice: i.unitPrice, options: i.options })),
+        after: itemsToInsert
+      };
+      await tx.execute(
+        sql19`INSERT INTO order_admin_logs (id, order_id, admin_id, action_type, description, changes_payload) 
+        VALUES (${nanoid4()}, ${input.orderId}, ${input.adminId}, 'ADMIN_RESTRUCTURING', ${input.justification}, ${JSON.stringify(logPayload)})`
+      );
+      return { success: true, newTotal: finalTotal };
+    });
+  }
+};
+
+// server/routers/admin/orders/AdminOrderFinalizeService.ts
+init_db();
+init_encryption();
+init_schema();
+import { eq as eq37, sql as sql20 } from "drizzle-orm";
+import { TRPCError as TRPCError31 } from "@trpc/server";
+var AdminOrderFinalizeService = {
+  async finalize(draftId) {
+    const db2 = await getDb();
+    const [draft] = await db2.select().from(adminOrderDrafts).where(eq37(adminOrderDrafts.id, draftId)).limit(1);
+    const items = await db2.select().from(adminOrderDraftItems).where(eq37(adminOrderDraftItems.draftId, draftId));
+    if (!draft || !items.length) {
+      throw new TRPCError31({ code: "BAD_REQUEST", message: "Carrinho vazio ou n\xE3o encontrado." });
+    }
+    const meta = safeJsonParse(draft.metadataJson, {});
+    const snap = safeJsonParse(draft.discountsSnapshot, {});
+    const addr = meta.address || {};
+    const editingOrderId = typeof meta.editingOrderId === "string" ? meta.editingOrderId : "";
+    const paymentStatus = meta.paymentStatus === "paid" ? "paid" : "pending";
+    const notes = typeof meta.notes === "string" ? meta.notes : "";
+    const orderDate = typeof meta.orderDate === "string" || typeof meta.orderDate === "number" ? meta.orderDate : null;
+    const subtotal = items.reduce((acc, it) => acc + safeNumber(it.unitPrice) * (it.quantity || 1), 0);
+    const orderId = generateFriendlyOrderId();
+    await db2.transaction(async (tx) => {
+      if (editingOrderId) {
+        await tx.update(orders).set({
+          status: "cancelled",
+          notes: sql20`CONCAT(COALESCE(${orders.notes}, ''), ' | Substituído pelo: ', ${orderId})`,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq37(orders.id, editingOrderId));
+      }
+      const newOrder = {
+        id: orderId,
+        userId: draft.userId || "admin_system",
+        status: paymentStatus === "paid" ? "preparing" : "pending",
+        // ✅ REMOVIDO: 'origin' (não existe no schema)
+        paymentMethod: String(meta.paymentMethod || snap.paymentMethodName || "Presencial"),
+        paymentStatus,
+        notes,
+        subtotal: subtotal.toFixed(2),
+        total: (subtotal + safeNumber(draft.shippingValue) - safeNumber(draft.discountValue)).toFixed(2),
+        shippingCost: safeNumber(draft.shippingValue).toFixed(2),
+        totalDiscount: safeNumber(draft.discountValue).toFixed(2),
+        customerName: encrypt(unseal4(meta.customer?.name || "") || "Cliente PDV"),
+        customerPhone: encrypt(unseal4(meta.customer?.phone || "") || ""),
+        shippingAddress: encrypt(unseal4(addr.shipping_address || "") || "Venda Presencial"),
+        shippingAddressNumber: encrypt(unseal4(addr.shipping_address_number || "") || ""),
+        shippingAddressComplement: encrypt(unseal4(addr.shipping_address_complement || "") || ""),
+        shippingNeighborhood: encrypt(unseal4(addr.shipping_neighborhood || "") || ""),
+        shippingCity: unseal4(addr.shipping_city || ""),
+        shippingState: unseal4(addr.shipping_state || ""),
+        shippingZipCode: unseal4(addr.zipCode || addr.shipping_zip_code || ""),
+        discountsSnapshot: draft.discountsSnapshot,
+        createdAt: orderDate ? new Date(orderDate) : /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      };
+      await tx.insert(orders).values(newOrder);
+      for (const it of items) {
+        const qty = it.quantity ?? 1;
+        const newItem = {
+          id: it.id,
+          orderId,
+          dishId: it.dishId,
+          packageId: it.packageId,
+          dishName: encrypt(it.name || "Item") || "Item",
+          unitPrice: String(it.unitPrice),
+          quantity: qty,
+          options: it.options,
+          appliedNutrition: it.appliedNutrition,
+          totalPrice: (safeNumber(it.unitPrice) * qty).toFixed(2)
+        };
+        await tx.insert(orderItems).values(newItem);
+      }
+      if (draft.userId) {
+        const pointsUsed = safeNumber(meta.loyaltyPointsUsed);
+        const pointsEarned = Math.floor(subtotal);
+        await tx.execute(sql20`
+          UPDATE users 
+          SET loyalty_balance = GREATEST(COALESCE(loyalty_balance, 0) - ${pointsUsed} + ${pointsEarned}, 0)
+          WHERE id = ${draft.userId}
+        `);
+      }
+      await tx.delete(adminOrderDraftItems).where(eq37(adminOrderDraftItems.draftId, draftId));
+      await tx.delete(adminOrderDrafts).where(eq37(adminOrderDrafts.id, draftId));
+    });
+    return { success: true, orderId };
+  }
+};
+
+// server/routers/admin/orders/services/PagSeguroService.ts
+import axios from "axios";
+var PAGSEGURO_TOKEN = process.env.PAGSEGURO_TOKEN;
+var API_URL = "https://api.pagseguro.com/checkouts";
+var PagSeguroService = {
+  async createPaymentLink(order) {
+    const payload = {
+      reference_id: order.id,
+      customer: {
+        name: order.customerName,
+        // Lembre-se de descriptografar antes de enviar
+        phone: { number: order.customerPhone.replace(/\D/g, "") }
+      },
+      items: [
+        {
+          reference_id: "PEDIDO_" + order.id,
+          name: "Pedido Gourmet Saud\xE1vel",
+          quantity: 1,
+          unit_amount: Math.round(safeNumber(order.total) * 100)
+          // PagSeguro usa centavos (inteiro)
+        }
+      ],
+      payment_methods: [
+        { type: "CREDIT_CARD" },
+        { type: "PIX" },
+        { type: "BOLETO" }
+      ],
+      redirect_url: "https://gourmetsaudavel.com/meus-pedidos"
+    };
+    const response = await axios.post(API_URL, payload, {
+      headers: {
+        "Authorization": `Bearer ${PAGSEGURO_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+    return response.data.links.find((l) => l.rel === "PAY")?.href;
+  }
+};
+
+// server/routers/admin/orders/ordersAdminRouter.ts
+init_encryption();
+init_db();
+init_schema();
+import { eq as eq38, sql as sql21, desc as desc16, inArray as inArray6 } from "drizzle-orm";
+import { TRPCError as TRPCError32 } from "@trpc/server";
+var ordersAdminRouter = router({
+  /**
+   * 📋 LISTAGEM DE PEDIDOS
+   */
+  list: operatorProcedure.input(z29.object({
+    search: z29.string().optional(),
+    status: z29.string().optional(),
+    page: z29.number().default(1),
+    perPage: z29.number().default(10)
+  })).query(async ({ input }) => {
+    const result = await OrderManagerService.listOrders(input);
+    return {
+      orders: result.data,
+      meta: {
+        totalItems: result.total,
+        totalPages: Math.ceil(result.total / input.perPage),
+        currentPage: input.page
+      }
+    };
+  }),
+  /**
+   * 🔍 DETALHES DO PEDIDO
+   */
+  getById: operatorProcedure.input(z29.object({ orderId: z29.string() })).query(async ({ input }) => {
+    const db2 = await getDb();
+    const [order] = await db2.select().from(orders).where(eq38(orders.id, input.orderId)).limit(1);
+    if (!order) throw new TRPCError32({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
+    const items = await db2.select().from(orderItems).where(eq38(orderItems.orderId, input.orderId));
+    return {
+      ...order,
+      items: items.map((it) => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
+    };
+  }),
+  /**
+   * 🔄 ATUALIZAR STATUS
+   */
+  updateStatus: operatorProcedure.input(z29.object({
+    id: z29.string(),
+    status: z29.string()
+  })).mutation(async ({ input, ctx }) => {
+    const db2 = await getDb();
+    const [oldOrder] = await db2.select().from(orders).where(eq38(orders.id, input.id)).limit(1);
+    await OrderManagerService.updateStatus(input.id, input.status);
+    if (oldOrder) {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "orders",
+        action: "UPDATE_STATUS",
+        severity: "warning",
+        entityType: "orders",
+        entityId: input.id,
+        entityLabel: oldOrder.customerName ? unseal(oldOrder.customerName) || `Pedido ${input.id}` : `Pedido ${input.id}`,
+        oldValues: { status: oldOrder.status },
+        newValues: { status: input.status }
+      });
+    }
+    return { success: true };
+  }),
+  /**
+   * 🛒 CARRINHOS ABANDONADOS
+   */
+  getAbandonedCarts: operatorProcedure.input(z29.object({
+    page: z29.number().default(1),
+    perPage: z29.number().default(10)
+  }).optional()).query(async ({ input }) => {
+    const db2 = await getDb();
+    const page = input?.page || 1;
+    const perPage = input?.perPage || 10;
+    const offset = (page - 1) * perPage;
+    const abandonedCarts = await db2.select({
+      id: carts.id,
+      userId: carts.userId,
+      updatedAt: carts.updatedAt,
+      customerName: users.name,
+      customerEmail: users.email,
+      itemCount: sql21`count(${cartItems.id})`
+    }).from(carts).innerJoin(users, eq38(carts.userId, users.id)).leftJoin(cartItems, eq38(carts.id, cartItems.cartId)).where(sql21`${carts.updatedAt} < NOW() - INTERVAL 2 HOUR`).groupBy(carts.id, users.id).limit(perPage).offset(offset).orderBy(desc16(carts.updatedAt));
+    return {
+      carts: abandonedCarts.map((c) => ({
+        ...c,
+        customerName: c.customerName ? decrypt(c.customerName) || "Cliente" : "Cliente",
+        customerEmail: c.customerEmail || "E-mail indispon\xEDvel"
+      }))
+    };
+  }),
+  /**
+   * 📝 EDITAR PEDIDO
+   */
+  editOrder: adminProcedure.input(z29.object({ orderId: z29.string() })).mutation(async ({ input, ctx }) => {
+    const db2 = await getDb();
+    const adminId = ctx.user.id;
+    const [orderResult] = await db2.select({ order: orders, customerName: users.name }).from(orders).leftJoin(users, eq38(users.id, orders.userId)).where(eq38(orders.id, input.orderId)).limit(1);
+    if (!orderResult) throw new TRPCError32({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
+    const { order, customerName } = orderResult;
+    const customerCleanName = customerName ? decrypt(customerName) || "Cliente" : "Cliente";
+    let snap = {};
+    if (order.discountsSnapshot) {
+      try {
+        const rawSnap = decrypt(order.discountsSnapshot);
+        snap = safeJsonParse(rawSnap, {});
+      } catch {
+        snap = {};
+      }
+    }
+    const items = await db2.select().from(orderItems).where(eq38(orderItems.orderId, input.orderId));
+    const session = await AdminOrderDraftService.init(adminId);
+    const pdvDraftId = session.id;
+    await db2.delete(adminOrderDraftItems).where(eq38(adminOrderDraftItems.draftId, pdvDraftId));
+    const snapTotals = snap.totals || {};
+    await AdminOrderDraftService.update({
+      draftId: pdvDraftId,
+      userId: order.userId ? String(order.userId) : void 0,
+      shippingValue: safeNumber(order.shippingCost),
+      metadataJson: JSON.stringify({
+        customer: order.userId ? { id: String(order.userId), name: customerCleanName } : null,
+        address: {
+          shipping_address: order.shippingAddress,
+          shipping_address_number: order.shippingAddressNumber,
+          shipping_neighborhood: order.shippingNeighborhood,
+          shipping_city: order.shippingCity,
+          shipping_state: order.shippingState,
+          zipCode: order.shippingZipCode
+        },
+        deliveryMode: order.shippingCity ? "delivery" : "pickup",
+        notes: order.notes || "",
+        couponCode: snap.couponCode || null,
+        couponValue: safeNumber(snapTotals.couponDiscount),
+        loyaltyValue: safeNumber(snap.loyaltyValue),
+        loyaltyPointsUsed: safeNumber(snap.pointsUsed),
+        discountValue: safeNumber(order.totalDiscount),
+        editingOrderId: order.id,
+        discountsSnapshot: JSON.stringify(snap)
+      })
+    });
+    for (const item of items) {
+      await AdminOrderDraftService.addItem({
+        draftId: pdvDraftId,
+        dishId: item.dishId ? safeNumber(item.dishId) : void 0,
+        packageId: item.packageId ? safeNumber(item.packageId) : void 0,
+        name: item.dishName || "Item do Pedido",
+        unitPrice: safeNumber(item.unitPrice),
+        quantity: safeNumber(item.quantity),
+        options: typeof item.options === "string" ? item.options : JSON.stringify(item.options || {}),
+        applied_nutrition: item.appliedNutrition ? String(item.appliedNutrition) : void 0
+      });
+    }
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "orders",
+      action: "INIT_ADMINISTRATIVE_EDIT",
+      severity: "info",
+      entityType: "orders",
+      entityId: input.orderId,
+      entityLabel: order.customerName ? unseal(order.customerName) || `Pedido ${input.orderId}` : `Pedido ${input.orderId}`,
+      oldValues: null,
+      newValues: { orderId: input.orderId }
+    });
+    return { success: true, newDraftId: pdvDraftId };
+  }),
+  /**
+   * ➕ ADICIONAR ITEM AO RASCUNHO
+   */
+  addItem: adminProcedure.input(z29.object({
+    draftId: z29.string(),
+    dishId: z29.coerce.number().nullish(),
+    packageId: z29.coerce.number().nullish(),
+    name: z29.string(),
+    unitPrice: z29.number(),
+    quantity: z29.number().default(1),
+    options: z29.string().optional(),
+    applied_nutrition: z29.string().optional()
+  })).mutation(({ input }) => AdminOrderDraftService.addItem({
+    ...input,
+    dishId: input.dishId ?? void 0,
+    packageId: input.packageId ?? void 0
+  })),
+  /**
+   * 🏁 FINALIZAR PEDIDO MANUAL
+   */
+  placeOrder: adminProcedure.input(z29.object({ draftId: z29.string() })).mutation(({ input }) => AdminOrderFinalizeService.finalize(input.draftId)),
+  /**
+   * 💳 GERAR LINK DE PAGAMENTO
+   */
+  generatePaymentLink: adminProcedure.input(z29.object({ orderId: z29.string() })).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    const [order] = await db2.select().from(orders).where(eq38(orders.id, input.orderId)).limit(1);
+    if (!order) throw new TRPCError32({ code: "NOT_FOUND" });
+    const orderForPayment = {
+      ...order,
+      customerName: order.customerName || "Cliente"
+    };
+    const link = await PagSeguroService.createPaymentLink(
+      orderForPayment
+    );
+    if (!link) throw new TRPCError32({ code: "BAD_GATEWAY", message: "Erro ao gerar link de pagamento." });
+    return { link };
+  }),
+  /**
+   * 🔍 LISTAGEM DE CARRINHOS ANTIGOS (Usado pelo useQuery no Front para ler/contar)
+   */
+  getEmptyOldCarts: adminProcedure.query(async () => {
+    return await OrderManagerService.getEmptyOldCarts();
+  }),
+  /**
+   * 🧹 LIMPEZA DE CARRINHOS ANTIGOS (Usado pelo useMutation no Front no botão Limpar)
+   */
+  clearEmptyOldCarts: adminProcedure.input(z29.object({
+    confirmationToken: z29.string().optional(),
+    confirmationReason: z29.string().optional()
+  }).optional()).mutation(async ({ input }) => {
+    assertStrongConfirmation(input || {}, "Limpeza operacional de carrinhos antigos");
+    assertConfirmationReason(input || {}, "Limpeza operacional de carrinhos antigos");
+    return await OrderManagerService.clearEmptyOldCarts();
+  }),
+  /**
+   * ❌ EXCLUIR PEDIDO
+   */
+  deleteOrder: superAdminProcedure.input(z29.union([
+    z29.string(),
+    z29.object({
+      id: z29.string(),
+      confirmationToken: z29.string().optional(),
+      confirmationReason: z29.string().optional()
+    })
+  ])).mutation(async ({ input, ctx }) => {
+    const id = typeof input === "string" ? input : input.id;
+    if (typeof input === "string") {
+      throw new TRPCError32({
+        code: "BAD_REQUEST",
+        message: "Exclusao de pedido exige confirmacao forte."
+      });
+    }
+    assertStrongConfirmation(input, "Exclusao de pedido");
+    assertConfirmationReason(input, "Exclusao de pedido");
+    const db2 = await getDb();
+    const [oldOrder] = await db2.select().from(orders).where(eq38(orders.id, id)).limit(1);
+    const oldItems = await db2.select().from(orderItems).where(eq38(orderItems.orderId, id));
+    await OrderManagerService.delete(id);
+    if (oldOrder) {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "orders",
+        action: "DELETE_ORDER",
+        severity: "critical",
+        entityType: "orders",
+        entityId: id,
+        entityLabel: oldOrder.customerName ? unseal(oldOrder.customerName) || `Pedido ${id}` : `Pedido ${id}`,
+        oldValues: {
+          id: oldOrder.id,
+          customerName: oldOrder.customerName ? unseal(oldOrder.customerName) : null,
+          total: safeNumber(oldOrder.total),
+          status: oldOrder.status,
+          items: oldItems.map((item) => ({
+            dishName: item.dishName,
+            quantity: safeNumber(item.quantity),
+            unitPrice: safeNumber(item.unitPrice)
+          }))
+        },
+        newValues: null
+      });
+    }
+    return { success: true };
+  }),
+  updateStatusBatch: operatorProcedure.input(z29.object({
+    ids: z29.array(z29.string()),
+    status: z29.string()
+  })).mutation(async ({ input, ctx }) => {
+    if (!input.ids.length) {
+      throw new TRPCError32({ code: "BAD_REQUEST", message: "Nenhum ID de pedido fornecido." });
+    }
+    const db2 = await getDb();
+    const oldOrders = await db2.select().from(orders).where(inArray6(orders.id, input.ids));
+    await OrderManagerService.assertOrdersAreMutable(input.ids);
+    for (const id of input.ids) {
+      await OrderManagerService.updateStatus(id, input.status);
+    }
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    for (const oldOrder of oldOrders) {
+      void AuditLogService.record({
+        actor,
+        module: "orders",
+        action: "UPDATE_STATUS_BATCH",
+        severity: "warning",
+        entityType: "orders",
+        entityId: oldOrder.id,
+        entityLabel: oldOrder.customerName ? unseal(oldOrder.customerName) || `Pedido ${oldOrder.id}` : `Pedido ${oldOrder.id}`,
+        oldValues: { status: oldOrder.status },
+        newValues: { status: input.status }
+      });
+    }
+    return { success: true };
+  }),
+  getBatchByIds: operatorProcedure.input(z29.object({
+    orderIds: z29.array(z29.string())
+  })).query(async ({ input }) => {
+    if (!input.orderIds.length) {
+      throw new TRPCError32({ code: "BAD_REQUEST", message: "Nenhum ID de pedido fornecido." });
+    }
+    const db2 = await getDb();
+    const results = [];
+    for (const orderId of input.orderIds) {
+      const [order] = await db2.select().from(orders).where(eq38(orders.id, orderId)).limit(1);
+      if (order) {
+        const items = await db2.select().from(orderItems).where(eq38(orderItems.orderId, orderId));
+        results.push({
+          ...order,
+          items: items.map((it) => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
+        });
+      }
+    }
+    return results;
+  }),
+  commitAdministrativeEdit: adminProcedure.input(z29.object({
+    orderId: z29.string(),
+    justification: z29.string().min(5, "A nota descritiva precisa de pelo menos 5 caracteres"),
+    discountAmount: z29.number().min(0).default(0),
+    shippingCost: z29.number().min(0).default(0),
+    confirmationToken: z29.string().optional(),
+    confirmationReason: z29.string().optional(),
+    items: z29.array(z29.object({
+      dishName: z29.string().min(1, "O nome do prato \xE9 obrigat\xF3rio"),
+      quantity: z29.number().int().min(1),
+      unitPrice: z29.number().min(0)
+    }))
+  })).mutation(async ({ ctx, input }) => {
+    const adminId = ctx.user?.id || "ADMIN_SESSION";
+    const db2 = await getDb();
+    const [oldOrder] = await db2.select().from(orders).where(eq38(orders.id, input.orderId)).limit(1);
+    const oldItems = await db2.select().from(orderItems).where(eq38(orderItems.orderId, input.orderId));
+    const oldTotal = safeNumber(oldOrder?.total);
+    const discountRatio = oldTotal > 0 ? input.discountAmount / oldTotal : 0;
+    if (discountRatio > operationalLimits.orderMaxDiscountRatio) {
+      throw new TRPCError32({
+        code: "BAD_REQUEST",
+        message: "Desconto administrativo acima do limite operacional bloqueado."
+      });
+    }
+    if (discountRatio > operationalLimits.orderCriticalDiscountRatio || input.shippingCost > operationalLimits.orderCriticalShippingCost) {
+      if (input.shippingCost > operationalLimits.orderMaxShippingCost) {
+        throw new TRPCError32({
+          code: "BAD_REQUEST",
+          message: "Frete administrativo acima do limite operacional bloqueado."
+        });
+      }
+      assertStrongConfirmation(input, "Ajuste financeiro administrativo");
+      assertConfirmationReason(input, "Ajuste financeiro administrativo");
+    }
+    const result = await AdminOrderDraftService.applyAdministrativeChanges({
+      ...input,
+      adminId
+    });
+    if (oldOrder) {
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      const before = {
+        totalDiscount: safeNumber(oldOrder.totalDiscount),
+        shippingCost: safeNumber(oldOrder.shippingCost),
+        items: oldItems.map((item) => ({
+          dishName: item.dishName,
+          quantity: safeNumber(item.quantity),
+          unitPrice: safeNumber(item.unitPrice)
+        }))
+      };
+      const after = {
+        totalDiscount: input.discountAmount,
+        shippingCost: input.shippingCost,
+        items: input.items.map((item) => ({
+          dishName: item.dishName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice
+        })),
+        justification: input.justification
+      };
+      void AuditLogService.record({
+        actor,
+        module: "orders",
+        action: "COMMIT_ADMINISTRATIVE_EDIT",
+        severity: discountRatio > operationalLimits.orderCriticalDiscountRatio || input.shippingCost > operationalLimits.orderCriticalShippingCost ? "critical" : "warning",
+        entityType: "orders",
+        entityId: input.orderId,
+        entityLabel: oldOrder.customerName ? unseal(oldOrder.customerName) || `Pedido ${input.orderId}` : `Pedido ${input.orderId}`,
+        oldValues: before,
+        newValues: after
+      });
+    }
+    return result;
+  })
+});
+
+// server/routers/admin/shipping/shippingRules.ts
+import { z as z30 } from "zod";
+import { TRPCError as TRPCError33 } from "@trpc/server";
+init_db();
+init_schema();
+import { eq as eq39, asc as asc12, or as or7, notLike, isNull as isNull4, and as and14, like as like7 } from "drizzle-orm";
+var shippingRuleSchema = z30.object({
+  id: z30.number().optional(),
+  name: z30.string().min(1),
+  price: z30.coerce.number().min(0),
+  active: z30.boolean().default(true),
+  type: z30.enum(["zipcode", "polygon", "circle"]),
+  cepStart: z30.string().optional().nullable(),
+  cepEnd: z30.string().optional().nullable(),
+  polygonCoords: z30.string().optional().nullable(),
+  storeSlug: z30.string().optional().default("default"),
+  confirmationToken: z30.string().optional(),
+  confirmationReason: z30.string().optional()
+});
+function validateShippingCost(price, input, actionLabel) {
+  assertFiniteMoney(price, "Frete");
+  if (price > operationalLimits.shippingMaxCost) {
+    throw new TRPCError33({
+      code: "BAD_REQUEST",
+      message: `Frete acima de R$ ${operationalLimits.shippingMaxCost} esta bloqueado.`
+    });
+  }
+  if (price > operationalLimits.shippingCriticalCost) {
+    assertStrongConfirmation(input, actionLabel);
+    assertConfirmationReason(input, actionLabel);
+    return "critical";
+  }
+  return "warning";
+}
+var shippingRulesRouter = router({
+  getSettings: superAdminProcedure.query(async () => {
+    const db2 = await getDb();
+    const [s] = await db2.select().from(shippingSettings).limit(1);
+    return s || {
+      pickupEnabled: false,
+      pickupLabel: "Retirada no Balc\xE3o",
+      pickupInstruction: ""
+    };
+  }),
+  updateSettings: superAdminProcedure.input(z30.object({
+    pickupEnabled: z30.boolean().optional(),
+    pickupLabel: z30.string().optional(),
+    pickupInstruction: z30.string().optional(),
+    confirmationToken: z30.string().optional(),
+    confirmationReason: z30.string().optional()
+  })).mutation(async ({ ctx, input }) => {
+    const db2 = await getDb();
+    const existing = await db2.select().from(shippingSettings).limit(1);
+    assertStrongConfirmation(input, "Alteracao de configuracoes de retirada/frete");
+    assertConfirmationReason(input, "Alteracao de configuracoes de retirada/frete");
+    const { confirmationToken, confirmationReason, ...settingsInput } = input;
+    if (existing.length === 0) {
+      await db2.insert(shippingSettings).values({
+        pickupEnabled: settingsInput.pickupEnabled ?? false,
+        pickupLabel: input.pickupLabel ?? "Retirada no Balc\xE3o",
+        pickupInstruction: settingsInput.pickupInstruction ?? ""
+      });
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "shipping",
+        action: "CREATE_SHIPPING_SETTINGS",
+        severity: "critical",
+        entityType: "shipping_settings",
+        entityId: "global",
+        entityLabel: "Configura\xE7\xF5es de Retirada/Entrega",
+        oldValues: null,
+        newValues: {
+          ...settingsInput,
+          confirmationToken: void 0,
+          confirmationReason
+        }
+      });
+    } else {
+      const oldSettings = existing[0];
+      await db2.update(shippingSettings).set({ ...settingsInput, updatedAt: /* @__PURE__ */ new Date() }).where(eq39(shippingSettings.id, oldSettings.id));
+      const actor = {
+        userId: ctx.user?.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      };
+      void AuditLogService.record({
+        actor,
+        module: "shipping",
+        action: "UPDATE_SHIPPING_SETTINGS",
+        severity: "critical",
+        entityType: "shipping_settings",
+        entityId: oldSettings.id,
+        entityLabel: "Configura\xE7\xF5es de Retirada/Entrega",
+        oldValues: oldSettings,
+        newValues: {
+          ...oldSettings,
+          ...settingsInput,
+          confirmationToken: void 0,
+          confirmationReason
+        }
+      });
+    }
+    return { success: true };
+  }),
+  /**
+   * ✅ BUSCA REGRAS (Flexível: Loja Selecionada + Default)
+   */
+  getRules: superAdminProcedure.input(z30.object({ storeSlug: z30.string().optional().default("default") })).query(async ({ input }) => {
+    const db2 = await getDb();
+    return await db2.select({
+      id: shippingZones.id,
+      name: shippingZones.name,
+      description: shippingZones.description,
+      type: shippingZones.type,
+      zipCodeStart: shippingZones.zipCodeStart,
+      zipCodeEnd: shippingZones.zipCodeEnd,
+      shippingCost: shippingZones.shippingCost,
+      polygonCoords: shippingZones.polygonCoords,
+      isActive: shippingZones.isActive,
+      estimatedDays: shippingZones.estimatedDays,
+      storeSlug: shippingZones.storeSlug
+    }).from(shippingZones).where(
+      and14(
+        // 🟢 Filtro de Unidade: Carrega a selecionada OU registros 'default'
+        or7(
+          eq39(shippingZones.storeSlug, input.storeSlug),
+          eq39(shippingZones.storeSlug, "default"),
+          isNull4(shippingZones.storeSlug)
+        ),
+        // Filtro de Descrição: Evita poluir com CEPs individuais do radar
+        or7(
+          eq39(shippingZones.description, "Regra Mestra"),
+          isNull4(shippingZones.description),
+          notLike(shippingZones.description, "via pol\xEDgono:%")
+        )
+      )
+    ).orderBy(asc12(shippingZones.name));
+  }),
+  /**
+   * ✅ UPSERT: Cria ou Atualiza
+   */
+  createRule: superAdminProcedure.input(shippingRuleSchema).mutation(async ({ ctx, input }) => {
+    const db2 = await getDb();
+    const severity = validateShippingCost(
+      input.price,
+      input,
+      input.id ? "Alteracao de regra de frete" : "Criacao de regra de frete"
+    );
+    const payload = {
+      name: input.name,
+      type: input.type,
+      shippingCost: String(input.price),
+      isActive: input.active,
+      zipCodeStart: input.type === "zipcode" ? input.cepStart || "00000000" : "00000000",
+      zipCodeEnd: input.type === "zipcode" ? input.cepEnd || "99999999" : "99999999",
+      polygonCoords: input.polygonCoords,
+      description: "Regra Mestra",
+      storeSlug: input.storeSlug
+    };
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    if (input.id) {
+      const [oldRule] = await db2.select().from(shippingZones).where(eq39(shippingZones.id, input.id)).limit(1);
+      await db2.update(shippingZones).set({ ...payload, updatedAt: /* @__PURE__ */ new Date() }).where(eq39(shippingZones.id, input.id));
+      if (oldRule) {
+        void AuditLogService.record({
+          actor,
+          module: "shipping",
+          action: "UPDATE_SHIPPING_RULE",
+          severity,
+          entityType: "shipping_zones",
+          entityId: input.id,
+          entityLabel: oldRule.name,
+          oldValues: oldRule,
+          newValues: { ...oldRule, ...payload }
+        });
+      }
+    } else {
+      const [res] = await db2.insert(shippingZones).values(payload);
+      const insertId = res?.insertId;
+      void AuditLogService.record({
+        actor,
+        module: "shipping",
+        action: "CREATE_SHIPPING_RULE",
+        severity,
+        entityType: "shipping_zones",
+        entityId: insertId || null,
+        entityLabel: input.name,
+        oldValues: null,
+        newValues: payload
+      });
+    }
+    return { success: true };
+  }),
+  deleteRule: superAdminProcedure.input(z30.object({
+    id: z30.number(),
+    confirmationToken: z30.string().optional(),
+    confirmationReason: z30.string().optional()
+  })).mutation(async ({ ctx, input }) => {
+    const db2 = await getDb();
+    assertStrongConfirmation(input, "Exclusao de regra de frete");
+    assertConfirmationReason(input, "Exclusao de regra de frete");
+    const [rule] = await db2.select().from(shippingZones).where(eq39(shippingZones.id, input.id)).limit(1);
+    if (!rule) return { success: false, error: "Regra n\xE3o encontrada" };
+    await db2.delete(shippingZones).where(eq39(shippingZones.id, input.id));
+    await db2.delete(shippingZones).where(like7(shippingZones.description, `via pol\xEDgono: ${rule.name}%`));
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "shipping",
+      action: "DELETE_SHIPPING_RULE",
+      severity: "critical",
+      entityType: "shipping_zones",
+      entityId: input.id,
+      entityLabel: rule.name,
+      oldValues: rule,
+      newValues: null
+    });
+    return { success: true };
+  })
+});
+
+// server/routers/admin/shipping/shippingMesh.ts
+init_schema();
+import { z as z31 } from "zod";
+import { and as and15, eq as eq40, inArray as inArray7, like as like8, sql as sql22 } from "drizzle-orm";
+init_db();
+init_encryption();
+function calculateDistance(p1, p2) {
+  const r = 6371e3;
+  const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+  const dLng = (p2.lng - p1.lng) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return r * c;
+}
+function isPointInPolygon(point, polygon) {
+  let inside = false;
+  const { lat, lng } = point;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i]?.lat);
+    const yi = Number(polygon[i]?.lng);
+    const xj = Number(polygon[j]?.lat);
+    const yj = Number(polygon[j]?.lng);
+    const intersect = yi > lng !== yj > lng && lat < (xj - xi) * (lng - yi) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function toSafeString(value, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+function toSafeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+async function processCityScan(storeSlug, cidade) {
+  const db2 = await getDb();
+  const resultBase = await db2.execute(
+    sql22`SELECT * FROM base_ceps WHERE cidade = ${cidade}`
+  );
+  const rawRows = resultBase[0] || resultBase;
+  const cepsDaCidade = Array.isArray(rawRows) ? rawRows : [];
+  if (cepsDaCidade.length === 0) {
+    return { totalLidos: 0, totalNaMalha: 0 };
+  }
+  const rules = await db2.select().from(shippingZones).where(
+    and15(
+      eq40(shippingZones.storeSlug, storeSlug),
+      eq40(shippingZones.isActive, true)
+    )
+  );
+  const cepsParaInserir = [];
+  for (const item of cepsDaCidade) {
+    const latNum = Number(item.lat);
+    const lngNum = Number(item.lng);
+    if (isNaN(latNum) || isNaN(lngNum) || item.lat === null || item.lng === null || latNum === 0 || lngNum === 0) {
+      continue;
+    }
+    const point = { lat: latNum, lng: lngNum };
+    for (const rule of rules) {
+      if (!rule.polygonCoords) continue;
+      const geoData = safeJsonParse(rule.polygonCoords, []);
+      let isInside = false;
+      if (rule.type === "circle" && !Array.isArray(geoData) && geoData.center) {
+        isInside = calculateDistance(point, geoData.center) <= Number(geoData.radius);
+      } else if (rule.type === "polygon" && Array.isArray(geoData)) {
+        isInside = isPointInPolygon(point, geoData);
+      }
+      if (!isInside) continue;
+      cepsParaInserir.push({
+        zipCode: String(item.cep).replace(/\D/g, ""),
+        city: item.cidade,
+        neighborhood: item.bairro || "Nao Informado",
+        lat: String(item.lat),
+        lng: String(item.lng),
+        price: String(rule.shippingCost || 0),
+        storeSlug,
+        lastSeen: /* @__PURE__ */ new Date()
+      });
+      break;
+    }
+  }
+  await db2.transaction(async (tx) => {
+    await tx.execute(
+      sql22`DELETE FROM geo_mesh WHERE store_slug = ${storeSlug} AND cidade = ${cidade}`
+    );
+    if (cepsParaInserir.length > 0) {
+      const chunkSize = 500;
+      for (let i = 0; i < cepsParaInserir.length; i += chunkSize) {
+        await tx.insert(geoMesh).values(cepsParaInserir.slice(i, i + chunkSize));
+      }
+    }
+  });
+  return {
+    totalLidos: cepsDaCidade.length,
+    totalNaMalha: cepsParaInserir.length
+  };
+}
+var shippingMeshRouter = router({
+  bindOperativeCity: superAdminProcedure.input(
+    z31.object({
+      rows: z31.array(
+        z31.object({
+          cep: z31.string(),
+          cidade: z31.string(),
+          bairro: z31.string().optional(),
+          lat: z31.string().or(z31.number()),
+          lng: z31.string().or(z31.number())
+        })
+      )
+    })
+  ).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    let count7 = 0;
+    await db2.transaction(async (tx) => {
+      for (const item of input.rows) {
+        const cleanLat = parseFloat(String(item.lat)).toFixed(6);
+        const cleanLng = parseFloat(String(item.lng)).toFixed(6);
+        if (isNaN(Number(cleanLat)) || isNaN(Number(cleanLng))) continue;
+        await tx.execute(sql22`
+            INSERT INTO base_ceps (cep, cidade, bairro, lat, lng)
+            VALUES (${item.cep.replace(/\D/g, "")}, ${item.cidade}, ${item.bairro || "Centro"}, ${cleanLat}, ${cleanLng})
+            ON DUPLICATE KEY UPDATE lat = VALUES(lat), lng = VALUES(lng)
+          `);
+        count7++;
+      }
+    });
+    return { success: true, count: count7 };
+  }),
+  deleteImportedCity: superAdminProcedure.input(z31.object({ cidade: z31.string() })).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    await db2.execute(sql22`DELETE FROM base_ceps WHERE cidade = ${input.cidade}`);
+    await db2.execute(sql22`DELETE FROM geo_mesh WHERE cidade = ${input.cidade}`);
+    return { success: true };
+  }),
+  getImportedCities: superAdminProcedure.query(async () => {
+    const db2 = await getDb();
+    const resultCities = await db2.execute(
+      sql22`SELECT DISTINCT cidade FROM base_ceps ORDER BY cidade ASC`
+    );
+    const rows = Array.isArray(resultCities[0]) ? resultCities[0] : [];
+    return rows.map((row) => row.cidade);
+  }),
+  syncMeshWithRules: superAdminProcedure.mutation(async () => {
+    const db2 = await getDb();
+    const storeConfigs = await db2.select().from(appConfigs).where(like8(appConfigs.configKey, "store_address_%"));
+    let total = 0;
+    const resultCities = await db2.execute(sql22`SELECT DISTINCT cidade FROM base_ceps`);
+    const cepsCities = Array.isArray(resultCities[0]) ? resultCities[0] : [];
+    const perStoreResults = await Promise.all(
+      storeConfigs.map(async (config) => {
+        try {
+          const slug = config.configKey.replace("store_address_", "");
+          const cityResults = await Promise.all(
+            cepsCities.map((row) => processCityScan(slug, row.cidade))
+          );
+          return cityResults.reduce(
+            (sum4, res) => sum4 + res.totalNaMalha,
+            0
+          );
+        } catch (err) {
+          logger.error({ err }, "Erro ao sincronizar unidade de malha logistica");
+          return 0;
+        }
+      })
+    );
+    total = perStoreResults.reduce((sum4, value) => sum4 + value, 0);
+    return { insertedCount: total };
+  }),
+  listStores: superAdminProcedure.query(async () => {
+    const db2 = await getDb();
+    const configs = await db2.select().from(appConfigs).where(like8(appConfigs.configKey, "store_address_%"));
+    return configs.map((config) => {
+      try {
+        const slug = config.configKey.replace("store_address_", "");
+        const decrypted = decrypt(config.configValue || "");
+        const parsed = safeJsonParse(decrypted, {});
+        return {
+          slug,
+          name: toSafeString(parsed.companyName, slug.toUpperCase())
+        };
+      } catch {
+        return null;
+      }
+    }).filter(
+      (store) => store !== null
+    );
+  }),
+  getStoreBase: superAdminProcedure.input(z31.object({ storeSlug: z31.string().default("default") })).query(async ({ input }) => {
+    const db2 = await getDb();
+    const configs = await db2.select().from(appConfigs).where(
+      inArray7(appConfigs.configKey, [
+        `store_address_${input.storeSlug}`,
+        `store_pickup_${input.storeSlug}`
+      ])
+    );
+    const result = {
+      companyName: "",
+      address: "",
+      lat: 0,
+      lng: 0,
+      allowedCities: [],
+      pickupEnabled: false,
+      pickupLabel: "",
+      pickupInstruction: "",
+      minOrderValue: 0,
+      minOrderMessage: ""
+    };
+    for (const config of configs) {
+      try {
+        const decrypted = decrypt(config.configValue || "");
+        if (config.configKey.includes("address")) {
+          const parsed = safeJsonParse(decrypted, {});
+          result.companyName = toSafeString(parsed.companyName);
+          result.address = toSafeString(parsed.address);
+          result.lat = toSafeNumber(parsed.lat);
+          result.lng = toSafeNumber(parsed.lng);
+          result.allowedCities = Array.isArray(parsed.allowedCities) ? parsed.allowedCities.filter(
+            (city) => typeof city === "string"
+          ) : [];
+          result.minOrderValue = toSafeNumber(parsed.minOrderValue);
+          result.minOrderMessage = toSafeString(parsed.minOrderMessage);
+        } else {
+          const parsed = safeJsonParse(decrypted, {});
+          result.pickupEnabled = parsed.pickupEnabled === true;
+          result.pickupLabel = toSafeString(parsed.pickupLabel);
+          result.pickupInstruction = toSafeString(parsed.pickupInstruction);
+        }
+      } catch {
+      }
+    }
+    return result;
+  }),
+  updateStoreLocation: superAdminProcedure.input(
+    z31.object({
+      storeSlug: z31.string(),
+      companyName: z31.string(),
+      address: z31.string().optional().default(""),
+      lat: z31.number().optional().default(0),
+      lng: z31.number().optional().default(0),
+      allowedCities: z31.array(z31.string()).optional().default([]),
+      pickupEnabled: z31.boolean(),
+      pickupLabel: z31.string(),
+      pickupInstruction: z31.string(),
+      minOrderValue: z31.number().optional().default(0),
+      minOrderMessage: z31.string().optional().default("")
+    })
+  ).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    const addressData = {
+      companyName: input.companyName,
+      address: input.address,
+      lat: input.lat,
+      lng: input.lng,
+      allowedCities: input.allowedCities,
+      minOrderValue: input.minOrderValue,
+      minOrderMessage: input.minOrderMessage
+    };
+    const encryptedAddress = encrypt(JSON.stringify(addressData));
+    const pickupData = {
+      pickupEnabled: input.pickupEnabled,
+      pickupLabel: input.pickupLabel,
+      pickupInstruction: input.pickupInstruction
+    };
+    const encryptedPickup = encrypt(JSON.stringify(pickupData));
+    await db2.transaction(async (tx) => {
+      await tx.insert(appConfigs).values({
+        configKey: `store_address_${input.storeSlug}`,
+        configValue: encryptedAddress
+      }).onDuplicateKeyUpdate({
+        set: { configValue: encryptedAddress, updatedAt: /* @__PURE__ */ new Date() }
+      });
+      await tx.insert(appConfigs).values({
+        configKey: `store_pickup_${input.storeSlug}`,
+        configValue: encryptedPickup
+      }).onDuplicateKeyUpdate({
+        set: { configValue: encryptedPickup, updatedAt: /* @__PURE__ */ new Date() }
+      });
+    });
+    return { success: true };
+  }),
+  getMesh: superAdminProcedure.query(async () => {
+    const db2 = await getDb();
+    return db2.select().from(geoMesh).limit(1e3);
+  })
+});
+
+// server/routers/admin/api.ts
+import { randomBytes as randomBytes2 } from "node:crypto";
+init_schema();
+init_analytics();
+init_encryption();
+import { z as z32 } from "zod";
+import { desc as desc17, eq as eq41, gte as gte4, lte as lte3, and as and16, sql as sql23, count as count4, sum as sum2 } from "drizzle-orm";
+function createIntegrationToken() {
+  return `gia_${randomBytes2(24).toString("hex")}`;
+}
+function toSafeNumber2(value, fallback = 0) {
+  return safeNumber(value, fallback);
+}
+function parseDateRange(input) {
+  const start = input.start ? new Date(input.start) : (() => {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(d.getDate() - 30);
+    return d;
+  })();
+  const end = input.end ? new Date(input.end) : /* @__PURE__ */ new Date();
+  return { start, end };
+}
+var dateRangeInput = z32.object({
+  start: z32.string().optional(),
+  // ISO date, ex: "2024-01-01"
+  end: z32.string().optional()
+}).optional();
+var adminApiRouter = router({
+  // ══════════════════════════════════════════════════════════════
+  // 🔑 TOKEN — geração pelo admin, leitura pelo sistema interno
+  // ══════════════════════════════════════════════════════════════
+  generateToken: superAdminProcedure.mutation(async ({ ctx }) => {
+    const token = createIntegrationToken();
+    const encryptedToken = encrypt(token) || token;
+    await ctx.db.insert(appConfigs).values({ configKey: "BRIDGE_TOKEN", configValue: encryptedToken }).onDuplicateKeyUpdate({ set: { configValue: encryptedToken, updatedAt: /* @__PURE__ */ new Date() } });
+    return {
+      token,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      message: "Nova chave do GourmetIA Bridge gerada. Atualize o servi\xE7o externo para usar o token atual."
+    };
+  }),
+  // ══════════════════════════════════════════════════════════════
+  // 📦 CATÁLOGO — leitura pelo app Python
+  // ══════════════════════════════════════════════════════════════
+  /**
+   * GET /trpc/admin.api.catalog
+   * Retorna cardápio completo com macros e categorias.
+   * Fonte principal para o SmartGenerator Python.
+   */
+  catalog: internalProcedure.query(async ({ ctx }) => {
+    const dishRows = await ctx.db.select({
+      id: dishes.id,
+      name: dishes.name,
+      categoryId: dishes.categoryId,
+      category: categories.name,
+      price: dishes.basePrice,
+      isActive: dishes.isActive,
+      energyKcal: dishes.energyKcal,
+      proteins: dishes.proteins,
+      carbs: dishes.carbs,
+      fatTotal: dishes.fatTotal,
+      fiber: dishes.fiber,
+      sodium: dishes.sodium
+    }).from(dishes).leftJoin(categories, eq41(dishes.categoryId, categories.id)).where(eq41(dishes.isActive, true)).orderBy(dishes.name);
+    return dishRows.map((d) => ({
+      ...d,
+      id: toSafeNumber2(d.id),
+      categoryId: d.categoryId ? toSafeNumber2(d.categoryId) : null,
+      price: toSafeNumber2(d.price),
+      energyKcal: toSafeNumber2(d.energyKcal),
+      proteins: toSafeNumber2(d.proteins),
+      carbs: toSafeNumber2(d.carbs),
+      fatTotal: toSafeNumber2(d.fatTotal),
+      fiber: toSafeNumber2(d.fiber),
+      sodium: toSafeNumber2(d.sodium)
+    }));
+  }),
+  /**
+   * GET /trpc/admin.api.packages
+   * Retorna pacotes ativos com estrutura de slots.
+   */
+  packages: internalProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.select({
+      id: packages.id,
+      name: packages.name,
+      price: packages.price,
+      salePrice: packages.salePrice,
+      isActive: packages.isActive,
+      numberOfOptions: packages.numberOfOptions,
+      config: packages.config
+    }).from(packages).where(eq41(packages.isActive, true)).orderBy(packages.name);
+    return rows.map((p) => ({
+      ...p,
+      price: toSafeNumber2(p.price),
+      salePrice: p.salePrice ? toSafeNumber2(p.salePrice) : null,
+      config: safeJsonParse(p.config, {})
+    }));
+  }),
+  // ══════════════════════════════════════════════════════════════
+  // 📊 VENDAS — BI de pedidos para o app Python
+  // ══════════════════════════════════════════════════════════════
+  /**
+   * GET /trpc/admin.api.salesSummary
+   * Resumo de vendas por período: total, ticket médio, quantidade.
+   */
+  salesSummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const [result] = await ctx.db.select({
+      totalOrders: count4(orders.id),
+      totalRevenue: sum2(orders.total),
+      totalDiscount: sum2(orders.totalDiscount),
+      totalShipping: sum2(orders.shippingCost)
+    }).from(orders).where(
+      and16(
+        gte4(orders.createdAt, start),
+        lte3(orders.createdAt, end),
+        sql23`${orders.status} NOT IN ('cancelled')`
+      )
+    );
+    const totalRev = toSafeNumber2(result.totalRevenue);
+    const totalOrd = toSafeNumber2(result.totalOrders);
+    return {
+      period: { start: start.toISOString(), end: end.toISOString() },
+      totalOrders: totalOrd,
+      totalRevenue: totalRev,
+      totalDiscount: toSafeNumber2(result.totalDiscount),
+      totalShipping: toSafeNumber2(result.totalShipping),
+      averageTicket: totalOrd > 0 ? +(totalRev / totalOrd).toFixed(2) : 0
+    };
+  }),
+  /**
+   * GET /trpc/admin.api.salesByDay
+   * Vendas agrupadas por dia — ideal para gráfico de série temporal.
+   */
+  salesByDay: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const rows = await ctx.db.select({
+      day: sql23`DATE(${orders.createdAt})`,
+      orders: count4(orders.id),
+      revenue: sum2(orders.total)
+    }).from(orders).where(
+      and16(
+        gte4(orders.createdAt, start),
+        lte3(orders.createdAt, end),
+        sql23`${orders.status} NOT IN ('cancelled')`
+      )
+    ).groupBy(sql23`DATE(${orders.createdAt})`).orderBy(sql23`DATE(${orders.createdAt})`);
+    return rows.map((r) => ({
+      day: r.day,
+      orders: toSafeNumber2(r.orders),
+      revenue: toSafeNumber2(r.revenue)
+    }));
+  }),
+  /**
+   * GET /trpc/admin.api.topDishes
+   * Pratos mais vendidos no período com receita gerada.
+   */
+  topDishes: internalProcedure.input(z32.object({
+    start: z32.string().optional(),
+    end: z32.string().optional(),
+    limit: z32.number().min(1).max(100).default(20)
+  }).optional()).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const limit = input?.limit ?? 20;
+    const rows = await ctx.db.select({
+      dishId: orderItems.dishId,
+      dishName: dishes.name,
+      quantity: sum2(orderItems.quantity),
+      revenue: sum2(orderItems.totalPrice)
+    }).from(orderItems).leftJoin(orders, eq41(orderItems.orderId, orders.id)).leftJoin(dishes, eq41(orderItems.dishId, sql23`CAST(${dishes.id} AS CHAR)`)).where(
+      and16(
+        gte4(orders.createdAt, start),
+        lte3(orders.createdAt, end),
+        sql23`${orders.status} NOT IN ('cancelled')`
+      )
+    ).groupBy(orderItems.dishId, dishes.name).orderBy(desc17(sum2(orderItems.quantity))).limit(limit);
+    return rows.map((r) => ({
+      dishId: r.dishId,
+      dishName: r.dishName ?? "Prato removido",
+      quantity: toSafeNumber2(r.quantity),
+      revenue: toSafeNumber2(r.revenue)
+    }));
+  }),
+  /**
+   * GET /trpc/admin.api.paymentMix
+   * Distribuição de métodos de pagamento no período.
+   */
+  paymentMix: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const rows = await ctx.db.select({
+      method: orders.paymentMethod,
+      orders: count4(orders.id),
+      revenue: sum2(orders.total)
+    }).from(orders).where(
+      and16(
+        gte4(orders.createdAt, start),
+        lte3(orders.createdAt, end),
+        sql23`${orders.status} NOT IN ('cancelled')`
+      )
+    ).groupBy(orders.paymentMethod).orderBy(desc17(count4(orders.id)));
+    return rows.map((r) => ({
+      method: r.method,
+      orders: toSafeNumber2(r.orders),
+      revenue: toSafeNumber2(r.revenue)
+    }));
+  }),
+  // ══════════════════════════════════════════════════════════════
+  // 💰 FINANCEIRO — margens, descontos, fidelidade
+  // ══════════════════════════════════════════════════════════════
+  /**
+   * GET /trpc/admin.api.financialSummary
+   * Consolidado financeiro: bruto, descontos por tipo, líquido.
+   * Usa bi_financial_facts se populada, senão cai em orders direto.
+   */
+  financialSummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const [biFacts] = await ctx.db.select({
+      grossTotal: sum2(biFinancialFacts.grossTotal),
+      deliveryFee: sum2(biFinancialFacts.deliveryFee),
+      discountCoupon: sum2(biFinancialFacts.discountCoupon),
+      discountLoyalty: sum2(biFinancialFacts.discountLoyalty),
+      discountAuto: sum2(biFinancialFacts.discountAuto),
+      netTotal: sum2(biFinancialFacts.netTotal),
+      orderCount: count4(biFinancialFacts.orderId)
+    }).from(biFinancialFacts).where(
+      and16(
+        gte4(biFinancialFacts.createdAt, start),
+        lte3(biFinancialFacts.createdAt, end)
+      )
+    );
+    if (!biFacts.orderCount || toSafeNumber2(biFacts.orderCount) === 0) {
+      const [fallback] = await ctx.db.select({
+        grossTotal: sum2(orders.subtotal),
+        netTotal: sum2(orders.total),
+        discount: sum2(orders.totalDiscount),
+        shipping: sum2(orders.shippingCost),
+        loyalty: sum2(orders.loyaltyDiscount),
+        orderCount: count4(orders.id)
+      }).from(orders).where(
+        and16(
+          gte4(orders.createdAt, start),
+          lte3(orders.createdAt, end),
+          sql23`${orders.status} NOT IN ('cancelled')`
+        )
+      );
+      return {
+        source: "orders",
+        period: { start: start.toISOString(), end: end.toISOString() },
+        grossTotal: toSafeNumber2(fallback.grossTotal),
+        netTotal: toSafeNumber2(fallback.netTotal),
+        totalDiscount: toSafeNumber2(fallback.discount),
+        discountLoyalty: toSafeNumber2(fallback.loyalty),
+        deliveryFee: toSafeNumber2(fallback.shipping),
+        orderCount: toSafeNumber2(fallback.orderCount)
+      };
+    }
+    return {
+      source: "bi_facts",
+      period: { start: start.toISOString(), end: end.toISOString() },
+      grossTotal: toSafeNumber2(biFacts.grossTotal),
+      netTotal: toSafeNumber2(biFacts.netTotal),
+      deliveryFee: toSafeNumber2(biFacts.deliveryFee),
+      discountCoupon: toSafeNumber2(biFacts.discountCoupon),
+      discountLoyalty: toSafeNumber2(biFacts.discountLoyalty),
+      discountAuto: toSafeNumber2(biFacts.discountAuto),
+      totalDiscount: toSafeNumber2(biFacts.discountCoupon) + toSafeNumber2(biFacts.discountLoyalty) + toSafeNumber2(biFacts.discountAuto),
+      orderCount: toSafeNumber2(biFacts.orderCount)
+    };
+  }),
+  // ══════════════════════════════════════════════════════════════
+  // 👥 CLIENTES — comportamento e retenção
+  // ══════════════════════════════════════════════════════════════
+  /**
+   * GET /trpc/admin.api.customerStats
+   * Total de clientes, novos no período, recorrentes.
+   */
+  customerStats: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const [total] = await ctx.db.select({ count: count4(users.id) }).from(users);
+    const [newUsers] = await ctx.db.select({ count: count4(users.id) }).from(users).where(
+      and16(
+        gte4(users.createdAt, start),
+        lte3(users.createdAt, end)
+      )
+    );
+    const [buyers] = await ctx.db.select({ count: sql23`COUNT(DISTINCT ${orders.userId})` }).from(orders).where(
+      and16(
+        gte4(orders.createdAt, start),
+        lte3(orders.createdAt, end),
+        sql23`${orders.status} NOT IN ('cancelled')`
+      )
+    );
+    return {
+      period: { start: start.toISOString(), end: end.toISOString() },
+      totalCustomers: toSafeNumber2(total.count),
+      newInPeriod: toSafeNumber2(newUsers.count),
+      buyersInPeriod: toSafeNumber2(buyers.count)
+    };
+  }),
+  /**
+   * GET /trpc/admin.api.loyaltySummary
+   * Resumo do programa de fidelidade: pontos emitidos, resgatados, expirados.
+   */
+  loyaltySummary: internalProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
+    const { start, end } = parseDateRange(input ?? {});
+    const rows = await ctx.db.select({
+      type: loyaltyHistory.type,
+      total: sum2(loyaltyHistory.pointsChange),
+      count: count4(loyaltyHistory.id)
+    }).from(loyaltyHistory).where(
+      and16(
+        gte4(loyaltyHistory.createdAt, start),
+        lte3(loyaltyHistory.createdAt, end)
+      )
+    ).groupBy(loyaltyHistory.type);
+    const byType = {};
+    for (const r of rows) {
+      byType[r.type ?? "unknown"] = {
+        points: toSafeNumber2(r.total),
+        transactions: toSafeNumber2(r.count)
+      };
+    }
+    return {
+      period: { start: start.toISOString(), end: end.toISOString() },
+      earned: byType["earned"] ?? { points: 0, transactions: 0 },
+      burned: byType["burned"] ?? { points: 0, transactions: 0 },
+      expired: byType["expired"] ?? { points: 0, transactions: 0 },
+      manual: byType["manual"] ?? { points: 0, transactions: 0 }
+    };
+  }),
+  // ══════════════════════════════════════════════════════════════
+  // 🧠 INTELIGÊNCIA — escrever resultados do Python de volta
+  // ══════════════════════════════════════════════════════════════
+  /**
+   * POST /trpc/admin.api.writeDishIntelligence
+   * O app Python envia scores calculados por prato para persistir.
+   * O SmartGenerator pode ler esse score no processo de seleção.
+   */
+  writeDishIntelligence: internalProcedure.input(z32.array(z32.object({
+    dishId: z32.number(),
+    proteinGrams: z32.number().optional(),
+    carbGrams: z32.number().optional(),
+    fatGrams: z32.number().optional(),
+    popularityScore: z32.number().min(0).max(10).optional(),
+    avgRating: z32.number().min(0).max(5).optional(),
+    salesVelocity: z32.number().optional(),
+    // unidades/semana
+    recommendedPersonas: z32.array(z32.string()).optional()
+  }))).mutation(async ({ ctx, input }) => {
+    let upserted = 0;
+    for (const item of input) {
+      await ctx.db.insert(biDishIntelligence).values({
+        dishId: item.dishId,
+        proteinGrams: String(item.proteinGrams ?? 0),
+        carbGrams: String(item.carbGrams ?? 0),
+        fatGrams: String(item.fatGrams ?? 0),
+        popularityScore: String(item.popularityScore ?? 5),
+        avgRating: String(item.avgRating ?? 0),
+        salesVelocity: String(item.salesVelocity ?? 0)
+      }).onDuplicateKeyUpdate({
+        set: {
+          proteinGrams: sql23`VALUES(protein_grams)`,
+          carbGrams: sql23`VALUES(carb_grams)`,
+          fatGrams: sql23`VALUES(fat_grams)`,
+          popularityScore: sql23`VALUES(popularity_score)`,
+          avgRating: sql23`VALUES(avg_rating)`,
+          salesVelocity: sql23`VALUES(sales_velocity)`
+        }
+      });
+      upserted++;
+    }
+    return { success: true, upserted };
+  })
+});
+
 // server/routers/admin/ga4Analytics.ts
+init_db();
+init_schema();
 import { z as z33 } from "zod";
-import { TRPCError as TRPCError26 } from "@trpc/server";
+import { TRPCError as TRPCError34 } from "@trpc/server";
 import { GoogleAuth } from "google-auth-library";
+import { eq as eq42 } from "drizzle-orm";
 var GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 async function getGA4Credentials() {
   try {
-    const propertyId = "250001647";
-    const serviceAccountJson = `
-    {
-      "type": "service_account",
-      "project_id": "...",
-      "private_key_id": "...",
-      "private_key": "...",
-      "client_email": "bi-analytics@gourmetbi.iam.gserviceaccount.com",
-      "client_id": "...",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_x509_cert_url": "...",
-      "universe_domain": "googleapis.com"
-    }
-    `;
-    if (!serviceAccountJson || serviceAccountJson.trim() === "" || propertyId === "250001647") {
+    const db2 = await getDb();
+    const [serviceAccountRow, propertyRow] = await Promise.all([
+      db2.select().from(appConfigs).where(eq42(appConfigs.configKey, "ga_service_account")).limit(1),
+      db2.select().from(appConfigs).where(eq42(appConfigs.configKey, "ga4_property_id")).limit(1),
+      db2.select().from(appConfigs).where(eq42(appConfigs.configKey, "google_analytics_id")).limit(1)
+    ]);
+    const serviceAccountJson = serviceAccountRow[0]?.configValue?.trim();
+    const propertyId = propertyRow[0]?.configValue?.trim() || "";
+    if (!serviceAccountJson || !propertyId) {
       return null;
     }
     const credentials = JSON.parse(serviceAccountJson);
+    if (!credentials?.type || credentials.type !== "service_account") {
+      logger.warn("[GA4] Service account JSON inv\xE1lido \u2014 campo 'type' ausente ou incorreto");
+      return null;
+    }
     const auth = new GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
     });
     return { propertyId, auth };
   } catch (err) {
-    logger.error({ err }, "\u274C [GA4 TESTE HARDCODED] Erro Cr\xEDtico ao carregar credenciais");
+    logger.error({ err }, "[GA4] Erro ao carregar credenciais do banco");
     return null;
   }
 }
@@ -9184,11 +11194,13 @@ function parseRows(data, dimensionKey) {
   });
 }
 var ga4AnalyticsRouter = router({
-  // Verifica status completo: Service Account + Measurement ID
-  checkConnection: adminProcedure.query(async () => {
+  // Verifica status completo: Service Account + Measurement ID + API
+  checkConnection: superAdminProcedure.query(async () => {
+    const db2 = await getDb();
     const creds = await getGA4Credentials();
-    const measurementId = "G-W52VV00WRZ";
-    const measurementIdValid = true;
+    const gaIdRow = await db2.select().from(appConfigs).where(eq42(appConfigs.configKey, "google_analytics_id")).limit(1);
+    const measurementId = gaIdRow[0]?.configValue?.trim() || null;
+    const measurementIdValid = Boolean(measurementId && /^G-[A-Z0-9]+$/i.test(measurementId));
     let apiWorking = false;
     if (creds) {
       try {
@@ -9208,8 +11220,7 @@ var ga4AnalyticsRouter = router({
           }
         );
         apiWorking = res.ok;
-      } catch (error) {
-        logger.error({ error }, "\u274C [GA4 TESTE HARDCODED] Falha na chamada da API");
+      } catch {
         apiWorking = false;
       }
     }
@@ -9222,13 +11233,12 @@ var ga4AnalyticsRouter = router({
     };
   }),
   // Resumo geral: sessões, usuários, pageviews
-  getSummary: adminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
+  getSummary: superAdminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
     const creds = await getGA4Credentials();
-    if (!creds) throw new TRPCError26({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
+    if (!creds) throw new TRPCError34({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
     const { auth, propertyId } = creds;
-    const startDate = `${input.days}daysAgo`;
     const data = await ga4Request(auth, propertyId, {
-      dateRanges: [{ startDate, endDate: "today" }],
+      dateRanges: [{ startDate: `${input.days}daysAgo`, endDate: "today" }],
       metrics: [
         { name: "sessions" },
         { name: "totalUsers" },
@@ -9247,9 +11257,9 @@ var ga4AnalyticsRouter = router({
     };
   }),
   // Usuários ativos agora (tempo real)
-  getActiveUsers: adminProcedure.query(async () => {
+  getActiveUsers: superAdminProcedure.query(async () => {
     const creds = await getGA4Credentials();
-    if (!creds) throw new TRPCError26({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
+    if (!creds) throw new TRPCError34({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
     const { auth, propertyId } = creds;
     const client = await auth.getClient();
     const token = await client.getAccessToken();
@@ -9257,10 +11267,7 @@ var ga4AnalyticsRouter = router({
       `${GA4_API_BASE}/properties/${propertyId}:runRealtimeReport`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token.token}`
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token.token}` },
         body: JSON.stringify({
           metrics: [{ name: "activeUsers" }],
           dimensions: [{ name: "unifiedScreenName" }]
@@ -9269,7 +11276,7 @@ var ga4AnalyticsRouter = router({
     );
     if (!res.ok) {
       const errBody = await res.text();
-      logger.warn({ status: res.status, body: errBody.slice(0, 300) }, "[GA4] Realtime API error \u2014 retornando vazio");
+      logger.warn({ status: res.status, body: errBody.slice(0, 300) }, "[GA4] Realtime indispon\xEDvel \u2014 retornando vazio");
       return { total: 0, pages: [] };
     }
     const data = await res.json();
@@ -9285,9 +11292,9 @@ var ga4AnalyticsRouter = router({
     return { total, pages: rows.slice(0, 10) };
   }),
   // Páginas mais visitadas
-  getTopPages: adminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
+  getTopPages: superAdminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
     const creds = await getGA4Credentials();
-    if (!creds) throw new TRPCError26({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
+    if (!creds) throw new TRPCError34({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
     const { auth, propertyId } = creds;
     const data = await ga4Request(auth, propertyId, {
       dateRanges: [{ startDate: `${input.days}daysAgo`, endDate: "today" }],
@@ -9303,9 +11310,9 @@ var ga4AnalyticsRouter = router({
     }));
   }),
   // Origens de tráfego
-  getTrafficSources: adminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
+  getTrafficSources: superAdminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
     const creds = await getGA4Credentials();
-    if (!creds) throw new TRPCError26({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
+    if (!creds) throw new TRPCError34({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
     const { auth, propertyId } = creds;
     const data = await ga4Request(auth, propertyId, {
       dateRanges: [{ startDate: `${input.days}daysAgo`, endDate: "today" }],
@@ -9319,10 +11326,10 @@ var ga4AnalyticsRouter = router({
       sessions: r.value
     }));
   }),
-  // Sessões por dia (gráfico de linha)
-  getSessionsOverTime: adminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
+  // Sessões por dia
+  getSessionsOverTime: superAdminProcedure.input(z33.object({ days: z33.number().default(30) })).query(async ({ input }) => {
     const creds = await getGA4Credentials();
-    if (!creds) throw new TRPCError26({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
+    if (!creds) throw new TRPCError34({ code: "PRECONDITION_FAILED", message: "Credenciais GA4 n\xE3o configuradas." });
     const { auth, propertyId } = creds;
     const data = await ga4Request(auth, propertyId, {
       dateRanges: [{ startDate: `${input.days}daysAgo`, endDate: "today" }],
@@ -9338,22 +11345,625 @@ var ga4AnalyticsRouter = router({
   })
 });
 
+// server/routers/admin/pdv.ts
+import { TRPCError as TRPCError35 } from "@trpc/server";
+import { and as and17, asc as asc13, count as count5, desc as desc18, eq as eq43, gte as gte5, like as like9, lte as lte4, or as or8 } from "drizzle-orm";
+import { z as z34 } from "zod";
+init_db();
+init_schema();
+var clienteSchema = z34.object({
+  tipo: z34.enum(["cpf", "cnpj"]),
+  documento: z34.string().min(11).max(20),
+  nome: z34.string().min(1).max(255),
+  email: z34.string().email().optional().or(z34.literal("")),
+  telefone: z34.string().max(30).optional().or(z34.literal("")),
+  empresa: z34.string().max(255).optional().or(z34.literal("")),
+  observacoes: z34.string().max(2e3).optional().or(z34.literal(""))
+});
+var pagamentoSchema = z34.object({
+  forma: z34.enum(["cartao", "pix", "outro"]),
+  formaDescricao: z34.string().max(255).optional(),
+  valor: z34.number().nonnegative()
+});
+function money(value) {
+  return safeNumber(safeNumber(value).toFixed(2));
+}
+function onlyDigits(value) {
+  return value.replace(/\D/g, "");
+}
+function textOrNull(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+function todayKey(date2 = /* @__PURE__ */ new Date()) {
+  const year = String(date2.getFullYear());
+  const month = String(date2.getMonth() + 1).padStart(2, "0");
+  const day = String(date2.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function dayBounds(dateKey) {
+  return {
+    start: /* @__PURE__ */ new Date(`${dateKey}T00:00:00.000`),
+    end: /* @__PURE__ */ new Date(`${dateKey}T23:59:59.999`)
+  };
+}
+async function recalculateComandaTotals(tx, comandaId) {
+  const items = await tx.query.pdvComandaItens.findMany({
+    where: eq43(pdvComandaItens.comandaId, comandaId)
+  });
+  const comanda = await tx.query.pdvComandas.findFirst({
+    where: eq43(pdvComandas.id, comandaId)
+  });
+  if (!comanda) {
+    throw new TRPCError35({
+      code: "NOT_FOUND",
+      message: "Comanda n\xE3o encontrada."
+    });
+  }
+  const totalItens = money(
+    items.reduce((acc, item) => acc + money(item.subtotal), 0)
+  );
+  const totalFinal = money(Math.max(totalItens - money(comanda.desconto), 0));
+  await tx.update(pdvComandas).set({
+    totalItens: totalItens.toFixed(2),
+    totalFinal: totalFinal.toFixed(2)
+  }).where(eq43(pdvComandas.id, comandaId));
+}
+async function getComandaPayload(id) {
+  const db2 = await getDb();
+  const comanda = await db2.query.pdvComandas.findFirst({
+    where: eq43(pdvComandas.id, id),
+    with: {
+      cliente: true,
+      itens: {
+        orderBy: [desc18(pdvComandaItens.id)]
+      },
+      pagamentos: {
+        orderBy: [asc13(pdvPagamentos.id)]
+      }
+    }
+  });
+  if (!comanda) {
+    throw new TRPCError35({
+      code: "NOT_FOUND",
+      message: "Comanda n\xE3o encontrada."
+    });
+  }
+  return {
+    id: comanda.id,
+    status: comanda.status,
+    observacoes: comanda.observacoes,
+    desconto: money(comanda.desconto),
+    totalItens: money(comanda.totalItens),
+    totalFinal: money(comanda.totalFinal),
+    abertaEm: comanda.abertaEm,
+    fechadaEm: comanda.fechadaEm,
+    createdBy: comanda.createdBy,
+    cliente: {
+      id: comanda.cliente.id,
+      tipo: comanda.cliente.tipo,
+      documento: comanda.cliente.documento,
+      nome: comanda.cliente.nome,
+      email: comanda.cliente.email,
+      telefone: comanda.cliente.telefone,
+      empresa: comanda.cliente.empresa,
+      observacoes: comanda.cliente.observacoes
+    },
+    itens: comanda.itens.map((item) => ({
+      id: item.id,
+      dishId: item.dishId,
+      nome: item.nome,
+      precoUnit: money(item.precoUnit),
+      quantidade: safeInteger(item.quantidade, 0),
+      subtotal: money(item.subtotal),
+      observacao: item.observacao,
+      createdAt: item.createdAt
+    })),
+    pagamentos: comanda.pagamentos.map((pagamento) => ({
+      id: pagamento.id,
+      forma: pagamento.forma,
+      formaDescricao: pagamento.formaDescricao,
+      valor: money(pagamento.valor),
+      createdAt: pagamento.createdAt
+    })),
+    quantidadeItens: comanda.itens.reduce(
+      (acc, item) => acc + safeInteger(item.quantidade, 0),
+      0
+    )
+  };
+}
+var pdvRouter = router({
+  clientes: router({
+    buscar: operatorProcedure.input(z34.object({ termo: z34.string().trim().min(1) })).query(async ({ input }) => {
+      const db2 = await getDb();
+      const termo = input.termo.trim();
+      const documento = onlyDigits(termo);
+      const rows = await db2.select().from(pdvClientes).where(
+        or8(
+          like9(pdvClientes.nome, `%${termo}%`),
+          like9(pdvClientes.documento, `%${documento || termo}%`)
+        )
+      ).orderBy(asc13(pdvClientes.nome)).limit(20);
+      return rows.map((cliente) => ({
+        id: cliente.id,
+        tipo: cliente.tipo,
+        documento: cliente.documento,
+        nome: cliente.nome,
+        email: cliente.email,
+        telefone: cliente.telefone,
+        empresa: cliente.empresa,
+        observacoes: cliente.observacoes
+      }));
+    }),
+    criar: operatorProcedure.input(clienteSchema).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      const payload = {
+        tipo: input.tipo,
+        documento: onlyDigits(input.documento),
+        nome: input.nome.trim(),
+        email: textOrNull(input.email),
+        telefone: textOrNull(input.telefone),
+        empresa: textOrNull(input.empresa),
+        observacoes: textOrNull(input.observacoes)
+      };
+      const [insertResult] = await db2.insert(pdvClientes).values(payload);
+      const insertId = insertResult?.insertId;
+      if (!insertId) {
+        throw new TRPCError35({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro operacional ao gerar o ID do registro no banco."
+        });
+      }
+      return {
+        success: true,
+        id: safeInteger(insertId, 0),
+        message: `Cliente "${payload.nome}" cadastrado com sucesso.`
+      };
+    }),
+    listar: operatorProcedure.input(
+      z34.object({
+        page: z34.number().min(1).default(1).optional(),
+        perPage: z34.number().min(1).max(100).default(20).optional()
+      })
+    ).query(async ({ input }) => {
+      const db2 = await getDb();
+      const page = input.page ?? 1;
+      const perPage = input.perPage ?? 20;
+      const offset = (page - 1) * perPage;
+      const [total] = await db2.select({ value: count5() }).from(pdvClientes);
+      const rows = await db2.select().from(pdvClientes).orderBy(desc18(pdvClientes.id)).limit(perPage).offset(offset);
+      return {
+        data: rows.map((cliente) => ({
+          id: cliente.id,
+          tipo: cliente.tipo,
+          documento: cliente.documento,
+          nome: cliente.nome,
+          email: cliente.email,
+          telefone: cliente.telefone,
+          empresa: cliente.empresa,
+          observacoes: cliente.observacoes,
+          createdAt: cliente.createdAt,
+          updatedAt: cliente.updatedAt
+        })),
+        total: safeInteger(total?.value, 0),
+        page,
+        perPage
+      };
+    })
+  }),
+  comandas: router({
+    abrir: operatorProcedure.input(
+      z34.object({
+        clienteId: z34.number().int().positive(),
+        observacoes: z34.string().max(2e3).optional()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const db2 = await getDb();
+      const cliente = await db2.query.pdvClientes.findFirst({
+        where: eq43(pdvClientes.id, input.clienteId)
+      });
+      if (!cliente) {
+        throw new TRPCError35({
+          code: "NOT_FOUND",
+          message: "Cliente n\xE3o encontrado."
+        });
+      }
+      const [insertResult] = await db2.insert(pdvComandas).values({
+        clienteId: input.clienteId,
+        status: "aberta",
+        observacoes: textOrNull(input.observacoes),
+        desconto: "0.00",
+        totalItens: "0.00",
+        totalFinal: "0.00",
+        abertaEm: /* @__PURE__ */ new Date(),
+        createdBy: ctx.user.id
+      });
+      const insertId = insertResult?.insertId;
+      if (!insertId) {
+        throw new TRPCError35({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro operacional ao gerar o ID do registro no banco."
+        });
+      }
+      return {
+        success: true,
+        id: safeInteger(insertId, 0),
+        message: `Comanda de "${cliente.nome}" aberta com sucesso.`
+      };
+    }),
+    listarAbertas: operatorProcedure.query(async () => {
+      const db2 = await getDb();
+      const comandas = await db2.query.pdvComandas.findMany({
+        where: eq43(pdvComandas.status, "aberta"),
+        with: {
+          cliente: true,
+          itens: true
+        },
+        orderBy: [asc13(pdvComandas.abertaEm)]
+      });
+      return comandas.map((comanda) => ({
+        id: comanda.id,
+        clienteId: comanda.clienteId,
+        clienteNome: comanda.cliente.nome,
+        clienteDocumento: comanda.cliente.documento,
+        status: comanda.status,
+        observacoes: comanda.observacoes,
+        totalItens: money(comanda.totalItens),
+        totalFinal: money(comanda.totalFinal),
+        desconto: money(comanda.desconto),
+        abertaEm: comanda.abertaEm,
+        quantidadeItens: comanda.itens.reduce(
+          (acc, item) => acc + safeInteger(item.quantidade, 0),
+          0
+        )
+      }));
+    }),
+    getById: operatorProcedure.input(z34.object({ id: z34.number().int().positive() })).query(async ({ input }) => getComandaPayload(input.id)),
+    adicionarItem: operatorProcedure.input(
+      z34.object({
+        comandaId: z34.number().int().positive(),
+        dishId: z34.number().int().positive().nullable().optional(),
+        nome: z34.string().min(1).max(255),
+        precoUnit: z34.number().nonnegative(),
+        quantidade: z34.number().int().positive(),
+        observacao: z34.string().max(2e3).optional()
+      })
+    ).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      const subtotal = money(input.precoUnit * input.quantidade);
+      await db2.transaction(async (tx) => {
+        const comanda = await tx.query.pdvComandas.findFirst({
+          where: eq43(pdvComandas.id, input.comandaId)
+        });
+        if (!comanda) {
+          throw new TRPCError35({
+            code: "NOT_FOUND",
+            message: "Comanda n\xE3o encontrada."
+          });
+        }
+        if (comanda.status !== "aberta") {
+          throw new TRPCError35({
+            code: "BAD_REQUEST",
+            message: "Apenas comandas abertas podem receber itens."
+          });
+        }
+        await tx.insert(pdvComandaItens).values({
+          comandaId: input.comandaId,
+          dishId: input.dishId ?? null,
+          nome: input.nome.trim(),
+          precoUnit: money(input.precoUnit).toFixed(2),
+          quantidade: input.quantidade,
+          subtotal: subtotal.toFixed(2),
+          observacao: textOrNull(input.observacao)
+        });
+        await recalculateComandaTotals(
+          tx,
+          input.comandaId
+        );
+      });
+      return {
+        success: true,
+        message: `Item "${input.nome}" adicionado \xE0 comanda.`
+      };
+    }),
+    removerItem: operatorProcedure.input(z34.object({ itemId: z34.number().int().positive() })).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      await db2.transaction(async (tx) => {
+        const item = await tx.query.pdvComandaItens.findFirst({
+          where: eq43(pdvComandaItens.id, input.itemId)
+        });
+        if (!item) {
+          throw new TRPCError35({
+            code: "NOT_FOUND",
+            message: "Item n\xE3o encontrado."
+          });
+        }
+        await tx.delete(pdvComandaItens).where(eq43(pdvComandaItens.id, input.itemId));
+        await recalculateComandaTotals(
+          tx,
+          item.comandaId
+        );
+      });
+      return {
+        success: true,
+        message: "Item removido da comanda."
+      };
+    }),
+    atualizarItemObservacao: operatorProcedure.input(
+      z34.object({
+        itemId: z34.number().int().positive(),
+        observacao: z34.string().max(2e3).optional()
+      })
+    ).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      await db2.update(pdvComandaItens).set({ observacao: textOrNull(input.observacao) }).where(eq43(pdvComandaItens.id, input.itemId));
+      return {
+        success: true,
+        message: "Observa\xE7\xE3o do item atualizada."
+      };
+    }),
+    aplicarDesconto: operatorProcedure.input(
+      z34.object({
+        comandaId: z34.number().int().positive(),
+        desconto: z34.number().nonnegative()
+      })
+    ).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      await db2.transaction(async (tx) => {
+        const comanda = await tx.query.pdvComandas.findFirst({
+          where: eq43(pdvComandas.id, input.comandaId)
+        });
+        if (!comanda) {
+          throw new TRPCError35({
+            code: "NOT_FOUND",
+            message: "Comanda n\xE3o encontrada."
+          });
+        }
+        await tx.update(pdvComandas).set({ desconto: money(input.desconto).toFixed(2) }).where(eq43(pdvComandas.id, input.comandaId));
+        await recalculateComandaTotals(
+          tx,
+          input.comandaId
+        );
+      });
+      return {
+        success: true,
+        message: "Desconto aplicado \xE0 comanda."
+      };
+    }),
+    fechar: operatorProcedure.input(
+      z34.object({
+        comandaId: z34.number().int().positive(),
+        pagamentos: z34.array(pagamentoSchema).min(1)
+      })
+    ).mutation(async ({ input }) => {
+      const db2 = await getDb();
+      await db2.transaction(async (tx) => {
+        const comanda = await tx.query.pdvComandas.findFirst({
+          where: eq43(pdvComandas.id, input.comandaId)
+        });
+        if (!comanda) {
+          throw new TRPCError35({
+            code: "NOT_FOUND",
+            message: "Comanda n\xE3o encontrada."
+          });
+        }
+        if (comanda.status !== "aberta") {
+          throw new TRPCError35({
+            code: "BAD_REQUEST",
+            message: "A comanda j\xE1 est\xE1 fechada ou cancelada."
+          });
+        }
+        const totalPagamentos = money(
+          input.pagamentos.reduce((acc, pagamento) => acc + pagamento.valor, 0)
+        );
+        if (totalPagamentos < money(comanda.totalFinal)) {
+          throw new TRPCError35({
+            code: "BAD_REQUEST",
+            message: "A soma dos pagamentos deve ser maior ou igual ao total final."
+          });
+        }
+        await tx.delete(pdvPagamentos).where(eq43(pdvPagamentos.comandaId, input.comandaId));
+        await tx.insert(pdvPagamentos).values(
+          input.pagamentos.map((pagamento) => ({
+            comandaId: input.comandaId,
+            forma: pagamento.forma,
+            formaDescricao: textOrNull(pagamento.formaDescricao),
+            valor: money(pagamento.valor).toFixed(2)
+          }))
+        );
+        await tx.update(pdvComandas).set({
+          status: "fechada",
+          fechadaEm: /* @__PURE__ */ new Date()
+        }).where(eq43(pdvComandas.id, input.comandaId));
+      });
+      return {
+        success: true,
+        message: "Comanda fechada com sucesso."
+      };
+    })
+  }),
+  relatorios: router({
+    resumoDia: operatorProcedure.input(z34.object({ data: z34.string().optional() })).query(async ({ input }) => {
+      const db2 = await getDb();
+      const data = input.data || todayKey();
+      const bounds = dayBounds(data);
+      const comandas = await db2.query.pdvComandas.findMany({
+        where: and17(
+          eq43(pdvComandas.status, "fechada"),
+          gte5(pdvComandas.fechadaEm, bounds.start),
+          lte4(pdvComandas.fechadaEm, bounds.end)
+        ),
+        with: {
+          cliente: true,
+          pagamentos: true
+        },
+        orderBy: [desc18(pdvComandas.fechadaEm)]
+      });
+      let totalCartao = 0;
+      let totalPix = 0;
+      let totalOutro = 0;
+      comandas.forEach((comanda) => {
+        comanda.pagamentos.forEach((pagamento) => {
+          const value = money(pagamento.valor);
+          if (pagamento.forma === "cartao") totalCartao += value;
+          if (pagamento.forma === "pix") totalPix += value;
+          if (pagamento.forma === "outro") totalOutro += value;
+        });
+      });
+      return {
+        data,
+        totalCartao: money(totalCartao),
+        totalPix: money(totalPix),
+        totalOutro: money(totalOutro),
+        totalGeral: money(totalCartao + totalPix + totalOutro),
+        totalComandas: comandas.length,
+        comandas: comandas.map((comanda) => ({
+          id: comanda.id,
+          clienteNome: comanda.cliente.nome,
+          totalFinal: money(comanda.totalFinal),
+          desconto: money(comanda.desconto),
+          fechadaEm: comanda.fechadaEm,
+          pagamentos: comanda.pagamentos.map((pagamento) => ({
+            forma: pagamento.forma,
+            formaDescricao: pagamento.formaDescricao,
+            valor: money(pagamento.valor)
+          }))
+        }))
+      };
+    }),
+    comandasPorPeriodo: operatorProcedure.input(
+      z34.object({
+        dataInicio: z34.string(),
+        dataFim: z34.string()
+      })
+    ).query(async ({ input }) => {
+      const db2 = await getDb();
+      const start = dayBounds(input.dataInicio).start;
+      const end = dayBounds(input.dataFim).end;
+      const comandas = await db2.query.pdvComandas.findMany({
+        where: and17(gte5(pdvComandas.createdAt, start), lte4(pdvComandas.createdAt, end)),
+        with: {
+          cliente: true
+        },
+        orderBy: [desc18(pdvComandas.createdAt)]
+      });
+      return comandas.map((comanda) => ({
+        id: comanda.id,
+        clienteId: comanda.clienteId,
+        clienteNome: comanda.cliente.nome,
+        status: comanda.status,
+        totalItens: money(comanda.totalItens),
+        desconto: money(comanda.desconto),
+        totalFinal: money(comanda.totalFinal),
+        abertaEm: comanda.abertaEm,
+        fechadaEm: comanda.fechadaEm,
+        createdAt: comanda.createdAt
+      }));
+    }),
+    comandasPorCliente: operatorProcedure.input(z34.object({ clienteId: z34.number().int().positive() })).query(async ({ input }) => {
+      const db2 = await getDb();
+      const comandas = await db2.query.pdvComandas.findMany({
+        where: eq43(pdvComandas.clienteId, input.clienteId),
+        with: {
+          cliente: true,
+          pagamentos: true
+        },
+        orderBy: [desc18(pdvComandas.createdAt)]
+      });
+      return comandas.map((comanda) => ({
+        id: comanda.id,
+        clienteNome: comanda.cliente.nome,
+        status: comanda.status,
+        totalItens: money(comanda.totalItens),
+        desconto: money(comanda.desconto),
+        totalFinal: money(comanda.totalFinal),
+        abertaEm: comanda.abertaEm,
+        fechadaEm: comanda.fechadaEm,
+        pagamentos: comanda.pagamentos.map((pagamento) => ({
+          forma: pagamento.forma,
+          formaDescricao: pagamento.formaDescricao,
+          valor: money(pagamento.valor)
+        }))
+      }));
+    }),
+    fecharCaixa: operatorProcedure.input(
+      z34.object({
+        data: z34.string().optional(),
+        observacoes: z34.string().max(2e3).optional()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const db2 = await getDb();
+      const data = input.data || todayKey();
+      const bounds = dayBounds(data);
+      const comandas = await db2.query.pdvComandas.findMany({
+        where: and17(
+          eq43(pdvComandas.status, "fechada"),
+          gte5(pdvComandas.fechadaEm, bounds.start),
+          lte4(pdvComandas.fechadaEm, bounds.end)
+        ),
+        with: {
+          pagamentos: true
+        }
+      });
+      let totalCartao = 0;
+      let totalPix = 0;
+      let totalOutro = 0;
+      comandas.forEach((comanda) => {
+        comanda.pagamentos.forEach((pagamento) => {
+          const value = money(pagamento.valor);
+          if (pagamento.forma === "cartao") totalCartao += value;
+          if (pagamento.forma === "pix") totalPix += value;
+          if (pagamento.forma === "outro") totalOutro += value;
+        });
+      });
+      const payload = {
+        dataFechamento: data,
+        totalCartao: money(totalCartao).toFixed(2),
+        totalPix: money(totalPix).toFixed(2),
+        totalOutro: money(totalOutro).toFixed(2),
+        totalGeral: money(totalCartao + totalPix + totalOutro).toFixed(2),
+        totalComandas: comandas.length,
+        observacoes: textOrNull(input.observacoes),
+        fechadoPor: ctx.user.id
+      };
+      const existing = await db2.query.pdvFechamentos.findFirst({
+        where: eq43(pdvFechamentos.dataFechamento, data)
+      });
+      if (existing) {
+        await db2.update(pdvFechamentos).set(payload).where(eq43(pdvFechamentos.id, existing.id));
+      } else {
+        await db2.insert(pdvFechamentos).values(payload);
+      }
+      return {
+        success: true,
+        data,
+        totalCartao: money(totalCartao),
+        totalPix: money(totalPix),
+        totalOutro: money(totalOutro),
+        totalGeral: money(totalCartao + totalPix + totalOutro),
+        totalComandas: comandas.length,
+        message: "Fechamento do caixa consolidado com sucesso."
+      };
+    })
+  })
+});
+
 // server/api/admin/bi-sync.ts
 init_schema2();
-import { and as and15, asc as asc12, gte as gte4, inArray as inArray7, lte as lte3 } from "drizzle-orm";
-import { z as z34 } from "zod";
+import { and as and18, asc as asc14, gte as gte6, inArray as inArray8, lte as lte5 } from "drizzle-orm";
+import { z as z35 } from "zod";
 init_db();
 async function syncHistoricalData(startDate, endDate, _ids) {
   const db2 = await getDb();
   console.log(`[BI SYNC] Iniciando varredura: ${startDate} ate ${endDate}`);
   try {
     const rawOrders = await db2.select().from(orders).where(
-      and15(
-        gte4(orders.createdAt, new Date(startDate)),
-        lte3(orders.createdAt, new Date(endDate)),
-        inArray7(orders.status, ["completed", "delivered", "shipped"])
+      and18(
+        gte6(orders.createdAt, new Date(startDate)),
+        lte5(orders.createdAt, new Date(endDate)),
+        inArray8(orders.status, ["completed", "delivered", "shipped"])
       )
-    ).orderBy(asc12(orders.createdAt));
+    ).orderBy(asc14(orders.createdAt));
     if (rawOrders.length === 0) {
       console.log("[BI SYNC] Nenhum pedido encontrado no periodo.");
       return { processed: 0 };
@@ -9363,7 +11973,7 @@ async function syncHistoricalData(startDate, endDate, _ids) {
       console.warn("[BI SYNC] Redis/worker indisponivel. Pedidos marcados como skipped.");
       return { processed: 0, skipped: rawOrders.length };
     }
-    let count6 = 0;
+    let count7 = 0;
     let skipped = 0;
     for (const order of rawOrders) {
       try {
@@ -9373,16 +11983,16 @@ async function syncHistoricalData(startDate, endDate, _ids) {
           jobId: `sync-${order.id}`,
           priority: 10
         });
-        if (queued) count6 += 1;
+        if (queued) count7 += 1;
         else skipped += 1;
       } catch (err) {
         console.error(`Erro ao enfileirar pedido ${order.id}:`, err);
       }
     }
     console.log(
-      `[BI SYNC] Sincronizacao concluida: ${count6} enfileirados, ${skipped} ignorados.`
+      `[BI SYNC] Sincronizacao concluida: ${count7} enfileirados, ${skipped} ignorados.`
     );
-    return { processed: count6, skipped };
+    return { processed: count7, skipped };
   } catch (error) {
     console.error("Erro critico na varredura de BI:", error);
     throw error;
@@ -9390,10 +12000,10 @@ async function syncHistoricalData(startDate, endDate, _ids) {
 }
 var biSyncRouter = router({
   run: adminProcedure.input(
-    z34.object({
-      ids: z34.array(z34.string()).optional(),
-      start: z34.string(),
-      end: z34.string()
+    z35.object({
+      ids: z35.array(z35.string()).optional(),
+      start: z35.string(),
+      end: z35.string()
     })
   ).mutation(async ({ input }) => {
     return syncHistoricalData(input.start, input.end, input.ids);
@@ -9408,10 +12018,10 @@ var adminRouter = router({
   ga4: ga4AnalyticsRouter,
   // ✅ BI & DATA SYNC
   // Resolve o "Property syncBI does not exist" e prepara o terreno para o Dashboard
-  syncBI: adminProcedure.input(z35.object({
-    ids: z35.array(z35.string()).optional(),
-    start: z35.string(),
-    end: z35.string()
+  syncBI: superAdminProcedure.input(z36.object({
+    ids: z36.array(z36.string()).optional(),
+    start: z36.string(),
+    end: z36.string()
   })).mutation(async ({ input }) => {
     return await syncHistoricalData(input.start, input.end, input.ids);
   }),
@@ -9463,6 +12073,7 @@ var adminRouter = router({
   usersAdmin: usersAdminRouter,
   orders: ordersAdminRouter,
   ordersAdmin: ordersAdminRouter,
+  pdv: pdvRouter,
   // ⚙️ CONFIGURAÇÕES DE SISTEMA
   storeSettings: adminStoreSettingsRouter,
   settings: adminStoreSettingsRouter,
@@ -9470,14 +12081,14 @@ var adminRouter = router({
 });
 
 // server/routers/admin/theme.js
-import { z as z36 } from "zod";
+import { z as z37 } from "zod";
 init_db();
 init_schema();
-import { eq as eq41 } from "drizzle-orm";
+import { eq as eq44 } from "drizzle-orm";
 var adminThemeRouter = router({
-  get: adminProcedure.query(async () => {
+  get: superAdminProcedure.query(async () => {
     const db2 = await getDb();
-    const [settings] = await db2.select().from(storeSettings).where(eq41(storeSettings.id, "1")).limit(1);
+    const [settings] = await db2.select().from(storeSettings).where(eq44(storeSettings.id, "1")).limit(1);
     if (!settings?.siteTheme) return null;
     try {
       return typeof settings.siteTheme === "string" ? JSON.parse(settings.siteTheme) : settings.siteTheme;
@@ -9486,12 +12097,33 @@ var adminThemeRouter = router({
     }
   }),
   // ✅ CORREÇÃO: Nomeado como 'save' e aceitando o objeto dinâmico do frontend
-  save: adminProcedure.input(z36.record(z36.string(), z36.any())).mutation(async ({ input }) => {
+  save: superAdminProcedure.input(z37.record(z37.string(), z37.any())).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
+    const [oldSettings] = await db2.select().from(storeSettings).where(eq44(storeSettings.id, "1")).limit(1);
+    const oldTheme = oldSettings?.siteTheme ? typeof oldSettings.siteTheme === "string" ? JSON.parse(oldSettings.siteTheme) : oldSettings.siteTheme : null;
     await db2.update(storeSettings).set({
       siteTheme: input,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq41(storeSettings.id, "1"));
+    }).where(eq44(storeSettings.id, "1"));
+    const forwarded = ctx.req?.headers?.["x-forwarded-for"];
+    const ipAddress = ctx.req?.ip || (typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : null) || "127.0.0.1";
+    const actor = {
+      userId: ctx.user?.id,
+      ipAddress,
+      userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+      requestId: ctx.req?.requestId
+    };
+    void AuditLogService.record({
+      actor,
+      module: "theme",
+      action: "SAVE_THEME",
+      severity: "warning",
+      entityType: "theme",
+      entityId: "1",
+      entityLabel: "Tema da Marca",
+      oldValues: oldTheme,
+      newValues: input
+    });
     return {
       success: true,
       message: "Identidade visual atualizada com sucesso!"
@@ -9500,62 +12132,73 @@ var adminThemeRouter = router({
 });
 
 // server/routers/media.ts
-import { z as z37 } from "zod";
+init_schema2();
+import { TRPCError as TRPCError36 } from "@trpc/server";
+import { desc as desc19, eq as eq45 } from "drizzle-orm";
+import { z as z38 } from "zod";
+init_db();
+function normalizeMediaFolderFilter2(folder) {
+  const normalized = (folder || "all").toLowerCase().trim();
+  return normalized === "all" ? "all" : sanitizeMediaFolder(normalized);
+}
 var mediaRouter = router({
-  getImagesByFolder: publicProcedure.input(z37.object({ folder: z37.string().min(1).max(100) })).query(async ({ input }) => {
-    try {
-      const folderPrefix = input.folder.startsWith("gourmet") ? input.folder.replace(/[^a-zA-Z0-9/_-]/g, "") : `gourmet/${sanitizeMediaFolder(input.folder)}`.replace(/\/$/, "");
-      const result = await cloudinary.api.resources({
-        type: "upload",
-        prefix: folderPrefix,
-        max_results: 100
+  getImagesByFolder: adminProcedure.input(
+    z38.object({
+      folder: z38.string().optional().default("all")
+    })
+  ).query(async ({ input }) => {
+    const db2 = await getDb();
+    if (!db2) {
+      throw new TRPCError36({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Banco offline"
       });
-      return result.resources.map((resource) => ({
-        id: resource.public_id,
-        url: resource.secure_url,
-        name: resource.display_name || resource.public_id.split("/").pop() || "imagem",
-        format: resource.format
-      }));
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
-      console.error("Erro Cloudinary public:", errorMessage);
-      throw new Error("N\xE3o foi poss\xEDvel carregar as imagens desta pasta.");
     }
+    const folder = normalizeMediaFolderFilter2(input.folder);
+    const results = folder === "all" ? await db2.select().from(media).orderBy(desc19(media.id)) : await db2.select().from(media).where(eq45(media.folder, folder)).orderBy(desc19(media.id));
+    return results.map((item) => ({
+      id: String(item.id),
+      url: item.url,
+      name: item.originalFilename || item.filePath.split("/").pop() || "imagem",
+      format: item.mimeType?.split("/")[1] || "",
+      folder: item.folder
+    }));
   })
 });
 
 // server/routers/storefront/index.ts
 init_db();
 init_schema();
-import { eq as eq77 } from "drizzle-orm";
+import { eq as eq81 } from "drizzle-orm";
 
 // server/routers/storefront/auth/index.ts
 init_db();
 init_schema();
 init_encryption();
-import { z as z38 } from "zod";
-import { eq as eq44 } from "drizzle-orm";
+import { z as z39 } from "zod";
+import { and as and19, eq as eq48, isNull as isNull5, ne, desc as desc20 } from "drizzle-orm";
+import { TRPCError as TRPCError39 } from "@trpc/server";
 
 // server/routers/storefront/auth/auth.procedures.ts
 init_schema();
 init_db();
 import { hash as hash2, verify } from "@node-rs/argon2";
-import { eq as eq43 } from "drizzle-orm";
-import { TRPCError as TRPCError28 } from "@trpc/server";
-import crypto10 from "node:crypto";
+import { eq as eq47 } from "drizzle-orm";
+import { TRPCError as TRPCError38 } from "@trpc/server";
+import crypto12 from "node:crypto";
 init_encryption();
 
 // server/routers/storefront/auth/auth.logic.ts
 init_schema();
 init_encryption();
-import { TRPCError as TRPCError27 } from "@trpc/server";
-import { sql as sql23, eq as eq42 } from "drizzle-orm";
+import { TRPCError as TRPCError37 } from "@trpc/server";
+import { sql as sql24, eq as eq46 } from "drizzle-orm";
 function isValidCPF(cpf) {
   const clean = cpf.replace(/\D/g, "");
   if (clean.length !== 11 || /^(\d)\1{10}$/.test(clean)) return false;
   const digits = clean.split("").map(Number);
-  const calculateCheckDigit = (count6) => {
-    const sum4 = digits.slice(0, count6 - 1).reduce((acc, digit, idx) => acc + digit * (count6 - idx), 0);
+  const calculateCheckDigit = (count7) => {
+    const sum4 = digits.slice(0, count7 - 1).reduce((acc, digit, idx) => acc + digit * (count7 - idx), 0);
     const remainder = sum4 * 10 % 11;
     return remainder === 10 ? 0 : remainder;
   };
@@ -9563,9 +12206,9 @@ function isValidCPF(cpf) {
 }
 async function checkDuplicity(db2, data) {
   const emailLower = data.email.toLowerCase().trim();
-  const [emailExists] = await db2.select().from(users).where(sql23`${users.email} = ${emailLower} COLLATE utf8mb4_unicode_ci`).limit(1);
+  const [emailExists] = await db2.select().from(users).where(sql24`${users.email} = ${emailLower} COLLATE utf8mb4_unicode_ci`).limit(1);
   if (emailExists) {
-    throw new TRPCError27({
+    throw new TRPCError37({
       code: "BAD_REQUEST",
       message: "Este e-mail j\xE1 est\xE1 em uso."
     });
@@ -9573,14 +12216,14 @@ async function checkDuplicity(db2, data) {
   const cleanCpf = data.cpf.replace(/\D/g, "");
   const docHash = piiHash(cleanCpf);
   if (!docHash) {
-    throw new TRPCError27({
+    throw new TRPCError37({
       code: "INTERNAL_SERVER_ERROR",
       message: "Erro ao processar dados de seguran\xE7a."
     });
   }
-  const [cpfExists] = await db2.select().from(users).where(sql23`${users.documentIndex} = ${docHash} COLLATE utf8mb4_unicode_ci`).limit(1);
+  const [cpfExists] = await db2.select().from(users).where(sql24`${users.documentIndex} = ${docHash} COLLATE utf8mb4_unicode_ci`).limit(1);
   if (cpfExists) {
-    throw new TRPCError27({
+    throw new TRPCError37({
       code: "BAD_REQUEST",
       message: "Este CPF j\xE1 possui uma conta ativa."
     });
@@ -9589,9 +12232,9 @@ async function checkDuplicity(db2, data) {
     const cleanPhone = data.phone.replace(/\D/g, "");
     const phoneHash = piiHash(cleanPhone);
     if (phoneHash) {
-      const [phoneExists] = await db2.select().from(users).where(sql23`${users.phoneIndex} = ${phoneHash} COLLATE utf8mb4_unicode_ci`).limit(1);
+      const [phoneExists] = await db2.select().from(users).where(sql24`${users.phoneIndex} = ${phoneHash} COLLATE utf8mb4_unicode_ci`).limit(1);
       if (phoneExists) {
-        throw new TRPCError27({
+        throw new TRPCError37({
           code: "BAD_REQUEST",
           message: "Este WhatsApp j\xE1 est\xE1 em uso por outra conta."
         });
@@ -9601,31 +12244,76 @@ async function checkDuplicity(db2, data) {
 }
 
 // server/routers/storefront/auth/auth.procedures.ts
-function normalizeForSearch2(text19) {
-  return text19.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+function normalizeForSearch2(text20) {
+  return text20.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 var loginProcedure = async ({ input, ctx }) => {
   const db2 = await getDb();
-  const identifier = input.identifier.trim().toLowerCase();
+  const identifier = normalizeAuthIdentifier(input.identifier);
   const [result] = await db2.select({
     id: users.id,
     email: users.email,
     password: users.password,
-    needsReset: users.needsPasswordReset
-  }).from(users).where(eq43(users.email, identifier)).limit(1);
+    needsReset: users.needsPasswordReset,
+    deletedAt: users.deletedAt
+  }).from(users).where(eq47(users.email, identifier)).limit(1);
   if (!result || !result.password) {
-    throw new TRPCError28({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      identifier,
+      reason: "invalid_credentials"
+    });
+    throw new TRPCError38({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+  }
+  if (result.deletedAt) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_BLOCKED_DELETED",
+      severity: "critical",
+      userId: result.id,
+      identifier,
+      reason: "soft_deleted_user"
+    });
+    throw new TRPCError38({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
   }
   if (Number(result.needsReset) === 1) {
     return { success: false, status: "MIGRATION_REQUIRED", email: result.email };
   }
   if (!input.password) {
-    throw new TRPCError28({ code: "BAD_REQUEST", message: "Senha \xE9 obrigat\xF3ria." });
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      userId: result.id,
+      identifier,
+      reason: "missing_password"
+    });
+    throw new TRPCError38({ code: "BAD_REQUEST", message: "Senha \xE9 obrigat\xF3ria." });
   }
   const valid = await verify(result.password, input.password);
-  if (!valid) throw new TRPCError28({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
-  const session = await lucia.createSession(result.id, {});
+  if (!valid) {
+    recordAuthEvent({
+      ctx,
+      action: "LOGIN_PASSWORD_FAIL",
+      severity: "warning",
+      userId: result.id,
+      identifier,
+      reason: "invalid_credentials"
+    });
+    throw new TRPCError38({ code: "UNAUTHORIZED", message: "E-mail ou senha incorretos." });
+  }
+  const ipAddress = ctx.req ? ctx.req.ip || ctx.req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1" : "127.0.0.1";
+  const userAgent = ctx.req ? ctx.req.headers?.["user-agent"] || "unknown" : "unknown";
+  const session = await lucia.createSession(result.id, {
+    ipAddress,
+    userAgent
+  });
   const sessionCookie = lucia.createSessionCookie(session.id);
+  if (ctx.req?.hostname && (ctx.req.hostname === "localhost" || ctx.req.hostname === "127.0.0.1" || ctx.req.hostname.startsWith("192.168.24."))) {
+    sessionCookie.attributes.secure = false;
+  }
   if (!input.rememberMe) {
     sessionCookie.attributes.maxAge = void 0;
     sessionCookie.attributes.expires = void 0;
@@ -9638,19 +12326,30 @@ var loginProcedure = async ({ input, ctx }) => {
     }
   }
   await promoteCart(ctx.guestId || input.guestSessionId, result.id);
+  await db2.update(users).set({ lastSignedIn: /* @__PURE__ */ new Date() }).where(eq47(users.id, result.id));
+  recordAuthEvent({
+    ctx,
+    action: "LOGIN_PASSWORD_SUCCESS",
+    severity: "info",
+    userId: result.id,
+    identifier,
+    reason: input.rememberMe ? "remember_me" : "session_cookie"
+  });
   return { success: true, status: "SUCCESS" };
 };
 var registerProcedure = async ({ input, ctx }) => {
   const db2 = await getDb();
+  const email = normalizeAuthIdentifier(input.email);
+  assertPasswordPolicy(input.password, email);
   if (!isValidCPF(input.cpf)) {
-    throw new TRPCError28({ code: "BAD_REQUEST", message: "CPF inv\xE1lido." });
+    throw new TRPCError38({ code: "BAD_REQUEST", message: "CPF inv\xE1lido." });
   }
   await checkDuplicity(db2, {
-    email: input.email,
+    email,
     cpf: input.cpf,
     phone: input.whatsapp || void 0
   });
-  const unifiedId = crypto10.randomUUID();
+  const unifiedId = crypto12.randomUUID();
   const hashedPassword = await hash2(input.password);
   const cleanCpf = input.cpf.replace(/\D/g, "");
   const cleanPhone = input.whatsapp ? normalizeDigits(input.whatsapp) : null;
@@ -9660,13 +12359,13 @@ var registerProcedure = async ({ input, ctx }) => {
       let foundReferral = null;
       if (targetGuestId) {
         const guestData = await tx.query.guests.findFirst({
-          where: eq43(guests.id, targetGuestId)
+          where: eq47(guests.id, targetGuestId)
         });
         if (guestData) foundReferral = guestData.referralCode || null;
       }
       await tx.insert(users).values({
         id: unifiedId,
-        email: input.email.toLowerCase(),
+        email,
         password: hashedPassword,
         name: encrypt(input.name.trim()),
         customerDocument: encrypt(cleanCpf),
@@ -9681,8 +12380,16 @@ var registerProcedure = async ({ input, ctx }) => {
         aiCredits: 2
       });
     });
-    const session = await lucia.createSession(unifiedId, {});
+    const ipAddress = ctx.req ? ctx.req.ip || ctx.req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1" : "127.0.0.1";
+    const userAgent = ctx.req ? ctx.req.headers?.["user-agent"] || "unknown" : "unknown";
+    const session = await lucia.createSession(unifiedId, {
+      ipAddress,
+      userAgent
+    });
     const sessionCookie = lucia.createSessionCookie(session.id);
+    if (ctx.req?.hostname && (ctx.req.hostname === "localhost" || ctx.req.hostname === "127.0.0.1" || ctx.req.hostname.startsWith("192.168.24."))) {
+      sessionCookie.attributes.secure = false;
+    }
     sessionCookie.attributes.maxAge = void 0;
     sessionCookie.attributes.expires = void 0;
     if (ctx.res) {
@@ -9693,17 +12400,32 @@ var registerProcedure = async ({ input, ctx }) => {
       }
     }
     await promoteCart(input.guestSessionId || ctx.guestId, unifiedId);
+    recordAuthEvent({
+      ctx,
+      action: "REGISTER_PASSWORD_SUCCESS",
+      severity: "info",
+      userId: unifiedId,
+      identifier: email
+    });
     return { success: true };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro ao realizar cadastro.";
-    throw new TRPCError28({ code: "INTERNAL_SERVER_ERROR", message: msg });
+    throw new TRPCError38({ code: "INTERNAL_SERVER_ERROR", message: msg });
   }
 };
-var requestPasswordResetProcedure = async ({ input }) => {
+var requestPasswordResetProcedure = async ({ input, ctx }) => {
   const db2 = await getDb();
-  const email = input.email.toLowerCase().trim();
-  const [user] = await db2.select().from(users).where(eq43(users.email, email)).limit(1);
-  if (!user) return { success: true, message: "Link enviado." };
+  const email = normalizeAuthIdentifier(input.email);
+  const [user] = await db2.select().from(users).where(eq47(users.email, email)).limit(1);
+  recordAuthEvent({
+    ctx,
+    action: "RESET_REQUESTED",
+    severity: "warning",
+    userId: user?.id,
+    identifier: email,
+    reason: user ? "account_match" : "no_account_match"
+  });
+  if (!user || user.deletedAt) return { success: true, message: "Link enviado." };
   let firstName = "Cliente";
   if (user.name) {
     try {
@@ -9716,13 +12438,13 @@ var requestPasswordResetProcedure = async ({ input }) => {
       console.error("Erro ao descriptografar nome:", err);
     }
   }
-  const token = crypto10.randomBytes(32).toString("hex");
+  const token = crypto12.randomBytes(32).toString("hex");
   const expires = /* @__PURE__ */ new Date();
   expires.setHours(expires.getHours() + 2);
   await db2.update(users).set({
     resetToken: token,
     resetExpires: expires
-  }).where(eq43(users.id, user.id));
+  }).where(eq47(users.id, user.id));
   const resetLink = `${process.env.VITE_APP_URL || "http://localhost:5173"}/primeiro-acesso?token=${token}`;
   try {
     const { mailer: mailer2 } = await Promise.resolve().then(() => (init_mailer(), mailer_exports));
@@ -9738,19 +12460,38 @@ var resetPasswordProcedure = async ({
 }) => {
   const db2 = await getDb();
   const now = /* @__PURE__ */ new Date();
-  const [user] = await db2.select().from(users).where(eq43(users.resetToken, input.token)).limit(1);
-  if (!user || !user.resetExpires || new Date(user.resetExpires) < now) {
-    throw new TRPCError28({ code: "BAD_REQUEST", message: "Link inv\xE1lido ou expirado." });
+  assertPasswordPolicy(input.password);
+  const [user] = await db2.select().from(users).where(eq47(users.resetToken, input.token)).limit(1);
+  if (!user || user.deletedAt || !user.resetExpires || new Date(user.resetExpires) < now) {
+    recordAuthEvent({
+      ctx,
+      action: "RESET_PASSWORD_FAIL",
+      severity: "warning",
+      userId: user?.id,
+      reason: user?.deletedAt ? "soft_deleted_user" : "invalid_or_expired_token",
+      metadata: { tokenPrefix: input.token.slice(0, 6) }
+    });
+    throw new TRPCError38({ code: "BAD_REQUEST", message: "Link inv\xE1lido ou expirado." });
   }
+  assertPasswordPolicy(input.password, user.email);
   const hashedPassword = await hash2(input.password);
   await db2.update(users).set({
     password: hashedPassword,
     needsPasswordReset: 0,
     resetToken: null,
     resetExpires: null
-  }).where(eq43(users.id, user.id));
-  const session = await lucia.createSession(user.id, {});
+  }).where(eq47(users.id, user.id));
+  await lucia.invalidateUserSessions(user.id);
+  const ipAddress = ctx.req ? ctx.req.ip || ctx.req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1" : "127.0.0.1";
+  const userAgent = ctx.req ? ctx.req.headers?.["user-agent"] || "unknown" : "unknown";
+  const session = await lucia.createSession(user.id, {
+    ipAddress,
+    userAgent
+  });
   const sessionCookie = lucia.createSessionCookie(session.id);
+  if (ctx.req?.hostname && (ctx.req.hostname === "localhost" || ctx.req.hostname === "127.0.0.1" || ctx.req.hostname.startsWith("192.168.24."))) {
+    sessionCookie.attributes.secure = false;
+  }
   sessionCookie.attributes.maxAge = void 0;
   sessionCookie.attributes.expires = void 0;
   if (ctx.res) {
@@ -9761,9 +12502,18 @@ var resetPasswordProcedure = async ({
     }
   }
   await promoteCart(ctx.guestId, user.id);
+  recordAuthEvent({
+    ctx,
+    action: "RESET_SUCCESS",
+    severity: "warning",
+    userId: user.id,
+    identifier: user.email,
+    reason: "password_reset"
+  });
   return { success: true };
 };
 var logoutProcedure = async ({ ctx }) => {
+  const userId = ctx.user?.id || null;
   if (ctx.session) {
     await lucia.invalidateSession(ctx.session.id);
   }
@@ -9775,6 +12525,13 @@ var logoutProcedure = async ({ ctx }) => {
       ctx.res.append("Set-Cookie", sessionCookie.serialize());
     }
   }
+  recordAuthEvent({
+    ctx,
+    action: "LOGOUT",
+    severity: "info",
+    userId,
+    reason: ctx.session ? "session_invalidated" : "no_active_session"
+  });
   return { success: true };
 };
 
@@ -9783,13 +12540,20 @@ var authRouter = router({
   /**
    * 🔍 VERIFICA SE USUÁRIO EXISTE
    */
-  checkUserExists: publicProcedure.input(z38.object({
-    email: z38.string().email("E-mail inv\xE1lido"),
-    document: z38.string().optional().nullish()
+  checkUserExists: publicProcedure.use(
+    createRateLimitMiddleware({
+      keyPrefix: "auth-check-user",
+      limit: 20,
+      windowMs: 15 * 60 * 1e3,
+      getInputKey: getAuthInputKey
+    })
+  ).input(z39.object({
+    email: z39.string().email("E-mail inv\xE1lido"),
+    document: z39.string().optional().nullish()
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
     const cleanEmail = input.email.toLowerCase().trim();
-    const [existingUser] = await db2.select({ id: users.id }).from(users).where(eq44(users.email, cleanEmail)).limit(1);
+    const [existingUser] = await db2.select({ id: users.id }).from(users).where(and19(eq48(users.email, cleanEmail), isNull5(users.deletedAt))).limit(1);
     return {
       exists: !!existingUser
     };
@@ -9801,15 +12565,16 @@ var authRouter = router({
     createRateLimitMiddleware({
       keyPrefix: "auth-register",
       limit: 10,
-      windowMs: 15 * 60 * 1e3
+      windowMs: 15 * 60 * 1e3,
+      getInputKey: getAuthInputKey
     })
-  ).input(z38.object({
-    name: z38.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-    email: z38.string().email("E-mail inv\xE1lido").transform((v) => v.toLowerCase().trim()),
-    password: z38.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
-    cpf: z38.string().min(11, "CPF inv\xE1lido"),
-    whatsapp: z38.string().optional().nullish(),
-    guestSessionId: z38.string().optional().nullish()
+  ).input(z39.object({
+    name: z39.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
+    email: z39.string().email("E-mail inv\xE1lido").transform((v) => v.toLowerCase().trim()),
+    password: z39.string().min(8, "A senha deve ter pelo menos 8 caracteres"),
+    cpf: z39.string().min(11, "CPF inv\xE1lido"),
+    whatsapp: z39.string().optional().nullish(),
+    guestSessionId: z39.string().optional().nullish()
   })).mutation(async ({ input, ctx }) => {
     return registerProcedure({ input, ctx });
   }),
@@ -9821,13 +12586,14 @@ var authRouter = router({
     createRateLimitMiddleware({
       keyPrefix: "auth-login",
       limit: 10,
-      windowMs: 15 * 60 * 1e3
+      windowMs: 15 * 60 * 1e3,
+      getInputKey: getAuthInputKey
     })
-  ).input(z38.object({
-    identifier: z38.string().min(1, "E-mail ou CPF \xE9 obrigat\xF3rio").trim(),
-    password: z38.string().optional().nullish(),
-    guestSessionId: z38.string().optional().nullish(),
-    rememberMe: z38.boolean().optional()
+  ).input(z39.object({
+    identifier: z39.string().min(1, "E-mail ou CPF \xE9 obrigat\xF3rio").trim(),
+    password: z39.string().optional().nullish(),
+    guestSessionId: z39.string().optional().nullish(),
+    rememberMe: z39.boolean().optional()
   })).mutation(async ({ input, ctx }) => {
     const result = await loginProcedure({ input, ctx });
     return result;
@@ -9845,19 +12611,26 @@ var authRouter = router({
     createRateLimitMiddleware({
       keyPrefix: "auth-reset-request",
       limit: 8,
-      windowMs: 15 * 60 * 1e3
+      windowMs: 15 * 60 * 1e3,
+      getInputKey: getAuthInputKey
     })
-  ).input(z38.object({
-    email: z38.string().email("E-mail inv\xE1lido").transform((v) => v.toLowerCase().trim())
-  })).mutation(async ({ input }) => {
-    return requestPasswordResetProcedure({ input });
+  ).input(z39.object({
+    email: z39.string().email("E-mail inv\xE1lido").transform((v) => v.toLowerCase().trim())
+  })).mutation(async ({ input, ctx }) => {
+    return requestPasswordResetProcedure({ input, ctx });
   }),
   /**
    * 🔄 EXECUÇÃO DA TROCA DE SENHA
    */
-  resetPassword: publicProcedure.input(z38.object({
-    token: z38.string().min(1, "Token obrigat\xF3rio"),
-    password: z38.string().min(6, "Senha muito curta")
+  resetPassword: publicProcedure.use(
+    createRateLimitMiddleware({
+      keyPrefix: "auth-reset-password",
+      limit: 8,
+      windowMs: 15 * 60 * 1e3
+    })
+  ).input(z39.object({
+    token: z39.string().min(1, "Token obrigat\xF3rio"),
+    password: z39.string().min(8, "Senha muito curta")
   })).mutation(async ({ input, ctx }) => {
     return resetPasswordProcedure({ input, ctx });
   }),
@@ -9869,7 +12642,7 @@ var authRouter = router({
     if (!ctx.user?.id) return null;
     try {
       const db2 = await getDb();
-      const [profile] = await db2.select().from(users).where(eq44(users.id, ctx.user.id)).limit(1);
+      const [profile] = await db2.select().from(users).where(eq48(users.id, ctx.user.id)).limit(1);
       if (!profile) return null;
       return {
         ...ctx.user,
@@ -9886,19 +12659,211 @@ var authRouter = router({
       console.error("\u274C Erro em auth.me:", error);
       return ctx.user;
     }
+  }),
+  /**
+   * 🔒 LISTA AS SESSÕES ATIVAS
+   */
+  listSessions: protectedProcedure.query(async ({ ctx }) => {
+    const db2 = await getDb();
+    const userSessions = await db2.select().from(sessions).where(eq48(sessions.userId, ctx.user.id)).orderBy(desc20(sessions.expiresAt));
+    void AuditLogService.record({
+      actor: {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      },
+      module: "auth",
+      action: "SESSION_VIEWED",
+      severity: "info",
+      entityType: "session",
+      newValues: { count: userSessions.length }
+    });
+    return userSessions.map((s) => {
+      const estimatedCreatedAt = new Date(s.expiresAt.getTime() - 30 * 24 * 60 * 60 * 1e3);
+      return {
+        sessionId: s.id,
+        createdAt: estimatedCreatedAt,
+        expiresAt: s.expiresAt,
+        currentSession: s.id === ctx.session.id,
+        userAgent: s.userAgent || null,
+        ip: s.ipAddress || null,
+        lastActivity: s.id === ctx.session.id ? /* @__PURE__ */ new Date() : null
+      };
+    });
+  }),
+  /**
+   * 🔒 ENCERRAR OUTRAS SESSÕES
+   */
+  logoutOtherSessions: protectedProcedure.mutation(async ({ ctx }) => {
+    const db2 = await getDb();
+    const otherSessions = await db2.select({ id: sessions.id }).from(sessions).where(and19(eq48(sessions.userId, ctx.user.id), ne(sessions.id, ctx.session.id)));
+    let revokedCount = 0;
+    for (const s of otherSessions) {
+      await lucia.invalidateSession(s.id);
+      revokedCount++;
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "auth",
+        action: "SESSION_REVOKED",
+        severity: "warning",
+        entityType: "session",
+        entityId: s.id,
+        newValues: { reason: "logout_other_sessions" }
+      });
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      },
+      module: "auth",
+      action: "LOGOUT_OTHER_SESSIONS",
+      severity: "warning",
+      entityType: "session",
+      newValues: { count: revokedCount }
+    });
+    return revokedCount;
+  }),
+  /**
+   * 🔒 ENCERRAR TODAS AS SESSÕES (LOGOUT TOTAL)
+   */
+  logoutAllSessions: protectedProcedure.mutation(async ({ ctx }) => {
+    const db2 = await getDb();
+    const userSessions = await db2.select({ id: sessions.id }).from(sessions).where(eq48(sessions.userId, ctx.user.id));
+    for (const s of userSessions) {
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: ctx.req?.requestId
+        },
+        module: "auth",
+        action: "SESSION_REVOKED",
+        severity: "warning",
+        entityType: "session",
+        entityId: s.id,
+        newValues: { reason: "logout_all_sessions" }
+      });
+    }
+    await lucia.invalidateUserSessions(ctx.user.id);
+    const sessionCookie = lucia.createBlankSessionCookie();
+    if (ctx.res) {
+      if (typeof ctx.res.appendHeader === "function") {
+        ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+      } else {
+        ctx.res.append("Set-Cookie", sessionCookie.serialize());
+      }
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      },
+      module: "auth",
+      action: "LOGOUT_ALL_SESSIONS",
+      severity: "warning",
+      entityType: "session",
+      newValues: { count: userSessions.length }
+    });
+    return { success: true };
+  }),
+  /**
+   * 🔒 ENCERRAR SESSÃO ESPECÍFICA (REVOGAÇÃO MANUAL)
+   */
+  logoutSession: protectedProcedure.input(z39.object({ sessionId: z39.string() })).mutation(async ({ input, ctx }) => {
+    const db2 = await getDb();
+    const [sessionVal] = await db2.select().from(sessions).where(and19(eq48(sessions.id, input.sessionId), eq48(sessions.userId, ctx.user.id))).limit(1);
+    if (!sessionVal) {
+      throw new TRPCError39({
+        code: "NOT_FOUND",
+        message: "Sess\xE3o n\xE3o encontrada ou n\xE3o pertence a este usu\xE1rio."
+      });
+    }
+    await lucia.invalidateSession(input.sessionId);
+    if (input.sessionId === ctx.session.id) {
+      const sessionCookie = lucia.createBlankSessionCookie();
+      if (ctx.res) {
+        if (typeof ctx.res.appendHeader === "function") {
+          ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+        } else {
+          ctx.res.append("Set-Cookie", sessionCookie.serialize());
+        }
+      }
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: ctx.user.id,
+        ipAddress: ctx.req?.ip || ctx.req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+        requestId: ctx.req?.requestId
+      },
+      module: "auth",
+      action: "SESSION_REVOKED",
+      severity: "warning",
+      entityType: "session",
+      entityId: input.sessionId,
+      newValues: { reason: "manual_revoke" }
+    });
+    return { success: true };
+  }),
+  /**
+   * 🔒 HISTÓRICO DE ATIVIDADES DE SEGURANÇA
+   */
+  recentAuthActivity: protectedProcedure.query(async ({ ctx }) => {
+    const db2 = await getDb();
+    const logs = await db2.select({
+      id: auditLogs.id,
+      action: auditLogs.action,
+      module: auditLogs.module,
+      severity: auditLogs.severity,
+      createdAt: auditLogs.createdAt,
+      ipAddress: auditLogs.ipAddress,
+      userAgent: auditLogs.userAgent,
+      newValues: auditLogs.newValues
+    }).from(auditLogs).where(and19(eq48(auditLogs.userId, ctx.user.id), eq48(auditLogs.module, "auth"))).orderBy(desc20(auditLogs.createdAt)).limit(30);
+    return logs.map((log) => {
+      let reason = "";
+      try {
+        if (log.newValues) {
+          const parsed = JSON.parse(log.newValues);
+          reason = parsed.reason || "";
+        }
+      } catch {
+      }
+      return {
+        id: log.id,
+        action: log.action,
+        severity: log.severity,
+        createdAt: log.createdAt,
+        ipAddress: log.ipAddress || "127.0.0.1",
+        userAgent: log.userAgent || "unknown",
+        reason
+      };
+    });
   })
 });
 
 // server/routers/storefront/profile.ts
-import { z as z39 } from "zod";
-import { TRPCError as TRPCError29 } from "@trpc/server";
-import { eq as eq45, desc as desc18 } from "drizzle-orm";
+import { z as z40 } from "zod";
+import { TRPCError as TRPCError40 } from "@trpc/server";
+import { eq as eq49, desc as desc21 } from "drizzle-orm";
 import { hash as hash3, verify as verify2 } from "@node-rs/argon2";
 init_db();
 init_encryption();
 init_schema();
-import crypto11 from "crypto";
-function unseal4(val) {
+import crypto13 from "crypto";
+function unseal5(val) {
   if (!val || typeof val !== "string") return "";
   const str = val;
   try {
@@ -9916,21 +12881,21 @@ var profileRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
     const targetId = ctx.user.id;
-    const [row] = await db2.select().from(users).where(eq45(users.id, targetId)).limit(1);
+    const [row] = await db2.select().from(users).where(eq49(users.id, targetId)).limit(1);
     if (!row) {
-      throw new TRPCError29({ code: "NOT_FOUND", message: "Perfil n\xE3o encontrado." });
+      throw new TRPCError40({ code: "NOT_FOUND", message: "Perfil n\xE3o encontrado." });
     }
-    let finalDoc = unseal4(row.customerDocument);
+    let finalDoc = unseal5(row.customerDocument);
     if (!finalDoc || finalDoc.length < 5) {
-      const [lastOrder] = await db2.select({ doc: orders.customerDocument }).from(orders).where(eq45(orders.userId, targetId)).orderBy(desc18(orders.createdAt)).limit(1);
-      if (lastOrder?.doc) finalDoc = unseal4(lastOrder.doc);
+      const [lastOrder] = await db2.select({ doc: orders.customerDocument }).from(orders).where(eq49(orders.userId, targetId)).orderBy(desc21(orders.createdAt)).limit(1);
+      if (lastOrder?.doc) finalDoc = unseal5(lastOrder.doc);
     }
     return {
       id: row.id,
-      name: unseal4(row.name) || "Cliente",
+      name: unseal5(row.name) || "Cliente",
       email: row.email,
       document: finalDoc,
-      phone: unseal4(row.phone),
+      phone: unseal5(row.phone),
       birthDate: row.birthDate ? String(row.birthDate).split("T")[0] : null,
       birthYear: row.birthYear ? Number(row.birthYear) : null,
       hasPassword: !!row.password,
@@ -9940,13 +12905,13 @@ var profileRouter = router({
   /**
    * 📝 UPDATE: Dados Cadastrais
    */
-  update: protectedProcedure.input(z39.object({
-    name: z39.string().min(2, "Nome muito curto").optional(),
-    cpf: z39.string().optional(),
-    phone: z39.string().optional(),
-    birthDate: z39.string().optional().nullable(),
-    birthYear: z39.number().optional().nullable(),
-    referralCode: z39.string().optional().nullable()
+  update: protectedProcedure.input(z40.object({
+    name: z40.string().min(2, "Nome muito curto").optional(),
+    cpf: z40.string().optional(),
+    phone: z40.string().optional(),
+    birthDate: z40.string().optional().nullable(),
+    birthYear: z40.number().optional().nullable(),
+    referralCode: z40.string().optional().nullable()
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     const targetId = ctx.user.id;
@@ -9980,14 +12945,14 @@ var profileRouter = router({
       updateData.referralCode = input.referralCode?.trim() || null;
     }
     try {
-      await db2.update(users).set(updateData).where(eq45(users.id, targetId));
+      await db2.update(users).set(updateData).where(eq49(users.id, targetId));
       await logAction(ctx, "UPDATE_PROFILE", "users", { entityId: targetId });
       return {
         success: true,
         message: "Seus dados foram atualizados!"
       };
     } catch {
-      throw new TRPCError29({
+      throw new TRPCError40({
         code: "INTERNAL_SERVER_ERROR",
         message: "Erro ao salvar dados. Verifique se o CPF j\xE1 est\xE1 em uso."
       });
@@ -9996,31 +12961,55 @@ var profileRouter = router({
   /**
    * 🔑 CHANGE PASSWORD
    */
-  changePassword: protectedProcedure.input(z39.object({
-    currentPassword: z39.string().optional(),
-    newPassword: z39.string().min(6, "A nova senha deve ter no m\xEDnimo 6 caracteres")
+  changePassword: protectedProcedure.input(z40.object({
+    currentPassword: z40.string().optional(),
+    newPassword: z40.string().min(8, "A nova senha deve ter no minimo 8 caracteres")
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     const targetId = ctx.user.id;
-    const [userRow] = await db2.select({ password: users.password }).from(users).where(eq45(users.id, targetId)).limit(1);
+    const [userRow] = await db2.select({ password: users.password, email: users.email }).from(users).where(eq49(users.id, targetId)).limit(1);
     if (userRow?.password) {
       if (!input.currentPassword) {
-        throw new TRPCError29({
+        throw new TRPCError40({
           code: "BAD_REQUEST",
           message: "Para sua seguran\xE7a, digite a senha atual."
         });
       }
       const isMatch = await verify2(userRow.password, input.currentPassword);
       if (!isMatch) {
-        throw new TRPCError29({ code: "UNAUTHORIZED", message: "A senha atual est\xE1 incorreta." });
+        throw new TRPCError40({ code: "UNAUTHORIZED", message: "A senha atual est\xE1 incorreta." });
       }
     }
+    assertPasswordPolicy(input.newPassword, userRow?.email);
     const hashedNewPassword = await hash3(input.newPassword);
     await db2.update(users).set({
       password: hashedNewPassword,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq45(users.id, targetId));
+    }).where(eq49(users.id, targetId));
+    await lucia.invalidateUserSessions(targetId);
+    const session = await lucia.createSession(targetId, {});
+    const sessionCookie = lucia.createSessionCookie(session.id);
+    if (ctx.req?.hostname && (ctx.req.hostname === "localhost" || ctx.req.hostname === "127.0.0.1" || ctx.req.hostname.startsWith("192.168.24."))) {
+      sessionCookie.attributes.secure = false;
+    }
+    sessionCookie.attributes.maxAge = void 0;
+    sessionCookie.attributes.expires = void 0;
+    if (ctx.res) {
+      if (typeof ctx.res.appendHeader === "function") {
+        ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+      } else {
+        ctx.res.append("Set-Cookie", sessionCookie.serialize());
+      }
+    }
     await logAction(ctx, "CHANGE_PASSWORD", "users", { entityId: targetId });
+    recordAuthEvent({
+      ctx,
+      action: "PASSWORD_CHANGED",
+      severity: "warning",
+      userId: targetId,
+      identifier: userRow?.email,
+      reason: "profile_change_password"
+    });
     return { success: true, message: "Senha alterada com sucesso! \u{1F6E1}\uFE0F" };
   }),
   /**
@@ -10028,40 +13017,40 @@ var profileRouter = router({
    */
   getAddresses: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const rows = await db2.select().from(userAddresses).where(eq45(userAddresses.userId, ctx.user.id)).orderBy(desc18(userAddresses.isDefault), desc18(userAddresses.createdAt));
+    const rows = await db2.select().from(userAddresses).where(eq49(userAddresses.userId, ctx.user.id)).orderBy(desc21(userAddresses.isDefault), desc21(userAddresses.createdAt));
     return rows.map((addr) => ({
       ...addr,
-      label: unseal4(addr.label),
-      street: unseal4(addr.street),
-      number: unseal4(addr.number),
-      neighborhood: unseal4(addr.neighborhood),
-      city: unseal4(addr.city),
-      state: unseal4(addr.state),
-      zipCode: unseal4(addr.zipCode),
-      complement: unseal4(addr.complement),
+      label: unseal5(addr.label),
+      street: unseal5(addr.street),
+      number: unseal5(addr.number),
+      neighborhood: unseal5(addr.neighborhood),
+      city: unseal5(addr.city),
+      state: unseal5(addr.state),
+      zipCode: unseal5(addr.zipCode),
+      complement: unseal5(addr.complement),
       isDefault: Boolean(addr.isDefault)
     }));
   }),
   /**
    * ➕ ADD ADDRESS
    */
-  addAddress: protectedProcedure.input(z39.object({
-    label: z39.string().min(1),
-    zipCode: z39.string().min(8),
-    street: z39.string().min(1),
-    number: z39.string().min(1),
-    neighborhood: z39.string().min(1),
-    city: z39.string().min(1),
-    state: z39.string().length(2),
-    complement: z39.string().optional()
+  addAddress: protectedProcedure.input(z40.object({
+    label: z40.string().min(1),
+    zipCode: z40.string().min(8),
+    street: z40.string().min(1),
+    number: z40.string().min(1),
+    neighborhood: z40.string().min(1),
+    city: z40.string().min(1),
+    state: z40.string().length(2),
+    complement: z40.string().optional()
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     const userId = ctx.user.id;
-    const [existing] = await db2.select({ id: userAddresses.id }).from(userAddresses).where(eq45(userAddresses.userId, userId)).limit(1);
+    const [existing] = await db2.select({ id: userAddresses.id }).from(userAddresses).where(eq49(userAddresses.userId, userId)).limit(1);
     const isDefault = !existing;
     const cleanZip = normalizeDigits(input.zipCode);
     await db2.insert(userAddresses).values({
-      id: crypto11.randomUUID(),
+      id: crypto13.randomUUID(),
       userId,
       label: encrypt(input.label),
       zipCode: encrypt(cleanZip),
@@ -10080,14 +13069,14 @@ var profileRouter = router({
 });
 
 // server/routers/storefront/nutri/index.ts
-import { z as z44 } from "zod";
+import { z as z46 } from "zod";
 
 // server/routers/storefront/nutri/procedures/profile.ts
-import { z as z40 } from "zod";
+import { z as z41 } from "zod";
 init_db();
 init_schema();
 init_encryption();
-import { eq as eq46 } from "drizzle-orm";
+import { eq as eq50 } from "drizzle-orm";
 import { v4 as uuidv44 } from "uuid";
 var profileProcedures = {
   /**
@@ -10095,10 +13084,10 @@ var profileProcedures = {
    */
   getPublicProfile: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const [profile] = await db2.select().from(nutriProfiles).where(eq46(nutriProfiles.userId, ctx.user.id)).limit(1);
+    const [profile] = await db2.select().from(nutriProfiles).where(eq50(nutriProfiles.userId, ctx.user.id)).limit(1);
     if (!profile) return null;
-    const [userData] = await db2.select({ name: users.name }).from(users).where(eq46(users.id, ctx.user.id)).limit(1);
-    const addresses = await db2.select().from(userAddresses).where(eq46(userAddresses.userId, ctx.user.id));
+    const [userData] = await db2.select({ name: users.name }).from(users).where(eq50(users.id, ctx.user.id)).limit(1);
+    const addresses = await db2.select().from(userAddresses).where(eq50(userAddresses.userId, ctx.user.id));
     return {
       ...profile,
       user: {
@@ -10117,25 +13106,25 @@ var profileProcedures = {
   /**
    * ATUALIZAÇÃO COMPLETA
    */
-  updateProfile: protectedProcedure.input(z40.object({
-    name: z40.string().min(3),
-    crn: z40.string().min(4),
-    referralCode: z40.string().min(3).transform((val) => val.toLowerCase().replace(/\s+/g, "")),
-    specialty: z40.string().nullable().optional(),
-    bio: z40.string().nullable().optional(),
-    website: z40.string().nullable().optional(),
-    avatarUrl: z40.string().nullable().optional(),
-    offices: z40.array(z40.object({
-      label: z40.string(),
-      zipCode: z40.string(),
-      street: z40.string(),
-      number: z40.string(),
-      city: z40.string()
+  updateProfile: protectedProcedure.input(z41.object({
+    name: z41.string().min(3),
+    crn: z41.string().min(4),
+    referralCode: z41.string().min(3).transform((val) => val.toLowerCase().replace(/\s+/g, "")),
+    specialty: z41.string().nullable().optional(),
+    bio: z41.string().nullable().optional(),
+    website: z41.string().nullable().optional(),
+    avatarUrl: z41.string().nullable().optional(),
+    offices: z41.array(z41.object({
+      label: z41.string(),
+      zipCode: z41.string(),
+      street: z41.string(),
+      number: z41.string(),
+      city: z41.string()
     })).optional()
   })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
     return await db2.transaction(async (tx) => {
-      await tx.update(users).set({ name: encrypt(input.name) }).where(eq46(users.id, ctx.user.id));
+      await tx.update(users).set({ name: encrypt(input.name) }).where(eq50(users.id, ctx.user.id));
       await tx.update(nutriProfiles).set({
         referralCode: input.referralCode,
         crn: input.crn,
@@ -10144,9 +13133,9 @@ var profileProcedures = {
         website: input.website,
         avatarUrl: input.avatarUrl,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq46(nutriProfiles.userId, ctx.user.id));
+      }).where(eq50(nutriProfiles.userId, ctx.user.id));
       if (input.offices) {
-        await tx.delete(userAddresses).where(eq46(userAddresses.userId, ctx.user.id));
+        await tx.delete(userAddresses).where(eq50(userAddresses.userId, ctx.user.id));
         if (input.offices.length > 0) {
           const newOffices = input.offices.map((o) => ({
             id: uuidv44(),
@@ -10171,8 +13160,10 @@ var profileProcedures = {
 init_db();
 init_schema();
 init_encryption();
-import { eq as eq47, desc as desc19, inArray as inArray8 } from "drizzle-orm";
-import { TRPCError as TRPCError30 } from "@trpc/server";
+import { eq as eq51, desc as desc22, inArray as inArray9 } from "drizzle-orm";
+import { TRPCError as TRPCError41 } from "@trpc/server";
+import { z as z42 } from "zod";
+import { v4 as uuidv45 } from "uuid";
 var clientProcedures = {
   /**
    * Obtém a lista de pacientes vinculados ao nutricionista logado
@@ -10182,63 +13173,195 @@ var clientProcedures = {
     try {
       const db2 = await getDb();
       const profile = await db2.query.nutriProfiles.findFirst({
-        where: eq47(nutriProfiles.userId, ctx.user.id)
+        where: eq51(nutriProfiles.userId, ctx.user.id)
       });
       if (!profile?.referralCode) return [];
       const nutriCode = profile.referralCode.trim();
       const clientRows = await db2.query.users.findMany({
-        where: eq47(users.referralCode, nutriCode)
+        where: eq51(users.referralCode, nutriCode)
       });
       if (!clientRows.length) return [];
       const clientIds = clientRows.map((c) => c.id);
       const allPrescriptions = await db2.select({
         id: prescriptions.id,
         clientId: prescriptions.clientId,
-        // Se o filtro falhar, troque para prescriptions.userId
         planName: prescriptions.planName,
         totalKcalTarget: prescriptions.totalKcalTarget,
         createdAt: prescriptions.createdAt,
         status: prescriptions.status
-      }).from(prescriptions).where(inArray8(prescriptions.clientId, clientIds)).orderBy(desc19(prescriptions.createdAt));
+      }).from(prescriptions).where(inArray9(prescriptions.clientId, clientIds)).orderBy(desc22(prescriptions.createdAt));
       return clientRows.map((row) => {
         let clientDisplayName = "Paciente";
+        let decryptedPhone = "";
         try {
-          const decryptedName = decrypt(row.name);
-          clientDisplayName = decryptedName || row.email.split("@")[0];
+          clientDisplayName = decrypt(row.name) || row.email.split("@")[0];
         } catch {
           clientDisplayName = row.email?.split("@")[0] || "Usu\xE1rio";
+        }
+        try {
+          decryptedPhone = decrypt(row.phone) || "";
+        } catch {
+          decryptedPhone = "";
         }
         const clientPrescriptions = allPrescriptions.filter((p) => String(p.clientId) === String(row.id)).slice(0, 4);
         return {
           id: row.id,
-          // ID para a key do map no front
           client: {
             id: row.id,
             name: clientDisplayName,
-            email: row.email
+            email: row.email,
+            phone: decryptedPhone
           },
           prescriptions: clientPrescriptions
-          // Array de dietas
         };
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
       console.error("\u{1F534} ERRO getMyClients:", errorMessage);
-      throw new TRPCError30({
+      throw new TRPCError41({
         code: "INTERNAL_SERVER_ERROR",
         message: "Erro ao buscar lista de pacientes."
+      });
+    }
+  }),
+  /**
+   * Cria ou vincula um paciente de forma silenciosa e segura
+   */
+  createOrLinkClient: protectedProcedure.input(z42.object({
+    name: z42.string().min(3, "O nome deve ter pelo menos 3 caracteres"),
+    phone: z42.string().min(8, "O telefone deve ter pelo menos 8 d\xEDgitos"),
+    email: z42.string().email("E-mail inv\xE1lido").optional().nullable(),
+    forceTransfer: z42.boolean().default(false)
+  })).mutation(async ({ input, ctx }) => {
+    try {
+      const db2 = await getDb();
+      const profile = await db2.query.nutriProfiles.findFirst({
+        where: eq51(nutriProfiles.userId, ctx.user.id)
+      });
+      if (!profile?.referralCode) {
+        throw new TRPCError41({
+          code: "UNAUTHORIZED",
+          message: "Voc\xEA precisa ter um perfil profissional e c\xF3digo de indica\xE7\xE3o ativos."
+        });
+      }
+      const nutriCode = profile.referralCode.trim();
+      const normalizedPhone = normalizeDigits(input.phone);
+      const phoneIndexHash = piiHash(normalizedPhone);
+      if (!phoneIndexHash) {
+        throw new TRPCError41({
+          code: "BAD_REQUEST",
+          message: "Telefone inv\xE1lido."
+        });
+      }
+      const finalEmail = input.email && input.email.trim() !== "" ? input.email.toLowerCase().trim() : `paciente-${normalizedPhone}@gourmetsaudavel.temp`;
+      let targetUser = await db2.query.users.findFirst({
+        where: eq51(users.phoneIndex, phoneIndexHash)
+      });
+      if (!targetUser) {
+        targetUser = await db2.query.users.findFirst({
+          where: eq51(users.email, finalEmail)
+        });
+      }
+      if (targetUser) {
+        const clientReferral = targetUser.referralCode?.trim() || "";
+        if (clientReferral === nutriCode) {
+          return {
+            status: "ALREADY_LINKED",
+            client: {
+              id: targetUser.id,
+              name: input.name,
+              email: targetUser.email
+            }
+          };
+        }
+        if (clientReferral && clientReferral !== "") {
+          if (!input.forceTransfer) {
+            let decryptedName = "";
+            try {
+              decryptedName = decrypt(targetUser.name) || "";
+            } catch {
+              decryptedName = targetUser.email.split("@")[0];
+            }
+            return {
+              status: "REQUIRES_CONFIRMATION",
+              client: {
+                id: targetUser.id,
+                name: decryptedName || targetUser.email.split("@")[0],
+                email: targetUser.email,
+                currentReferral: clientReferral
+              }
+            };
+          }
+          await db2.transaction(async (tx) => {
+            await tx.update(users).set({ referralCode: nutriCode }).where(eq51(users.id, targetUser.id));
+            await tx.insert(auditLogs).values({
+              userId: ctx.user.id,
+              action: "PATIENT_TRANSFER",
+              entity: "users",
+              entityId: targetUser.id,
+              oldValues: JSON.stringify({ referralCode: clientReferral }),
+              newValues: JSON.stringify({ referralCode: nutriCode })
+            });
+          });
+          return {
+            status: "LINKED",
+            client: {
+              id: targetUser.id,
+              name: input.name,
+              email: targetUser.email
+            }
+          };
+        }
+        await db2.update(users).set({ referralCode: nutriCode }).where(eq51(users.id, targetUser.id));
+        return {
+          status: "LINKED",
+          client: {
+            id: targetUser.id,
+            name: input.name,
+            email: targetUser.email
+          }
+        };
+      }
+      const newUserId = uuidv45();
+      await db2.insert(users).values({
+        id: newUserId,
+        email: finalEmail,
+        name: encrypt(input.name.trim()),
+        phone: encrypt(normalizedPhone),
+        phoneIndex: phoneIndexHash,
+        nameIndex: input.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(),
+        role: "user",
+        loginMethod: "placeholder_email",
+        referralCode: nutriCode,
+        availablePoints: 0,
+        aiCredits: 2
+      });
+      return {
+        status: "CREATED",
+        client: {
+          id: newUserId,
+          name: input.name,
+          email: finalEmail
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+      console.error("\u{1F534} ERRO createOrLinkClient:", errorMessage);
+      throw new TRPCError41({
+        code: "INTERNAL_SERVER_ERROR",
+        message: errorMessage || "Erro ao processar cria\xE7\xE3o de paciente."
       });
     }
   })
 };
 
 // server/routers/storefront/nutri/procedures/prescription.ts
-import { z as z41 } from "zod";
+import { z as z43 } from "zod";
 init_db();
 init_schema();
-import { eq as eq48, desc as desc20 } from "drizzle-orm";
-import { TRPCError as TRPCError31 } from "@trpc/server";
-import { v4 as uuidv45 } from "uuid";
+import { eq as eq52, desc as desc23, inArray as inArray10 } from "drizzle-orm";
+import { TRPCError as TRPCError42 } from "@trpc/server";
+import { v4 as uuidv46 } from "uuid";
 var safeNum = (val, fallback = 0) => {
   return safeNumber(val, fallback);
 };
@@ -10258,7 +13381,7 @@ var prescriptionProcedures = {
       carbs: dishes.carbs,
       fatTotal: dishes.fatTotal,
       base_price: dishes.basePrice
-    }).from(dishes).leftJoin(categories, eq48(dishes.categoryId, categories.id)).where(eq48(dishes.isActive, true));
+    }).from(dishes).leftJoin(categories, eq52(dishes.categoryId, categories.id)).where(eq52(dishes.isActive, true));
     const sizesWithGroups = await db2.select({
       dishId: dishesToSizes.dishId,
       sizeId: dishSizes.id,
@@ -10269,7 +13392,7 @@ var prescriptionProcedures = {
       groupId: accompanimentGroups.id,
       groupName: accompanimentGroups.name,
       maxSelections: accompanimentGroups.maxSelections
-    }).from(dishSizes).innerJoin(dishesToSizes, eq48(dishSizes.id, dishesToSizes.sizeId)).leftJoin(sizeAccompanimentGroups, eq48(dishSizes.id, sizeAccompanimentGroups.sizeId)).leftJoin(accompanimentGroups, eq48(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(eq48(dishSizes.isActive, true));
+    }).from(dishSizes).innerJoin(dishesToSizes, eq52(dishSizes.id, dishesToSizes.sizeId)).leftJoin(sizeAccompanimentGroups, eq52(dishSizes.id, sizeAccompanimentGroups.sizeId)).leftJoin(accompanimentGroups, eq52(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(eq52(dishSizes.isActive, true));
     const allOptions = await db2.select({
       optionId: accompanimentOptions.id,
       optionName: accompanimentOptions.name,
@@ -10278,7 +13401,7 @@ var prescriptionProcedures = {
       proteins: accompanimentOptions.proteins,
       carbs: accompanimentOptions.carbs,
       fatTotal: accompanimentOptions.fatTotal
-    }).from(accompanimentOptions).innerJoin(groupToOptions, eq48(accompanimentOptions.id, groupToOptions.optionId)).where(eq48(accompanimentOptions.isActive, true));
+    }).from(accompanimentOptions).innerJoin(groupToOptions, eq52(accompanimentOptions.id, groupToOptions.optionId)).where(eq52(accompanimentOptions.isActive, true));
     return allDishes.map((dish) => {
       const dishSizesRaw = sizesWithGroups.filter((s) => s.dishId === dish.id);
       const uniqueSizeIds = Array.from(new Set(dishSizesRaw.map((s) => s.sizeId)));
@@ -10320,21 +13443,21 @@ var prescriptionProcedures = {
       proteins: accompanimentOptions.proteins,
       carbs: accompanimentOptions.carbs,
       fatTotal: accompanimentOptions.fatTotal
-    }).from(accompanimentOptions).where(eq48(accompanimentOptions.isActive, true));
+    }).from(accompanimentOptions).where(eq52(accompanimentOptions.isActive, true));
   }),
   /**
    * ATRIBUI A PRESCRIÇÃO AO CLIENTE
    */
-  assignPrescription: protectedProcedure.input(z41.object({
-    clientId: z41.string(),
-    prescription: z41.custom()
+  assignPrescription: protectedProcedure.input(z43.object({
+    clientId: z43.string(),
+    prescription: z43.custom()
   })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
     const { clientId, prescription } = input;
     const profile = await db2.query.nutriProfiles.findFirst({
-      where: eq48(nutriProfiles.userId, ctx.user.id)
+      where: eq52(nutriProfiles.userId, ctx.user.id)
     });
-    if (!profile) throw new TRPCError31({ code: "UNAUTHORIZED", message: "Perfil Nutri n\xE3o encontrado." });
+    if (!profile) throw new TRPCError42({ code: "UNAUTHORIZED", message: "Perfil Nutri n\xE3o encontrado." });
     const allDbAccs = await db2.select().from(accompanimentOptions);
     return await db2.transaction(async (tx) => {
       let pId = prescription.id;
@@ -10369,9 +13492,9 @@ var prescriptionProcedures = {
           totalKcalTarget: safeNum(prescription.totalKcalTarget),
           dietSnapshot: typedDietSnapshot,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq48(prescriptions.id, pId));
+        }).where(eq52(prescriptions.id, pId));
       } else {
-        pId = uuidv45();
+        pId = uuidv46();
         await tx.insert(prescriptions).values({
           id: pId,
           clientId,
@@ -10384,7 +13507,7 @@ var prescriptionProcedures = {
           status: "active"
         });
       }
-      await tx.delete(prescriptionItems).where(eq48(prescriptionItems.prescriptionId, pId));
+      await tx.delete(prescriptionItems).where(eq52(prescriptionItems.prescriptionId, pId));
       const itemsToInsert = prescription.meals.flatMap((meal, mIdx) => {
         const dishesInMeal = meal.groups?.flatMap((g) => g.options) || meal.dishes || [];
         return dishesInMeal.map((dish) => {
@@ -10417,7 +13540,7 @@ var prescriptionProcedures = {
             fat: totalFat
           };
           return {
-            id: uuidv45(),
+            id: uuidv46(),
             prescriptionId: pId,
             dishId: safeNum(dish.dishId),
             sizeId: safeNum(dish.sizeId),
@@ -10442,10 +13565,10 @@ var prescriptionProcedures = {
    */
   getDashboard: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const allPrescs = await db2.select().from(prescriptions).where(eq48(prescriptions.clientId, ctx.user.id)).orderBy(desc20(prescriptions.updatedAt));
+    const allPrescs = await db2.select().from(prescriptions).where(eq52(prescriptions.clientId, ctx.user.id)).orderBy(desc23(prescriptions.updatedAt));
     if (!allPrescs.length) return [];
     return await Promise.all(allPrescs.map(async (presc) => {
-      const items = await db2.select().from(prescriptionItems).where(eq48(prescriptionItems.prescriptionId, presc.id)).orderBy(prescriptionItems.order);
+      const items = await db2.select().from(prescriptionItems).where(eq52(prescriptionItems.prescriptionId, presc.id)).orderBy(prescriptionItems.order);
       const mealMap = /* @__PURE__ */ new Map();
       items.forEach((item) => {
         const mName = item.mealName;
@@ -10473,20 +13596,20 @@ var prescriptionProcedures = {
   /**
    * APAGAR PRESCRIÇÃO
    */
-  deletePrescription: protectedProcedure.input(z41.object({ id: z41.string() })).mutation(async ({ input }) => {
+  deletePrescription: protectedProcedure.input(z43.object({ id: z43.string() })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    await db2.delete(prescriptions).where(eq48(prescriptions.id, input.id));
+    await db2.delete(prescriptions).where(eq52(prescriptions.id, input.id));
     return { success: true };
   }),
   /**
    * DETALHES DA PRESCRIÇÃO
    */
-  getPrescriptionDetails: protectedProcedure.input(z41.object({ clientId: z41.string(), prescriptionId: z41.string().optional() })).query(async ({ input }) => {
+  getPrescriptionDetails: protectedProcedure.input(z43.object({ clientId: z43.string(), prescriptionId: z43.string().optional() })).query(async ({ input }) => {
     const db2 = await getDb();
-    const queryWhere = input.prescriptionId ? eq48(prescriptions.id, input.prescriptionId) : eq48(prescriptions.clientId, input.clientId);
-    const allPrescs = await db2.select().from(prescriptions).where(queryWhere).orderBy(desc20(prescriptions.createdAt));
+    const queryWhere = input.prescriptionId ? eq52(prescriptions.id, input.prescriptionId) : eq52(prescriptions.clientId, input.clientId);
+    const allPrescs = await db2.select().from(prescriptions).where(queryWhere).orderBy(desc23(prescriptions.createdAt));
     return Promise.all(allPrescs.map(async (presc) => {
-      const items = await db2.select().from(prescriptionItems).where(eq48(prescriptionItems.prescriptionId, presc.id));
+      const items = await db2.select().from(prescriptionItems).where(eq52(prescriptionItems.prescriptionId, presc.id));
       const mealMap = /* @__PURE__ */ new Map();
       items.forEach((item) => {
         if (!mealMap.has(item.mealName)) {
@@ -10510,13 +13633,155 @@ var prescriptionProcedures = {
       });
       return { ...presc, meals: Array.from(mealMap.values()) };
     }));
+  }),
+  /**
+   * DUPLICA UMA PRESCRIÇÃO E RECALCULA PREÇOS COM O CATÁLOGO VIGENTE
+   */
+  duplicatePrescription: protectedProcedure.input(z43.object({
+    prescriptionId: z43.string(),
+    targetClientId: z43.string()
+  })).mutation(async ({ input }) => {
+    const db2 = await getDb();
+    const [originalPresc] = await db2.select().from(prescriptions).where(eq52(prescriptions.id, input.prescriptionId)).limit(1);
+    if (!originalPresc) {
+      throw new TRPCError42({
+        code: "NOT_FOUND",
+        message: "Dieta de origem n\xE3o encontrada."
+      });
+    }
+    const originalItems = await db2.select().from(prescriptionItems).where(eq52(prescriptionItems.prescriptionId, input.prescriptionId));
+    const dishIds = Array.from(new Set(originalItems.map((item) => item.dishId)));
+    if (dishIds.length === 0) {
+      throw new TRPCError42({
+        code: "BAD_REQUEST",
+        message: "A dieta selecionada est\xE1 vazia."
+      });
+    }
+    const catalogData = await db2.select({
+      dishId: dishes.id,
+      basePrice: dishes.basePrice,
+      energyKcal: dishes.energyKcal,
+      proteins: dishes.proteins,
+      carbs: dishes.carbs,
+      fatTotal: dishes.fatTotal
+    }).from(dishes).where(inArray10(dishes.id, dishIds));
+    const sizeData = await db2.select({
+      sizeId: dishSizes.id,
+      price: dishSizes.price,
+      priceModifier: dishSizes.priceModifier
+    }).from(dishSizes);
+    const allDbAccs = await db2.select().from(accompanimentOptions);
+    const newPrescriptionId = uuidv46();
+    return await db2.transaction(async (tx) => {
+      let cleanTechnicalInsight = originalPresc.technicalInsight || "";
+      if (originalPresc.clientId !== input.targetClientId) {
+        cleanTechnicalInsight = "";
+      }
+      let parsedSnapshot = [];
+      if (originalPresc.dietSnapshot) {
+        if (typeof originalPresc.dietSnapshot === "string") {
+          parsedSnapshot = safeJsonParse(originalPresc.dietSnapshot, []);
+        } else {
+          parsedSnapshot = originalPresc.dietSnapshot;
+        }
+      }
+      const updatedSnapshot = parsedSnapshot.map((meal) => {
+        return {
+          ...meal,
+          dishes: (meal.dishes || []).map((dish) => {
+            const matchedDish = catalogData.find((d) => Number(d.dishId) === Number(dish.dishId));
+            const matchedSize = sizeData.find((s) => Number(s.sizeId) === Number(dish.sizeId));
+            const basePrice = matchedDish ? safeNum(matchedDish.basePrice) : 0;
+            const sizePrice = matchedSize ? safeNum(matchedSize.price) : 0;
+            const modifier = matchedSize ? safeNum(matchedSize.priceModifier, 1) : 1;
+            const newUnitPrice = sizePrice > 0 ? sizePrice : basePrice * (modifier === 0 ? 1 : modifier);
+            return {
+              ...dish,
+              priceAtCreation: newUnitPrice,
+              price: newUnitPrice
+            };
+          })
+        };
+      });
+      await tx.insert(prescriptions).values({
+        id: newPrescriptionId,
+        clientId: input.targetClientId,
+        professionalId: originalPresc.professionalId,
+        planName: `${originalPresc.planName} (C\xF3pia)`,
+        status: "active",
+        technicalInsight: cleanTechnicalInsight,
+        totalKcalTarget: originalPresc.totalKcalTarget,
+        discountPercentage: originalPresc.discountPercentage,
+        dietSnapshot: JSON.stringify(updatedSnapshot)
+      });
+      const newItems = originalItems.map((item) => {
+        const matchedDish = catalogData.find((d) => Number(d.dishId) === Number(item.dishId));
+        const matchedSize = sizeData.find((s) => Number(s.sizeId) === Number(item.sizeId));
+        const basePrice = matchedDish ? safeNum(matchedDish.basePrice) : 0;
+        const sizePrice = matchedSize ? safeNum(matchedSize.price) : 0;
+        const modifier = matchedSize ? safeNum(matchedSize.priceModifier, 1) : 1;
+        const newUnitPrice = sizePrice > 0 ? sizePrice : basePrice * (modifier === 0 ? 1 : modifier);
+        const baseKcal = matchedDish ? safeNum(matchedDish.energyKcal) : 0;
+        const baseProt = matchedDish ? safeNum(matchedDish.proteins) : 0;
+        const baseCarb = matchedDish ? safeNum(matchedDish.carbs) : 0;
+        const baseFat = matchedDish ? safeNum(matchedDish.fatTotal) : 0;
+        let totalKcal = baseKcal;
+        let totalProtein = baseProt;
+        let totalCarbs = baseCarb;
+        let totalFat = baseFat;
+        const selectedAccsRaw = safeJsonParse(item.accompanimentsJson, []);
+        const enrichedAccs = selectedAccsRaw.map((acc) => {
+          const dbAcc = allDbAccs.find((a) => Number(a.id) === Number(acc.id));
+          if (dbAcc) {
+            totalKcal += safeNum(dbAcc.energyKcal);
+            totalProtein += safeNum(dbAcc.proteins);
+            totalCarbs += safeNum(dbAcc.carbs);
+            totalFat += safeNum(dbAcc.fatTotal);
+          }
+          return {
+            ...acc,
+            energyKcal: dbAcc?.energyKcal || 0,
+            proteins: dbAcc?.proteins || 0,
+            carbs: dbAcc?.carbs || 0,
+            fatTotal: dbAcc?.fatTotal || 0
+          };
+        });
+        const finalMacros = {
+          kcal: totalKcal,
+          protein: totalProtein,
+          carbs: totalCarbs,
+          fat: totalFat
+        };
+        return {
+          id: uuidv46(),
+          prescriptionId: newPrescriptionId,
+          dishId: item.dishId,
+          sizeId: item.sizeId,
+          dishName: item.dishName,
+          mealName: item.mealName,
+          order: item.order,
+          fixedPrice: String(newUnitPrice),
+          multiplier: item.multiplier || "1.00",
+          accompanimentsJson: JSON.stringify(enrichedAccs),
+          macrosJson: JSON.stringify(finalMacros)
+        };
+      });
+      if (newItems.length > 0) {
+        await tx.insert(prescriptionItems).values(newItems);
+      }
+      return {
+        success: true,
+        newPrescriptionId,
+        message: "Os pre\xE7os foram atualizados conforme o cat\xE1logo vigente."
+      };
+    });
   })
 };
 
 // server/routers/storefront/nutri/procedures/nutri_templates.ts
-import { z as z42 } from "zod";
-import { v4 as uuidv46 } from "uuid";
-import { eq as eq49, desc as desc21 } from "drizzle-orm";
+import { z as z44 } from "zod";
+import { v4 as uuidv47 } from "uuid";
+import { eq as eq53, desc as desc24 } from "drizzle-orm";
 init_db();
 init_schema();
 var safeNum2 = (val, fallback = 0) => {
@@ -10526,15 +13791,15 @@ var templateProcedures = {
   /**
    * SALVA UM MODELO DE DIETA (TEMPLATE)
    */
-  saveTemplate: protectedProcedure.input(z42.object({
-    id: z42.string().optional().nullable(),
-    name: z42.string().min(3, "O nome precisa de ao menos 3 caracteres"),
-    description: z42.string().optional().nullable(),
-    data: z42.object({
-      meals: z42.array(z42.unknown()),
-      totalKcalTarget: z42.number().optional(),
-      technicalInsight: z42.string().optional(),
-      macros: z42.record(z42.string(), z42.number()).optional()
+  saveTemplate: protectedProcedure.input(z44.object({
+    id: z44.string().optional().nullable(),
+    name: z44.string().min(3, "O nome precisa de ao menos 3 caracteres"),
+    description: z44.string().optional().nullable(),
+    data: z44.object({
+      meals: z44.array(z44.unknown()),
+      totalKcalTarget: z44.number().optional(),
+      technicalInsight: z44.string().optional(),
+      macros: z44.record(z44.string(), z44.number()).optional()
     })
   })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
@@ -10545,19 +13810,13 @@ var templateProcedures = {
       const flattenedDishes = (meal.groups || []).flatMap(
         (group) => (group.options || []).map((opt) => {
           const rawMacros = opt.nutritionalData?.baseMacros || opt.macros || {};
-          let tKcal = safeNum2(rawMacros.kcal || rawMacros.energyKcal);
-          let tProt = safeNum2(rawMacros.protein || rawMacros.proteins);
-          let tCarb = safeNum2(rawMacros.carbs);
-          let tFat = safeNum2(rawMacros.fat || rawMacros.fatTotal);
+          const tKcal = safeNum2(rawMacros.kcal || rawMacros.energyKcal);
+          const tProt = safeNum2(rawMacros.protein || rawMacros.proteins);
+          const tCarb = safeNum2(rawMacros.carbs);
+          const tFat = safeNum2(rawMacros.fat || rawMacros.fatTotal);
           const selectedAccsRaw = opt.allowedAccompaniments || [];
           const enrichedAccs = selectedAccsRaw.map((acc) => {
             const dbAcc = allDbAccs.find((a) => Number(a.id) === Number(acc.id));
-            if (dbAcc) {
-              tKcal += safeNum2(dbAcc.energyKcal);
-              tProt += safeNum2(dbAcc.proteins);
-              tCarb += safeNum2(dbAcc.carbs);
-              tFat += safeNum2(dbAcc.fatTotal);
-            }
             return {
               ...acc,
               energyKcal: dbAcc?.energyKcal || 0,
@@ -10597,14 +13856,13 @@ var templateProcedures = {
       description: input.description,
       totalKcalTarget: safeNum2(input.data.totalKcalTarget),
       technicalInsight: input.data.technicalInsight || "",
-      content: JSON.stringify(dietSnapshot),
-      nutritionalInfo: JSON.stringify(input.data.macros || {})
+      content: JSON.stringify(dietSnapshot)
     };
     if (input.id && input.id !== "NEW") {
-      await db2.update(prescriptionTemplates).set(values).where(eq49(prescriptionTemplates.id, input.id));
+      await db2.update(prescriptionTemplates).set(values).where(eq53(prescriptionTemplates.id, input.id));
       return { success: true, id: input.id, action: "updated" };
     } else {
-      const newId = uuidv46();
+      const newId = uuidv47();
       await db2.insert(prescriptionTemplates).values({
         id: newId,
         ...values
@@ -10615,8 +13873,8 @@ var templateProcedures = {
   getMyTemplates: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
     const results = await db2.query.prescriptionTemplates.findMany({
-      where: eq49(prescriptionTemplates.professionalId, ctx.user.id),
-      orderBy: [desc21(prescriptionTemplates.createdAt)]
+      where: eq53(prescriptionTemplates.professionalId, ctx.user.id),
+      orderBy: [desc24(prescriptionTemplates.createdAt)]
     });
     return results.map((t2) => {
       let parsedMeals = [];
@@ -10628,18 +13886,18 @@ var templateProcedures = {
       return { ...t2, meals: parsedMeals };
     });
   }),
-  deleteTemplate: protectedProcedure.input(z42.object({ templateId: z42.string() })).mutation(async ({ input }) => {
+  deleteTemplate: protectedProcedure.input(z44.object({ templateId: z44.string() })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    await db2.delete(prescriptionTemplates).where(eq49(prescriptionTemplates.id, input.templateId));
+    await db2.delete(prescriptionTemplates).where(eq53(prescriptionTemplates.id, input.templateId));
     return { success: true };
   })
 };
 
 // server/routers/storefront/nutri/myPrescription.ts
-import { z as z43 } from "zod";
+import { z as z45 } from "zod";
 init_db();
 init_schema();
-import { eq as eq50, desc as desc22, and as and16, gt as gt2 } from "drizzle-orm";
+import { eq as eq54, desc as desc25, and as and20, gt as gt2 } from "drizzle-orm";
 
 // shared/domain/prescription/logic.ts
 function calculatePrescriptionItemPrice(originalPrice, discountPercentage) {
@@ -10652,15 +13910,15 @@ var myPrescriptionProcedures = {
   getMyPrescription: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
     const userId = ctx.user.id;
-    const allPrescs = await db2.select().from(prescriptions).where(eq50(prescriptions.clientId, userId)).orderBy(desc22(prescriptions.updatedAt));
+    const allPrescs = await db2.select().from(prescriptions).where(eq54(prescriptions.clientId, userId)).orderBy(desc25(prescriptions.updatedAt));
     const aiScans = await db2.select().from(nutriScansTemp).where(
-      and16(
-        eq50(nutriScansTemp.userId, userId),
+      and20(
+        eq54(nutriScansTemp.userId, userId),
         gt2(nutriScansTemp.expiresAt, /* @__PURE__ */ new Date())
       )
-    ).orderBy(desc22(nutriScansTemp.createdAt));
+    ).orderBy(desc25(nutriScansTemp.createdAt));
     const processedOfficial = await Promise.all(allPrescs.map(async (presc) => {
-      const items = await db2.select().from(prescriptionItems).where(eq50(prescriptionItems.prescriptionId, presc.id)).orderBy(prescriptionItems.order);
+      const items = await db2.select().from(prescriptionItems).where(eq54(prescriptionItems.prescriptionId, presc.id)).orderBy(prescriptionItems.order);
       const meals = {};
       items.forEach((item) => {
         const mName = item.mealName || "Refei\xE7\xE3o";
@@ -10719,12 +13977,12 @@ var myPrescriptionProcedures = {
       return dateB - dateA;
     });
   }),
-  deleteScan: protectedProcedure.input(z43.object({ id: z43.string() })).mutation(async ({ input, ctx }) => {
+  deleteScan: protectedProcedure.input(z45.object({ id: z45.string() })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
     await db2.delete(nutriScansTemp).where(
-      and16(
-        eq50(nutriScansTemp.id, input.id),
-        eq50(nutriScansTemp.userId, ctx.user.id)
+      and20(
+        eq54(nutriScansTemp.id, input.id),
+        eq54(nutriScansTemp.userId, ctx.user.id)
       )
     );
     return { success: true };
@@ -10735,10 +13993,10 @@ var myPrescriptionProcedures = {
 init_db();
 init_schema();
 init_encryption();
-import { TRPCError as TRPCError32 } from "@trpc/server";
-import { eq as eq51, desc as desc23, and as and17 } from "drizzle-orm";
+import { TRPCError as TRPCError43 } from "@trpc/server";
+import { eq as eq55, desc as desc26, and as and21 } from "drizzle-orm";
 import { hash as hash4 } from "@node-rs/argon2";
-import crypto12 from "crypto";
+import crypto14 from "crypto";
 var nutriRouter = router({
   // ✅ Injeção de procedimentos modulares
   ...profileProcedures,
@@ -10750,32 +14008,32 @@ var nutriRouter = router({
    * ✅ REGISTRO DE NUTRICIONISTA (Blindado)
    * Realiza o cadastro de usuário, perfil profissional e endereços de consultório.
    */
-  registerPublicProfile: publicProcedure.input(z44.object({
-    name: z44.string().min(3),
-    email: z44.string().email(),
-    password: z44.string().min(6),
-    document: z44.string(),
-    phone: z44.string(),
-    crn: z44.string().min(4),
-    specialty: z44.string().optional(),
-    bio: z44.string().optional(),
-    offices: z44.array(z44.object({
-      label: z44.string(),
-      zipCode: z44.string(),
-      street: z44.string(),
-      number: z44.string(),
-      neighborhood: z44.string(),
-      city: z44.string(),
-      state: z44.string(),
-      complement: z44.string().optional(),
-      isDefault: z44.boolean()
-    }))
+  registerPublicProfile: publicProcedure.input(z46.object({
+    name: z46.string().min(3),
+    email: z46.string().email(),
+    password: z46.string().min(6),
+    document: z46.string(),
+    phone: z46.string(),
+    crn: z46.string().min(4),
+    specialty: z46.string().optional(),
+    bio: z46.string().optional(),
+    offices: z46.array(z46.object({
+      label: z46.string(),
+      zipCode: z46.string(),
+      street: z46.string(),
+      number: z46.string(),
+      neighborhood: z46.string(),
+      city: z46.string(),
+      state: z46.string(),
+      complement: z46.string().optional(),
+      isDefault: z46.boolean()
+    })).optional()
   })).mutation(async ({ input }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError32({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
+    if (!db2) throw new TRPCError43({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
     try {
       const hashedPassword = await hash4(input.password.trim());
-      const userId = crypto12.randomUUID();
+      const userId = crypto14.randomUUID();
       await db2.insert(users).values({
         id: userId,
         name: encrypt(input.name.trim()),
@@ -10785,7 +14043,7 @@ var nutriRouter = router({
         updatedAt: /* @__PURE__ */ new Date()
       });
       await db2.insert(nutriProfiles).values({
-        id: crypto12.randomUUID(),
+        id: crypto14.randomUUID(),
         userId,
         crn: input.crn.trim(),
         specialty: input.specialty || "Geral",
@@ -10795,7 +14053,7 @@ var nutriRouter = router({
       });
       if (input.offices && input.offices.length > 0) {
         const officesToInsert = input.offices.map((off) => ({
-          id: crypto12.randomUUID(),
+          id: crypto14.randomUUID(),
           userId,
           label: encrypt(off.label),
           zipCode: encrypt(off.zipCode),
@@ -10815,13 +14073,13 @@ var nutriRouter = router({
     } catch (error) {
       const dbError = error;
       if (dbError.message?.includes("Duplicate entry") || dbError.code === "ER_DUP_ENTRY") {
-        throw new TRPCError32({
+        throw new TRPCError43({
           code: "CONFLICT",
           message: "Este e-mail ou documento j\xE1 est\xE1 registrado no sistema."
         });
       }
       console.error("\u274C Erro Cr\xEDtico no Registro de Nutri:", dbError);
-      throw new TRPCError32({
+      throw new TRPCError43({
         code: "INTERNAL_SERVER_ERROR",
         message: "Ocorreu um erro ao processar o seu cadastro."
       });
@@ -10833,7 +14091,7 @@ var nutriRouter = router({
    */
   getNutriScans: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const scans = await db2.select().from(nutriScansTemp).where(eq51(nutriScansTemp.userId, ctx.user.id)).orderBy(desc23(nutriScansTemp.createdAt)).limit(10);
+    const scans = await db2.select().from(nutriScansTemp).where(eq55(nutriScansTemp.userId, ctx.user.id)).orderBy(desc26(nutriScansTemp.createdAt)).limit(10);
     return scans.map((s) => ({
       id: s.id,
       status: s.status,
@@ -10845,15 +14103,15 @@ var nutriRouter = router({
    * ✅ BUSCA RESULTADO ESPECÍFICO DE IA
    * Valida se a análise pertence ao usuário que está solicitando.
    */
-  getScanResult: protectedProcedure.input(z44.object({ id: z44.string() })).query(async ({ input, ctx }) => {
+  getScanResult: protectedProcedure.input(z46.object({ id: z46.string() })).query(async ({ input, ctx }) => {
     const db2 = await getDb();
     const [result] = await db2.select().from(nutriScansTemp).where(
-      and17(
-        eq51(nutriScansTemp.id, input.id),
-        eq51(nutriScansTemp.userId, ctx.user.id)
+      and21(
+        eq55(nutriScansTemp.id, input.id),
+        eq55(nutriScansTemp.userId, ctx.user.id)
       )
     ).limit(1);
-    if (!result) throw new TRPCError32({ code: "NOT_FOUND", message: "An\xE1lise n\xE3o encontrada." });
+    if (!result) throw new TRPCError43({ code: "NOT_FOUND", message: "An\xE1lise n\xE3o encontrada." });
     return result;
   }),
   /**
@@ -10865,12 +14123,12 @@ var nutriRouter = router({
 });
 
 // server/routers/storefront/ai/aiRouter.ts
-import { z as z45 } from "zod";
+import { z as z47 } from "zod";
 init_db();
 init_schema();
-import { TRPCError as TRPCError34 } from "@trpc/server";
-import { eq as eq53, desc as desc24, and as and18, sql as sql25 } from "drizzle-orm";
-import crypto14 from "crypto";
+import { TRPCError as TRPCError45 } from "@trpc/server";
+import { eq as eq57, desc as desc27, and as and22, sql as sql26 } from "drizzle-orm";
+import crypto16 from "crypto";
 
 // server/queues/nutriQueue.ts
 import { Queue as Queue2 } from "bullmq";
@@ -10902,11 +14160,11 @@ async function addPrescriptionToQueue(data) {
 // server/routers/storefront/ai/AiExpertService.ts
 init_db();
 init_schema();
-import { sql as sql24, eq as eq52, or as or6 } from "drizzle-orm";
-import crypto13 from "crypto";
+import { sql as sql25, eq as eq56, or as or9 } from "drizzle-orm";
+import crypto15 from "crypto";
 
 // server/lib/ai-safety.ts
-import { TRPCError as TRPCError33 } from "@trpc/server";
+import { TRPCError as TRPCError44 } from "@trpc/server";
 var MAX_AI_TEXT_LENGTH = 12e3;
 var MAX_AI_FILE_BASE64_LENGTH = 8 * 1024 * 1024;
 var BUSINESS_GUARDRAILS = [
@@ -10927,7 +14185,7 @@ function sanitizeTextForStorage(value, maxLength = MAX_AI_TEXT_LENGTH) {
 function validateAiTextInput(value) {
   const sanitized = sanitizeTextForStorage(value, MAX_AI_TEXT_LENGTH);
   if (!sanitized) {
-    throw new TRPCError33({
+    throw new TRPCError44({
       code: "BAD_REQUEST",
       message: "Texto de entrada \xE9 obrigat\xF3rio."
     });
@@ -10939,18 +14197,18 @@ function validateAiFileBase64(value) {
   const trimmed = value.trim();
   if (!trimmed) return void 0;
   if (trimmed.length > MAX_AI_FILE_BASE64_LENGTH) {
-    throw new TRPCError33({
+    throw new TRPCError44({
       code: "BAD_REQUEST",
       message: "Arquivo enviado para IA excede o limite permitido."
     });
   }
   return trimmed;
 }
-function assertBusinessGuardrails(text19) {
-  const lower = text19.toLowerCase();
+function assertBusinessGuardrails(text20) {
+  const lower = text20.toLowerCase();
   const hits = BUSINESS_GUARDRAILS.filter((term) => lower.includes(term));
   if (hits.length >= 3) {
-    throw new TRPCError33({
+    throw new TRPCError44({
       code: "BAD_REQUEST",
       message: "Entrada de IA cont\xE9m instru\xE7\xF5es incompat\xEDveis com este fluxo."
     });
@@ -10968,8 +14226,8 @@ function ensureSafeAiResult(value) {
 }
 
 // server/routers/storefront/ai/AiExpertService.ts
-var normalizeText = (text19) => {
-  return text19.trim().toLowerCase().replace(/[^\w\s]/gi, "").replace(/\s+/g, " ");
+var normalizeText = (text20) => {
+  return text20.trim().toLowerCase().replace(/[^\w\s]/gi, "").replace(/\s+/g, " ");
 };
 var AiExpertService = {
   /**
@@ -10981,13 +14239,13 @@ var AiExpertService = {
     if (!db2 || !rawInput) return null;
     const inputStr = sanitizeTextForStorage(String(rawInput));
     const normalizedInput = normalizeText(inputStr);
-    const inputHash = crypto13.createHash("sha256").update(inputStr).digest("hex");
-    const normalizedHash = crypto13.createHash("sha256").update(normalizedInput).digest("hex");
+    const inputHash = crypto15.createHash("sha256").update(inputStr).digest("hex");
+    const normalizedHash = crypto15.createHash("sha256").update(normalizedInput).digest("hex");
     try {
       const [existing] = await db2.select().from(aiExpertLogs).where(
-        or6(
-          eq52(aiExpertLogs.inputHash, inputHash),
-          eq52(aiExpertLogs.normalizedHash, normalizedHash)
+        or9(
+          eq56(aiExpertLogs.inputHash, inputHash),
+          eq56(aiExpertLogs.normalizedHash, normalizedHash)
         )
       ).limit(1);
       if (existing) {
@@ -11011,7 +14269,7 @@ var AiExpertService = {
     if (!db2) return;
     try {
       await db2.insert(agentRuns).values({
-        id: data.id || crypto13.randomUUID(),
+        id: data.id || crypto15.randomUUID(),
         scanId: data.scanId,
         domain: data.domain || "nutrition",
         provider: data.provider || "google",
@@ -11039,8 +14297,8 @@ var AiExpertService = {
     const inputStr = sanitizeTextForStorage(String(data.rawInput || ""));
     const normalizedInput = normalizeText(inputStr);
     const wasCorrected = JSON.stringify(data.aiJson) !== JSON.stringify(data.finalJson);
-    const inputHash = crypto13.createHash("sha256").update(inputStr).digest("hex");
-    const normalizedHash = crypto13.createHash("sha256").update(normalizedInput).digest("hex");
+    const inputHash = crypto15.createHash("sha256").update(inputStr).digest("hex");
+    const normalizedHash = crypto15.createHash("sha256").update(normalizedInput).digest("hex");
     try {
       await db2.insert(aiExpertLogs).values({
         runId: data.runId,
@@ -11056,7 +14314,7 @@ var AiExpertService = {
           finalCorrectedJson: data.finalJson ? ensureSafeAiResult(data.finalJson) : null,
           wasCorrected,
           runId: data.runId,
-          updatedAt: sql24`CURRENT_TIMESTAMP()`
+          updatedAt: sql25`CURRENT_TIMESTAMP()`
         }
       });
     } catch (error) {
@@ -11071,7 +14329,7 @@ var AiExpertService = {
     const db2 = await getDb();
     if (!db2) return "";
     try {
-      const terms = await db2.select().from(aiExpertTerms).where(eq52(aiExpertTerms.isActive, true));
+      const terms = await db2.select().from(aiExpertTerms).where(eq56(aiExpertTerms.isActive, true));
       if (!terms || terms.length === 0) return "Nenhum termo t\xE9cnico mapeado ainda.";
       return terms.map((t2) => {
         if (!t2) return "";
@@ -11103,7 +14361,7 @@ var aiRouter = router({
    */
   getAiStatus: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const [user] = await db2.select({ aiCredits: users.aiCredits, role: users.role }).from(users).where(eq53(users.id, ctx.user.id));
+    const [user] = await db2.select({ aiCredits: users.aiCredits, role: users.role }).from(users).where(eq57(users.id, ctx.user.id));
     return {
       credits: user?.aiCredits ?? 0,
       isAdmin: user?.role === "admin"
@@ -11120,7 +14378,7 @@ var aiRouter = router({
       status: nutriScansTemp.status,
       createdAt: nutriScansTemp.createdAt,
       rawText: nutriScansTemp.rawText
-    }).from(nutriScansTemp).where(eq53(nutriScansTemp.userId, userId)).orderBy(desc24(nutriScansTemp.createdAt)).limit(50);
+    }).from(nutriScansTemp).where(eq57(nutriScansTemp.userId, userId)).orderBy(desc27(nutriScansTemp.createdAt)).limit(50);
   }),
   /**
    * 🚀 DISPARADOR DE INTELIGÊNCIA (Com consumo de Token)
@@ -11131,27 +14389,27 @@ var aiRouter = router({
       limit: 8,
       windowMs: 10 * 60 * 1e3
     })
-  ).input(z45.object({
-    domain: z45.enum(["nutrition", "inventory", "support", "logistics"]),
-    payload: z45.object({
-      rawText: z45.string().min(1, "Texto de entrada \xE9 obrigat\xF3rio"),
-      fileBase64: z45.string().optional()
+  ).input(z47.object({
+    domain: z47.enum(["nutrition", "inventory", "support", "logistics"]),
+    payload: z47.object({
+      rawText: z47.string().min(1, "Texto de entrada \xE9 obrigat\xF3rio"),
+      fileBase64: z47.string().optional()
     })
   })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
     const userId = ctx.user.id;
-    const taskId = crypto14.randomUUID();
-    const [user] = await db2.select({ aiCredits: users.aiCredits, role: users.role }).from(users).where(eq53(users.id, userId));
+    const taskId = crypto16.randomUUID();
+    const [user] = await db2.select({ aiCredits: users.aiCredits, role: users.role }).from(users).where(eq57(users.id, userId));
     const isAdmin = user?.role === "admin";
     const hasCredits = (user?.aiCredits ?? 0) > 0;
     if (!isAdmin && !hasCredits) {
-      throw new TRPCError34({
+      throw new TRPCError45({
         code: "FORBIDDEN",
         message: "Seus cr\xE9ditos de IA deste m\xEAs acabaram. Eles renovam no dia 1\xBA."
       });
     }
     if (!isAdmin) {
-      await db2.update(users).set({ aiCredits: sql25`ai_credits - 1` }).where(eq53(users.id, userId));
+      await db2.update(users).set({ aiCredits: sql26`ai_credits - 1` }).where(eq57(users.id, userId));
     }
     const rawText = validateAiTextInput(input.payload.rawText);
     const fileBase64 = validateAiFileBase64(input.payload.fileBase64);
@@ -11186,19 +14444,19 @@ var aiRouter = router({
   /**
    * 🗄️ DELETAR REGISTRO (Restrito a Admin)
    */
-  archiveAndDeleteScan: protectedProcedure.input(z45.object({ id: z45.string() })).mutation(async ({ input, ctx }) => {
+  archiveAndDeleteScan: protectedProcedure.input(z47.object({ id: z47.string() })).mutation(async ({ input, ctx }) => {
     const db2 = await getDb();
     const userId = ctx.user.id;
-    const [user] = await db2.select({ role: users.role }).from(users).where(eq53(users.id, userId));
+    const [user] = await db2.select({ role: users.role }).from(users).where(eq57(users.id, userId));
     if (user?.role !== "admin") {
-      throw new TRPCError34({
+      throw new TRPCError45({
         code: "UNAUTHORIZED",
         message: "Apenas administradores podem remover registros do hist\xF3rico de IA."
       });
     }
-    const [scan] = await db2.select().from(nutriScansTemp).where(and18(
-      eq53(nutriScansTemp.id, input.id),
-      eq53(nutriScansTemp.userId, userId)
+    const [scan] = await db2.select().from(nutriScansTemp).where(and22(
+      eq57(nutriScansTemp.id, input.id),
+      eq57(nutriScansTemp.userId, userId)
     )).limit(1);
     if (scan) {
       await AiExpertService.recordExpertise({
@@ -11208,35 +14466,35 @@ var aiRouter = router({
         finalJson: null,
         confidenceScore: 0.05
       });
-      await db2.delete(nutriScansTemp).where(eq53(nutriScansTemp.id, input.id));
+      await db2.delete(nutriScansTemp).where(eq57(nutriScansTemp.id, input.id));
     }
     return { success: true };
   }),
   // Mantive o checkStatus igual, pois ele já tem validação de posse (userId)
-  checkStatus: protectedProcedure.input(z45.object({
-    scanId: z45.string().optional(),
-    runId: z45.string().optional()
+  checkStatus: protectedProcedure.input(z47.object({
+    scanId: z47.string().optional(),
+    runId: z47.string().optional()
   })).query(async ({ input, ctx }) => {
     const db2 = await getDb();
     const userId = ctx.user.id;
     if (input.scanId) {
-      const [result] = await db2.select().from(nutriScansTemp).where(and18(
-        eq53(nutriScansTemp.id, input.scanId),
-        eq53(nutriScansTemp.userId, userId)
+      const [result] = await db2.select().from(nutriScansTemp).where(and22(
+        eq57(nutriScansTemp.id, input.scanId),
+        eq57(nutriScansTemp.userId, userId)
       )).limit(1);
-      if (!result) throw new TRPCError34({ code: "NOT_FOUND", message: "An\xE1lise n\xE3o encontrada." });
+      if (!result) throw new TRPCError45({ code: "NOT_FOUND", message: "An\xE1lise n\xE3o encontrada." });
       return { status: result.status, data: ensureSafeAiResult(result.suggestedData) };
     }
     if (input.runId) {
-      const [run] = await db2.select().from(agentRuns).where(eq53(agentRuns.id, input.runId)).limit(1);
+      const [run] = await db2.select().from(agentRuns).where(eq57(agentRuns.id, input.runId)).limit(1);
       return { status: run?.status || "not_found", error: run?.errorMessage };
     }
-    throw new TRPCError34({ code: "BAD_REQUEST", message: "ID inv\xE1lido." });
+    throw new TRPCError45({ code: "BAD_REQUEST", message: "ID inv\xE1lido." });
   })
 });
 
 // server/routers/storefront/support/supportRouter.ts
-import { z as z46 } from "zod";
+import { z as z48 } from "zod";
 
 // server/support/faq.ts
 var SUPPORT_CONFIG = {
@@ -11287,15 +14545,15 @@ function normalize(s) {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 function answerFromFaq(message) {
-  const text19 = normalize(message);
-  if (!text19) return { score: 0 };
+  const text20 = normalize(message);
+  if (!text20) return { score: 0 };
   let best = { score: 0 };
   for (const topic of FAQ_TOPICS) {
     let score = 0;
     for (const kw of topic.keywords) {
       const nkw = normalize(kw);
       if (!nkw) continue;
-      if (text19.includes(nkw)) score += 1;
+      if (text20.includes(nkw)) score += 1;
     }
     if (score > best.score) best = { topic, score };
   }
@@ -11303,9 +14561,9 @@ function answerFromFaq(message) {
 }
 
 // server/routers/storefront/support/supportRouter.ts
-var inputSchema = z46.object({
-  sessionId: z46.string().optional(),
-  message: z46.string().min(1).max(800)
+var inputSchema = z48.object({
+  sessionId: z48.string().optional(),
+  message: z48.string().min(1).max(800)
 });
 var supportRouter = router({
   chat: publicProcedure.input(inputSchema).mutation(async ({ input }) => {
@@ -11330,8 +14588,8 @@ var supportRouter = router({
 
 // server/routers/storefront/addresses.ts
 init_schema();
-import { z as z47 } from "zod";
-import { and as and20, desc as desc25, eq as eq55 } from "drizzle-orm";
+import { z as z49 } from "zod";
+import { and as and24, desc as desc28, eq as eq59 } from "drizzle-orm";
 import { generateIdFromEntropySize as generateIdFromEntropySize2 } from "lucia";
 init_db();
 init_encryption();
@@ -11340,7 +14598,7 @@ init_encryption();
 init_db();
 init_schema();
 init_encryption();
-import { sql as sql26, eq as eq54, and as and19 } from "drizzle-orm";
+import { sql as sql27, eq as eq58, and as and23 } from "drizzle-orm";
 var normalizeText2 = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 async function fetchExternalGeo(cep) {
   try {
@@ -11379,7 +14637,7 @@ async function globalShippingValidator(cep, storeSlug = "jundiai") {
   const db2 = await getDb();
   const cleanCep = cep.replace(/\D/g, "");
   const config = await db2.query.appConfigs.findFirst({
-    where: eq54(appConfigs.configKey, `store_address_${storeSlug}`)
+    where: eq58(appConfigs.configKey, `store_address_${storeSlug}`)
   });
   const decryptedValue = config?.configValue ? decrypt(config.configValue) : "{}";
   const settings = safeJsonParse(decryptedValue, {});
@@ -11389,7 +14647,7 @@ async function globalShippingValidator(cep, storeSlug = "jundiai") {
     settings.minOrderMessage,
     "Valor minimo nao atingido para entrega."
   );
-  const resultMesh = await db2.execute(sql26`
+  const resultMesh = await db2.execute(sql27`
     SELECT * FROM geo_mesh 
     WHERE cep = ${cleanCep} AND store_slug = ${storeSlug} 
     LIMIT 1
@@ -11432,13 +14690,13 @@ async function globalShippingValidator(cep, storeSlug = "jundiai") {
     };
   }
   const rules = await db2.query.shippingZones.findMany({
-    where: and19(eq54(shippingZones.storeSlug, storeSlug), eq54(shippingZones.isActive, true))
+    where: and23(eq58(shippingZones.storeSlug, storeSlug), eq58(shippingZones.isActive, true))
   });
   const precoPadrao = rules.length > 0 ? safeNumber(rules[0].shippingCost, 0) : 0;
   try {
     const bairroSeguro = geoInfo.neighborhood && geoInfo.neighborhood.trim() !== "" ? geoInfo.neighborhood : "Nao Informado";
     const cidadeSegura = geoInfo.city || "Desconhecida";
-    await db2.execute(sql26`
+    await db2.execute(sql27`
       INSERT INTO geo_mesh (
         cep, bairro, cidade, store_slug, lat, lng, price, last_seen
       ) VALUES (
@@ -11472,21 +14730,21 @@ async function globalShippingValidator(cep, storeSlug = "jundiai") {
 }
 
 // server/routers/storefront/addresses.ts
-var addressIdSchema = z47.string().min(1);
-var addressInputSchema = z47.object({
-  label: z47.string().trim().optional().nullable(),
-  street: z47.string().trim().min(1, "Rua \xE9 obrigat\xF3ria."),
-  number: z47.string().trim().min(1, "N\xFAmero \xE9 obrigat\xF3rio."),
-  complement: z47.string().trim().optional().nullable(),
-  neighborhood: z47.string().trim().min(1, "Bairro \xE9 obrigat\xF3rio."),
-  city: z47.string().trim().min(1, "Cidade \xE9 obrigat\xF3ria."),
-  state: z47.string().trim().transform((value) => value.toUpperCase()).refine((value) => /^[A-Z]{2}$/.test(value), "UF inv\xE1lida."),
-  zipCode: z47.string().transform((value) => normalizeDigits(value)).refine((value) => value.length === 8, "CEP inv\xE1lido."),
-  phone: z47.string().transform((value) => normalizeDigits(value)).refine(
+var addressIdSchema = z49.string().min(1);
+var addressInputSchema = z49.object({
+  label: z49.string().trim().optional().nullable(),
+  street: z49.string().trim().min(1, "Rua \xE9 obrigat\xF3ria."),
+  number: z49.string().trim().min(1, "N\xFAmero \xE9 obrigat\xF3rio."),
+  complement: z49.string().trim().optional().nullable(),
+  neighborhood: z49.string().trim().min(1, "Bairro \xE9 obrigat\xF3rio."),
+  city: z49.string().trim().min(1, "Cidade \xE9 obrigat\xF3ria."),
+  state: z49.string().trim().transform((value) => value.toUpperCase()).refine((value) => /^[A-Z]{2}$/.test(value), "UF inv\xE1lida."),
+  zipCode: z49.string().transform((value) => normalizeDigits(value)).refine((value) => value.length === 8, "CEP inv\xE1lido."),
+  phone: z49.string().transform((value) => normalizeDigits(value)).refine(
     (value) => value.length === 0 || value.length === 10 || value.length === 11,
     "Telefone inv\xE1lido."
   ).optional().nullable(),
-  isDefault: z47.boolean().optional()
+  isDefault: z49.boolean().optional()
 });
 function safeDecrypt(value) {
   if (value == null) return "";
@@ -11532,10 +14790,10 @@ function buildInsertValues(userId, input, id) {
 }
 var addressesRouter = router({
   validateZipZone: publicProcedure.input(
-    z47.object({
-      zipCode: z47.string().optional().nullable(),
+    z49.object({
+      zipCode: z49.string().optional().nullable(),
       addressId: addressIdSchema.optional().nullable(),
-      storeSlug: z47.string().optional().default("jundiai")
+      storeSlug: z49.string().optional().default("jundiai")
     })
   ).query(async ({ ctx, input }) => {
     const db2 = await getDb();
@@ -11544,9 +14802,9 @@ var addressesRouter = router({
       const currentUserId = ctx.user?.id ? String(ctx.user.id) : null;
       if (currentUserId) {
         const [addr] = await db2.select({ zipCode: userAddresses.zipCode }).from(userAddresses).where(
-          and20(
-            eq55(userAddresses.id, input.addressId),
-            eq55(userAddresses.userId, currentUserId)
+          and24(
+            eq59(userAddresses.id, input.addressId),
+            eq59(userAddresses.userId, currentUserId)
           )
         ).limit(1);
         if (!addr) {
@@ -11567,7 +14825,7 @@ var addressesRouter = router({
     const db2 = await getDb();
     const userId = ctx.user.id;
     if (input.isDefault) {
-      await db2.update(userAddresses).set({ isDefault: false }).where(eq55(userAddresses.userId, userId));
+      await db2.update(userAddresses).set({ isDefault: false }).where(eq59(userAddresses.userId, userId));
     }
     const id = generateIdFromEntropySize2(15);
     const insertValues = buildInsertValues(userId, input, id);
@@ -11584,12 +14842,12 @@ var addressesRouter = router({
     const db2 = await getDb();
     const userId = ctx.user.id;
     const { id, ...rawData } = input;
-    const [existing] = await db2.select().from(userAddresses).where(and20(eq55(userAddresses.id, id), eq55(userAddresses.userId, userId))).limit(1);
+    const [existing] = await db2.select().from(userAddresses).where(and24(eq59(userAddresses.id, id), eq59(userAddresses.userId, userId))).limit(1);
     if (!existing) {
       throw new Error("Endere\xE7o n\xE3o encontrado.");
     }
     if (rawData.isDefault) {
-      await db2.update(userAddresses).set({ isDefault: false }).where(eq55(userAddresses.userId, userId));
+      await db2.update(userAddresses).set({ isDefault: false }).where(eq59(userAddresses.userId, userId));
     }
     const data = rawData;
     await db2.update(userAddresses).set({
@@ -11603,7 +14861,7 @@ var addressesRouter = router({
       zipCode: data.zipCode !== void 0 ? encrypt(data.zipCode) : existing.zipCode,
       phone: data.phone !== void 0 ? encrypt(data.phone || "") : existing.phone,
       isDefault: data.isDefault !== void 0 ? !!data.isDefault : !!existing.isDefault
-    }).where(and20(eq55(userAddresses.id, id), eq55(userAddresses.userId, userId)));
+    }).where(and24(eq59(userAddresses.id, id), eq59(userAddresses.userId, userId)));
     void logAction(
       { ...ctx, user: { id: userId } },
       "UPDATE_ADDRESS",
@@ -11614,7 +14872,7 @@ var addressesRouter = router({
   }),
   list: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    const rows = await db2.select().from(userAddresses).where(eq55(userAddresses.userId, ctx.user.id)).orderBy(desc25(userAddresses.isDefault));
+    const rows = await db2.select().from(userAddresses).where(eq59(userAddresses.userId, ctx.user.id)).orderBy(desc28(userAddresses.isDefault));
     return rows.map(toFront);
   }),
   getStoreSettings: publicProcedure.query(async () => {
@@ -11629,12 +14887,12 @@ var addressesRouter = router({
       minOrderMessage: store?.minOrderMessage || "O valor m\xEDnimo para entrega n\xE3o foi atingido."
     };
   }),
-  delete: protectedProcedure.input(z47.object({ id: addressIdSchema })).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(z49.object({ id: addressIdSchema })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     await db2.delete(userAddresses).where(
-      and20(
-        eq55(userAddresses.id, input.id),
-        eq55(userAddresses.userId, ctx.user.id)
+      and24(
+        eq59(userAddresses.id, input.id),
+        eq59(userAddresses.userId, ctx.user.id)
       )
     );
     return { success: true };
@@ -11642,27 +14900,27 @@ var addressesRouter = router({
 });
 
 // server/routers/storefront/cart/index.ts
-import { z as z50 } from "zod";
+import { z as z52 } from "zod";
 init_schema();
-import { eq as eq63, and as and26, or as or10, desc as desc29 } from "drizzle-orm";
-import crypto16 from "crypto";
-import { TRPCError as TRPCError39 } from "@trpc/server";
+import { eq as eq67, and as and30, or as or13, desc as desc32 } from "drizzle-orm";
+import crypto18 from "crypto";
+import { TRPCError as TRPCError50 } from "@trpc/server";
 
 // server/routers/storefront/cart/items.ts
-import { z as z48 } from "zod";
+import { z as z50 } from "zod";
 init_schema();
-import { eq as eq61, and as and24, or as or9, desc as desc28 } from "drizzle-orm";
-import crypto15 from "crypto";
-import { TRPCError as TRPCError37 } from "@trpc/server";
+import { eq as eq65, and as and28, or as or12, desc as desc31 } from "drizzle-orm";
+import crypto17 from "crypto";
+import { TRPCError as TRPCError48 } from "@trpc/server";
 
 // server/routers/storefront/cart/logic.ts
 init_schema();
-import { asc as asc16, eq as eq60 } from "drizzle-orm";
+import { asc as asc18, eq as eq64 } from "drizzle-orm";
 
 // server/loyalty.ts
 init_db();
 init_schema();
-import { eq as eq56, desc as desc26, like as like8, or as or7, count as count5, and as and21, sum as sum3, sql as sql27 } from "drizzle-orm";
+import { eq as eq60, desc as desc29, like as like10, or as or10, count as count6, and as and25, sum as sum3, sql as sql28 } from "drizzle-orm";
 async function getLoyaltySettings() {
   const db2 = await getDb();
   if (!db2) throw new Error("Database not available");
@@ -11689,7 +14947,7 @@ async function getUserPoints(userId) {
   const db2 = await getDb();
   if (!db2) return { current_points: 0, lifetime_points: 0 };
   try {
-    const history = await db2.select().from(loyaltyHistory).where(eq56(loyaltyHistory.userId, userId));
+    const history = await db2.select().from(loyaltyHistory).where(eq60(loyaltyHistory.userId, userId));
     let current = 0;
     let lifetime = 0;
     history.forEach((row) => {
@@ -11731,17 +14989,17 @@ function calculatePricing(items, rules = []) {
 }
 
 // server/routers/storefront/cart/logic.ts
-import { TRPCError as TRPCError36 } from "@trpc/server";
+import { TRPCError as TRPCError47 } from "@trpc/server";
 
 // server/orders/logic/recalculateOrder.ts
 init_db();
 init_schema();
-import { TRPCError as TRPCError35 } from "@trpc/server";
-import { and as and23, asc as asc15, desc as desc27, eq as eq59, or as or8 } from "drizzle-orm";
+import { TRPCError as TRPCError46 } from "@trpc/server";
+import { and as and27, asc as asc17, desc as desc30, eq as eq63, or as or11 } from "drizzle-orm";
 
 // server/dishes.ts
 init_db();
-import { eq as eq57, and as and22, asc as asc13 } from "drizzle-orm";
+import { eq as eq61, and as and26, asc as asc15 } from "drizzle-orm";
 init_catalog();
 async function getDishDetails(dishId) {
   const db2 = await getDb();
@@ -11768,7 +15026,7 @@ async function getDishDetails(dishId) {
       fiber: dishes.fiber,
       calcium: dishes.calcium,
       iron: dishes.iron
-    }).from(dishes).where(eq57(dishes.id, dishId)).limit(1);
+    }).from(dishes).where(eq61(dishes.id, dishId)).limit(1);
     if (!dishRows || dishRows.length === 0) {
       return null;
     }
@@ -11781,16 +15039,16 @@ async function getDishDetails(dishId) {
       mainDishWeight: dishSizes.mainDishWeight,
       isActive: dishSizes.isActive,
       displayOrder: dishSizes.displayOrder
-    }).from(dishSizes).innerJoin(dishesToSizes, eq57(dishSizes.id, dishesToSizes.sizeId)).where(and22(eq57(dishesToSizes.dishId, dishId), eq57(dishSizes.isActive, true))).orderBy(asc13(dishSizes.displayOrder));
+    }).from(dishSizes).innerJoin(dishesToSizes, eq61(dishSizes.id, dishesToSizes.sizeId)).where(and26(eq61(dishesToSizes.dishId, dishId), eq61(dishSizes.isActive, true))).orderBy(asc15(dishSizes.displayOrder));
     const allOptions = await getAccsWithNutrition() || [];
     const sizesWithGroups = await Promise.all(
       (sizes || []).map(async (size) => {
         const rawGroups = await db2.select({
           pivot: sizeAccompanimentGroups,
           group: accompanimentGroups
-        }).from(sizeAccompanimentGroups).innerJoin(accompanimentGroups, eq57(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(and22(
-          eq57(sizeAccompanimentGroups.sizeId, size.id),
-          eq57(accompanimentGroups.isActive, true)
+        }).from(sizeAccompanimentGroups).innerJoin(accompanimentGroups, eq61(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(and26(
+          eq61(sizeAccompanimentGroups.sizeId, size.id),
+          eq61(accompanimentGroups.isActive, true)
         ));
         const groupsWithOptions = (rawGroups || []).map((row) => {
           const { group, pivot } = row;
@@ -11880,7 +15138,7 @@ async function getDishDetails(dishId) {
 init_db();
 init_packages();
 init_schema();
-import { eq as eq58, inArray as inArray9, asc as asc14, sql as sql28 } from "drizzle-orm";
+import { eq as eq62, inArray as inArray11, asc as asc16, sql as sql29 } from "drizzle-orm";
 var toNum2 = (val) => {
   if (val === null || val === void 0) return 0;
   if (typeof val === "string") {
@@ -11923,10 +15181,10 @@ async function getPackageById(idInput) {
       size: {
         id: dishSizes.id,
         name: dishSizes.name,
-        weight: sql28`main_dish_weight`,
-        proteinWeight: sql28`main_dish_weight`
+        weight: sql29`main_dish_weight`,
+        proteinWeight: sql29`main_dish_weight`
       }
-    }).from(packages).leftJoin(dishSizes, eq58(packages.sizeId, dishSizes.id)).where(eq58(packages.id, id)).limit(1);
+    }).from(packages).leftJoin(dishSizes, eq62(packages.sizeId, dishSizes.id)).where(eq62(packages.id, id)).limit(1);
     const row = results[0];
     if (!row || !row.package) return null;
     const { package: pkg, size } = row;
@@ -11947,14 +15205,14 @@ async function getPackageById(idInput) {
         id: dishes.id,
         name: dishes.name,
         price: dishes.basePrice,
-        ingredients: sql28`dishes.ingredients`,
-        kcal: sql28`COALESCE(energy_kcal, 0)`,
-        proteins: sql28`COALESCE(proteins, 0)`,
-        carbs: sql28`COALESCE(carbs, 0)`,
-        fats: sql28`COALESCE(fat_total, 0)`,
-        sodium: sql28`COALESCE(sodium, 0)`,
-        fiber: sql28`COALESCE(fiber, 0)`
-      }).from(dishes).where(inArray9(dishes.id, uniqueDishIds));
+        ingredients: sql29`dishes.ingredients`,
+        kcal: sql29`COALESCE(energy_kcal, 0)`,
+        proteins: sql29`COALESCE(proteins, 0)`,
+        carbs: sql29`COALESCE(carbs, 0)`,
+        fats: sql29`COALESCE(fat_total, 0)`,
+        sodium: sql29`COALESCE(sodium, 0)`,
+        fiber: sql29`COALESCE(fiber, 0)`
+      }).from(dishes).where(inArray11(dishes.id, uniqueDishIds));
     }
     const hasAnyGroups = slots.some((s) => Array.isArray(s.groups) && s.groups.length > 0);
     let allFetchedGroups = [];
@@ -11966,23 +15224,23 @@ async function getPackageById(idInput) {
         name: accompanimentGroups.name,
         minSelections: accompanimentGroups.minSelections,
         maxSelections: accompanimentGroups.maxSelections,
-        defaultGrammage: sql28`COALESCE(default_grammage, 100)`,
+        defaultGrammage: sql29`COALESCE(default_grammage, 100)`,
         itemsOrder: accompanimentGroups.itemsOrder
       }).from(accompanimentGroups);
       allFetchedOptions = await db2.select({
         id: accompanimentOptions.id,
         name: accompanimentOptions.name,
-        ingredients: sql28`accompaniment_options.ingredients`,
-        groupsConfig: sql28`groups_config`,
+        ingredients: sql29`accompaniment_options.ingredients`,
+        groupsConfig: sql29`groups_config`,
         accompanimentCategoryId: accompanimentOptions.accompanimentCategoryId,
-        priceModifier: sql28`price_modifier`,
-        kcal: sql28`COALESCE(energy_kcal, 0)`,
-        proteins: sql28`COALESCE(proteins, 0)`,
-        carbs: sql28`COALESCE(carbs, 0)`,
-        fats: sql28`COALESCE(fat_total, 0)`,
-        sodium: sql28`COALESCE(sodium, 0)`,
-        fiber: sql28`COALESCE(fiber, 0)`
-      }).from(accompanimentOptions).where(eq58(accompanimentOptions.isActive, true));
+        priceModifier: sql29`price_modifier`,
+        kcal: sql29`COALESCE(energy_kcal, 0)`,
+        proteins: sql29`COALESCE(proteins, 0)`,
+        carbs: sql29`COALESCE(carbs, 0)`,
+        fats: sql29`COALESCE(fat_total, 0)`,
+        sodium: sql29`COALESCE(sodium, 0)`,
+        fiber: sql29`COALESCE(fiber, 0)`
+      }).from(accompanimentOptions).where(eq62(accompanimentOptions.isActive, true));
       allFetchedGroups = groupsRaw.map((group) => {
         let itemsFromOrder = [];
         try {
@@ -12025,7 +15283,7 @@ async function getPackageById(idInput) {
         }
       });
     });
-    const formattedOptions = slots.map((slot, index4) => {
+    const formattedOptions = slots.map((slot, index5) => {
       const slotDishIds = (slot.dishIds || []).map((dishId) => safeInteger(dishId, Number.NaN)).filter(Number.isFinite);
       const slotGroups = slot.groups || [];
       const accompanimentGroupsForSlot = slotGroups.map((groupConfig) => {
@@ -12070,8 +15328,8 @@ async function getPackageById(idInput) {
         return null;
       }).filter(Boolean);
       return {
-        mealIndex: index4,
-        label: slot.name || `Refei\xE7\xE3o ${index4 + 1}`,
+        mealIndex: index5,
+        label: slot.name || `Refei\xE7\xE3o ${index5 + 1}`,
         dishes: allFetchedDishes.filter((d) => slotDishIds.includes(safeInteger(d.id))).map((d) => ({
           id: safeInteger(d.id),
           name: d.name,
@@ -12121,7 +15379,7 @@ async function getAllPackages() {
         numberOfOptions: packages.numberOfOptions
       },
       sizeName: dishSizes.name
-    }).from(packages).leftJoin(dishSizes, eq58(packages.sizeId, dishSizes.id)).where(eq58(packages.isActive, true)).orderBy(asc14(packages.name));
+    }).from(packages).leftJoin(dishSizes, eq62(packages.sizeId, dishSizes.id)).where(eq62(packages.isActive, true)).orderBy(asc16(packages.name));
     return (result || []).map((r) => ({
       ...r.package,
       id: String(r.package.id),
@@ -12216,7 +15474,12 @@ function parseSelectedMeals(value) {
   return result;
 }
 function pickSelectedAccs(options) {
-  return parseSelectedAccs(options.selectedAccs) || parseSelectedAccs(options.selectedAccompaniments) || parseSelectedAccs(options.accompaniments);
+  const candidates = [
+    parseSelectedAccs(options.selectedAccs),
+    parseSelectedAccs(options.selectedAccompaniments),
+    parseSelectedAccs(options.accompaniments)
+  ];
+  return candidates.find((items) => items.length > 0) || [];
 }
 function getSelectedAccsFromMeal(meal) {
   if (meal.accompaniments && meal.accompaniments.length > 0) return meal.accompaniments;
@@ -12256,17 +15519,17 @@ function matchGroupForAcc(groups, accId, providedGroupId) {
 function ensureGroupSelections(groups, counts, contextName) {
   for (const group of groups) {
     const groupId = String(group.groupId ?? group.id);
-    const count6 = counts.get(groupId) || 0;
+    const count7 = counts.get(groupId) || 0;
     const minSelections = toNumber(group.minSelections);
     const maxSelections = Math.max(1, toNumber(group.maxSelections, 1));
-    if (count6 < minSelections) {
-      throw new TRPCError35({
+    if (count7 < minSelections) {
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `${contextName}: faltam sele\xE7\xF5es obrigat\xF3rias em ${String(group.name || "acompanhamentos")}.`
       });
     }
-    if (count6 > maxSelections) {
-      throw new TRPCError35({
+    if (count7 > maxSelections) {
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `${contextName}: limite excedido em ${String(group.name || "acompanhamentos")}.`
       });
@@ -12276,23 +15539,23 @@ function ensureGroupSelections(groups, counts, contextName) {
 async function recalculateSingleItem(quantity, dishId, options, appliedNutrition) {
   const parsedDishId = toNumber(dishId, NaN);
   if (!Number.isFinite(parsedDishId)) {
-    throw new TRPCError35({ code: "BAD_REQUEST", message: "Prato inv\xC3\xA1lido ou inativo." });
+    throw new TRPCError46({ code: "BAD_REQUEST", message: "Prato inv\xE1lido ou inativo." });
   }
   const dish = await getDishDetails(parsedDishId);
   if (!dish || dish.isActive === false) {
-    throw new TRPCError35({ code: "BAD_REQUEST", message: "Prato inv\xE1lido ou inativo." });
+    throw new TRPCError46({ code: "BAD_REQUEST", message: "Prato inv\xE1lido ou inativo." });
   }
   const sizes = Array.isArray(dish.sizes) ? dish.sizes : [];
   const selectedSizeId = toNullableId(options.selectedSizeId ?? options.sizeId);
   if (!selectedSizeId) {
-    throw new TRPCError35({
+    throw new TRPCError46({
       code: "BAD_REQUEST",
       message: `Selecione o tamanho de ${String(dish.name || "seu prato")}.`
     });
   }
   const selectedSize = sizes.find((size) => String(size.id) === selectedSizeId) || null;
   if (!selectedSize) {
-    throw new TRPCError35({
+    throw new TRPCError46({
       code: "BAD_REQUEST",
       message: `Tamanho inv\xE1lido para ${String(dish.name || "o prato")}.`
     });
@@ -12304,14 +15567,14 @@ async function recalculateSingleItem(quantity, dishId, options, appliedNutrition
   for (const selectedAcc of selectedAccs) {
     const accId = toNumber(selectedAcc.id, NaN);
     if (!Number.isFinite(accId)) {
-      throw new TRPCError35({
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `Acompanhamento inv\xE1lido em ${String(dish.name || "seu prato")}.`
       });
     }
     const matchedGroup = matchGroupForAcc(groups, accId, selectedAcc.groupId);
     if (!matchedGroup) {
-      throw new TRPCError35({
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `Acompanhamento n\xE3o permitido para ${String(dish.name || "este prato")}.`
       });
@@ -12320,7 +15583,7 @@ async function recalculateSingleItem(quantity, dishId, options, appliedNutrition
       (option) => toNumber(option.id, NaN) === accId
     );
     if (!matchedOption) {
-      throw new TRPCError35({
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `Acompanhamento inv\xE1lido para ${String(dish.name || "este prato")}.`
       });
@@ -12367,21 +15630,21 @@ async function recalculateSingleItem(quantity, dishId, options, appliedNutrition
 async function recalculatePackageItem(quantity, packageId, options, appliedNutrition) {
   const pkg = await getPackageById(packageId);
   if (!pkg) {
-    throw new TRPCError35({ code: "BAD_REQUEST", message: "Pacote inv\xE1lido ou inativo." });
+    throw new TRPCError46({ code: "BAD_REQUEST", message: "Pacote inv\xE1lido ou inativo." });
   }
   const slotDefinitions = Array.isArray(pkg.options) ? pkg.options : [];
   const selectedMeals = parseSelectedMeals(options.meals || options.items);
   if (selectedMeals.length !== slotDefinitions.length) {
-    throw new TRPCError35({
+    throw new TRPCError46({
       code: "BAD_REQUEST",
       message: `Pacote ${String(pkg.name || "")} est\xE1 incompleto.`
     });
   }
   const authoritativeMeals = [];
-  slotDefinitions.forEach((slot, index4) => {
-    const meal = selectedMeals[index4];
+  slotDefinitions.forEach((slot, index5) => {
+    const meal = selectedMeals[index5];
     if (!meal) {
-      throw new TRPCError35({
+      throw new TRPCError46({
         code: "BAD_REQUEST",
         message: `Pacote ${String(pkg.name || "")} est\xE1 incompleto.`
       });
@@ -12390,9 +15653,9 @@ async function recalculatePackageItem(quantity, packageId, options, appliedNutri
     const allowedDishes = Array.isArray(slot.dishes) ? slot.dishes : [];
     const matchedDish = allowedDishes.find((dish) => String(dish.id) === selectedDishId) || null;
     if (!matchedDish || !selectedDishId) {
-      throw new TRPCError35({
+      throw new TRPCError46({
         code: "BAD_REQUEST",
-        message: `Sele\xE7\xE3o inv\xE1lida em ${String(slot.label || `Marmita ${index4 + 1}`)}.`
+        message: `Sele\xE7\xE3o inv\xE1lida em ${String(slot.label || `Marmita ${index5 + 1}`)}.`
       });
     }
     const groups = Array.isArray(slot.accompanimentGroups) ? slot.accompanimentGroups : [];
@@ -12402,25 +15665,25 @@ async function recalculatePackageItem(quantity, packageId, options, appliedNutri
     for (const selectedAcc of selectedAccs) {
       const accId = toNumber(selectedAcc.id, NaN);
       if (!Number.isFinite(accId)) {
-        throw new TRPCError35({
+        throw new TRPCError46({
           code: "BAD_REQUEST",
-          message: `Acompanhamento inv\xE1lido em ${String(slot.label || `Marmita ${index4 + 1}`)}.`
+          message: `Acompanhamento inv\xE1lido em ${String(slot.label || `Marmita ${index5 + 1}`)}.`
         });
       }
       const matchedGroup = matchGroupForAcc(groups, accId, selectedAcc.groupId);
       if (!matchedGroup) {
-        throw new TRPCError35({
+        throw new TRPCError46({
           code: "BAD_REQUEST",
-          message: `Acompanhamento n\xE3o permitido em ${String(slot.label || `Marmita ${index4 + 1}`)}.`
+          message: `Acompanhamento n\xE3o permitido em ${String(slot.label || `Marmita ${index5 + 1}`)}.`
         });
       }
       const matchedOption = (Array.isArray(matchedGroup.options) ? matchedGroup.options : []).find(
         (option) => toNumber(option.id, NaN) === accId
       );
       if (!matchedOption) {
-        throw new TRPCError35({
+        throw new TRPCError46({
           code: "BAD_REQUEST",
-          message: `Acompanhamento inv\xE1lido em ${String(slot.label || `Marmita ${index4 + 1}`)}.`
+          message: `Acompanhamento inv\xE1lido em ${String(slot.label || `Marmita ${index5 + 1}`)}.`
         });
       }
       const groupId = String(matchedGroup.groupId ?? matchedGroup.id);
@@ -12436,10 +15699,10 @@ async function recalculatePackageItem(quantity, packageId, options, appliedNutri
     ensureGroupSelections(
       groups,
       counts,
-      String(slot.label || `Marmita ${index4 + 1}`)
+      String(slot.label || `Marmita ${index5 + 1}`)
     );
     authoritativeMeals.push({
-      label: String(slot.label || meal.label || `Marmita ${index4 + 1}`),
+      label: String(slot.label || meal.label || `Marmita ${index5 + 1}`),
       dishId: selectedDishId,
       dishName: String(matchedDish.name || meal.dishName || "Marmita"),
       accompaniments: authoritativeAccs
@@ -12469,7 +15732,7 @@ async function calculateCouponDiscount(db2, couponCode, subtotal, autoDiscount) 
   if (!couponCode) {
     return { discount: 0, couponId: null };
   }
-  const [dbCoupon] = await db2.select().from(coupons).where(eq59(coupons.code, couponCode)).limit(1);
+  const [dbCoupon] = await db2.select().from(coupons).where(eq63(coupons.code, couponCode)).limit(1);
   if (!dbCoupon || !dbCoupon.isActive) {
     return { discount: 0, couponId: null };
   }
@@ -12499,7 +15762,7 @@ async function calculateLoyaltyDiscount(db2, userId, useLoyaltyPoints, remainder
     return { loyaltyDiscount: 0, pointsUsed: 0 };
   }
   const [cfg] = await db2.select().from(loyaltySettings).limit(1);
-  const [user] = await db2.select({ availablePoints: users.availablePoints }).from(users).where(eq59(users.id, userId)).limit(1);
+  const [user] = await db2.select({ availablePoints: users.availablePoints }).from(users).where(eq63(users.id, userId)).limit(1);
   const enabled = cfg?.enabled === true || String(cfg?.enabled) === "1" || toNumber(cfg?.enabled) === 1;
   if (!enabled || !user || toNumber(user.availablePoints) <= 0) {
     return { loyaltyDiscount: 0, pointsUsed: 0 };
@@ -12511,7 +15774,10 @@ async function calculateLoyaltyDiscount(db2, userId, useLoyaltyPoints, remainder
     return { loyaltyDiscount: 0, pointsUsed: 0 };
   }
   const rawRules = cfg?.redemptionRules;
-  const rules = Array.isArray(rawRules) ? rawRules : typeof rawRules === "string" ? JSON.parse(rawRules) : [];
+  const rules = Array.isArray(rawRules) ? rawRules : safeJsonParse(
+    typeof rawRules === "string" ? rawRules : "",
+    []
+  );
   let tierCeiling = remainder;
   if (rules.length > 0) {
     const sorted = [...rules].sort((a, b) => toNumber(b.minOrderValue) - toNumber(a.minOrderValue));
@@ -12546,7 +15812,7 @@ async function recalculateCartItem(params) {
   if (dishId) {
     return recalculateSingleItem(quantity, dishId, options, params.appliedNutrition);
   }
-  throw new TRPCError35({
+  throw new TRPCError46({
     code: "BAD_REQUEST",
     message: "Item do carrinho sem produto ou pacote v\xE1lido."
   });
@@ -12560,18 +15826,18 @@ async function recalculateCheckoutFromCart(params) {
     usesLoyalty: carts.usesLoyalty,
     userId: carts.userId
   }).from(carts).where(
-    and23(
-      eq59(carts.id, params.cartId),
-      eq59(carts.userId, params.userId),
-      or8(eq59(carts.status, "active"), eq59(carts.status, "open"))
+    and27(
+      eq63(carts.id, params.cartId),
+      eq63(carts.userId, params.userId),
+      or11(eq63(carts.status, "active"), eq63(carts.status, "open"))
     )
-  ).orderBy(desc27(carts.updatedAt)).limit(1);
+  ).orderBy(desc30(carts.updatedAt)).limit(1);
   if (!cart) {
-    throw new TRPCError35({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
+    throw new TRPCError46({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
   }
-  const rawItems = await db2.select().from(cartItems).where(eq59(cartItems.cartId, cart.id)).orderBy(asc15(cartItems.createdAt));
+  const rawItems = await db2.select().from(cartItems).where(eq63(cartItems.cartId, cart.id)).orderBy(asc17(cartItems.createdAt));
   if (rawItems.length === 0) {
-    throw new TRPCError35({ code: "BAD_REQUEST", message: "Seu carrinho est\xE1 vazio." });
+    throw new TRPCError46({ code: "BAD_REQUEST", message: "Seu carrinho est\xE1 vazio." });
   }
   const items = await Promise.all(
     rawItems.map(async (item) => {
@@ -12588,11 +15854,11 @@ async function recalculateCheckoutFromCart(params) {
       };
     })
   );
-  const [selectedPaymentMethod] = await db2.select().from(paymentMethods).where(eq59(paymentMethods.id, params.paymentMethodId)).limit(1);
+  const [selectedPaymentMethod] = await db2.select().from(paymentMethods).where(eq63(paymentMethods.id, params.paymentMethodId)).limit(1);
   if (!selectedPaymentMethod) {
-    throw new TRPCError35({ code: "BAD_REQUEST", message: "M\xE9todo de pagamento inv\xE1lido." });
+    throw new TRPCError46({ code: "BAD_REQUEST", message: "M\xE9todo de pagamento inv\xE1lido." });
   }
-  const rulesRaw = await db2.select().from(discountRules).where(eq59(discountRules.isActive, true)).orderBy(asc15(discountRules.minQuantity));
+  const rulesRaw = await db2.select().from(discountRules).where(eq63(discountRules.isActive, true)).orderBy(asc17(discountRules.minQuantity));
   const pricing = calculatePricing(
     items.map((item) => ({
       id: item.id,
@@ -12678,10 +15944,10 @@ async function syncCartState(db2, cartId, userId) {
       couponBannerColor: coupons.bannerColor,
       couponLogoUrl: coupons.logoUrl,
       couponDescription: coupons.description
-    }).from(carts).leftJoin(coupons, eq60(carts.couponId, coupons.id)).where(eq60(carts.id, cartId)).limit(1);
+    }).from(carts).leftJoin(coupons, eq64(carts.couponId, coupons.id)).where(eq64(carts.id, cartId)).limit(1);
     if (!cartData) return null;
     const activeUserId = userId || cartData.userId || null;
-    const itemsRaw = await db2.select().from(cartItems).where(eq60(cartItems.cartId, cartId)).orderBy(asc16(cartItems.createdAt));
+    const itemsRaw = await db2.select().from(cartItems).where(eq64(cartItems.cartId, cartId)).orderBy(asc18(cartItems.createdAt));
     const validItems = [];
     const removedInvalidItems = [];
     for (const item of itemsRaw) {
@@ -12702,7 +15968,7 @@ async function syncCartState(db2, cartId, userId) {
             unitPrice: authoritativeUnitPrice.toFixed(2),
             name: authoritativeName,
             options: authoritativeOptions
-          }).where(eq60(cartItems.id, item.id));
+          }).where(eq64(cartItems.id, item.id));
         }
         validItems.push({
           ...item,
@@ -12712,9 +15978,9 @@ async function syncCartState(db2, cartId, userId) {
           totalItemPrice: roundMoney2(authoritativeUnitPrice * safeNumber(item.quantity, 1))
         });
       } catch (error) {
-        const shouldRemove = error instanceof TRPCError36 && (error.code === "BAD_REQUEST" || error.code === "NOT_FOUND");
+        const shouldRemove = error instanceof TRPCError47 && (error.code === "BAD_REQUEST" || error.code === "NOT_FOUND");
         if (!shouldRemove) throw error;
-        await db2.delete(cartItems).where(eq60(cartItems.id, item.id));
+        await db2.delete(cartItems).where(eq64(cartItems.id, item.id));
         removedInvalidItems.push(String(item.id));
       }
     }
@@ -12740,7 +16006,7 @@ async function syncCartState(db2, cartId, userId) {
         discountValue: "0.00",
         userId: activeUserId,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq60(carts.id, cartId));
+      }).where(eq64(carts.id, cartId));
       return {
         cartId,
         totals: emptyTotals,
@@ -12754,7 +16020,7 @@ async function syncCartState(db2, cartId, userId) {
         removedInvalidItems
       };
     }
-    const rulesRaw = await db2.select().from(discountRules).where(eq60(discountRules.isActive, true)).orderBy(asc16(discountRules.minQuantity));
+    const rulesRaw = await db2.select().from(discountRules).where(eq64(discountRules.isActive, true)).orderBy(asc18(discountRules.minQuantity));
     const domainItems = validItems.map((item) => ({
       id: String(item.id),
       price: safeFloat(item.unitPrice),
@@ -12768,7 +16034,7 @@ async function syncCartState(db2, cartId, userId) {
     let couponDiscount = 0;
     let couponError = null;
     if (cartData.couponCode) {
-      const [dbCoupon] = await db2.select().from(coupons).where(eq60(coupons.code, cartData.couponCode)).limit(1);
+      const [dbCoupon] = await db2.select().from(coupons).where(eq64(coupons.code, cartData.couponCode)).limit(1);
       if (!dbCoupon) {
         couponError = "Cupom inv\xE1lido ou expirado.";
       } else {
@@ -12837,7 +16103,7 @@ async function syncCartState(db2, cartId, userId) {
       discountValue: totals.totalDiscounts.toFixed(2),
       userId: activeUserId,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq60(carts.id, cartId));
+    }).where(eq64(carts.id, cartId));
     return {
       cartId,
       totals,
@@ -12913,12 +16179,12 @@ var safeFloat2 = (v) => {
 };
 function assertCartOwnership(cart, userId, guestId) {
   if (!cart) {
-    throw new TRPCError37({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
+    throw new TRPCError48({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
   }
   const ownsAsUser = !!userId && cart.userId === userId;
   const ownsAsGuest = !userId && !!guestId && cart.guestId === guestId;
   if (!ownsAsUser && !ownsAsGuest) {
-    throw new TRPCError37({ code: "FORBIDDEN", message: "Carrinho n\xE3o pertence \xE0 sess\xE3o atual." });
+    throw new TRPCError48({ code: "FORBIDDEN", message: "Carrinho n\xE3o pertence \xE0 sess\xE3o atual." });
   }
 }
 var cartItemsRouter = router({
@@ -12931,21 +16197,21 @@ var cartItemsRouter = router({
       limit: 40,
       windowMs: 5 * 60 * 1e3
     })
-  ).input(z48.object({
-    dishId: z48.union([z48.string(), z48.number()]).optional().nullable(),
-    packageId: z48.union([z48.string(), z48.number()]).optional().nullable(),
-    quantity: z48.number().min(1),
-    totalUnitPrice: z48.number().optional().nullable(),
-    optionsPayload: z48.record(z48.unknown()).optional().nullable(),
-    nutritionPayload: z48.union([z48.record(z48.unknown()), z48.array(z48.unknown())]).optional().nullable(),
-    cartId: z48.string().optional().nullable(),
-    guestSessionId: z48.string().optional().nullable()
+  ).input(z50.object({
+    dishId: z50.union([z50.string(), z50.number()]).optional().nullable(),
+    packageId: z50.union([z50.string(), z50.number()]).optional().nullable(),
+    quantity: z50.number().min(1),
+    totalUnitPrice: z50.number().optional().nullable(),
+    optionsPayload: z50.record(z50.unknown()).optional().nullable(),
+    nutritionPayload: z50.union([z50.record(z50.unknown()), z50.array(z50.unknown())]).optional().nullable(),
+    cartId: z50.string().optional().nullable(),
+    guestSessionId: z50.string().optional().nullable()
   })).mutation(async ({ input, ctx }) => {
     const db2 = ctx.db;
     const userId = ctx.user?.id ? String(ctx.user.id) : null;
     const guestId = ctx.guestId || input.guestSessionId;
     if (!userId && !guestId) {
-      throw new TRPCError37({ code: "UNAUTHORIZED", message: "Sess\xE3o expirada ou inv\xE1lida." });
+      throw new TRPCError48({ code: "UNAUTHORIZED", message: "Sess\xE3o expirada ou inv\xE1lida." });
     }
     const optionsClean = input.optionsPayload ? { ...input.optionsPayload } : {};
     const rawNutrition = input.nutritionPayload ?? optionsClean?.appliedNutrition ?? null;
@@ -12961,7 +16227,7 @@ var cartItemsRouter = router({
     const finalPackageId = isPackage && rawPackageId ? String(rawPackageId) : null;
     let baseItem = null;
     if (finalPackageId) {
-      const [pkg] = await db2.select().from(packages).where(eq61(packages.id, finalPackageId)).limit(1);
+      const [pkg] = await db2.select().from(packages).where(eq65(packages.id, finalPackageId)).limit(1);
       if (pkg) {
         const pkgRef = pkg;
         const basePriceValue = safeFloat2(pkgRef.price ?? pkgRef.basePrice ?? pkgRef.base_price ?? 0);
@@ -12978,9 +16244,9 @@ var cartItemsRouter = router({
     } else if (finalDishId) {
       const dishId = safeInteger(finalDishId, Number.NaN);
       if (!Number.isFinite(dishId)) {
-        throw new TRPCError37({ code: "BAD_REQUEST", message: "Produto inv\xC3\xA1lido." });
+        throw new TRPCError48({ code: "BAD_REQUEST", message: "Produto inv\xC3\xA1lido." });
       }
-      const [dish] = await db2.select().from(dishes).where(eq61(dishes.id, dishId)).limit(1);
+      const [dish] = await db2.select().from(dishes).where(eq65(dishes.id, dishId)).limit(1);
       if (dish) {
         const dishRef = dish;
         const basePrice = safeFloat2(dishRef.price ?? dishRef.basePrice ?? 0);
@@ -12996,7 +16262,7 @@ var cartItemsRouter = router({
       }
     }
     if (!baseItem) {
-      throw new TRPCError37({ code: "NOT_FOUND", message: "Produto n\xE3o localizado no cat\xE1logo." });
+      throw new TRPCError48({ code: "NOT_FOUND", message: "Produto n\xE3o localizado no cat\xE1logo." });
     }
     if (isPackage && finalPackageId) {
       const selectedMeals = optionsClean.meals || optionsClean.items || [];
@@ -13007,22 +16273,22 @@ var cartItemsRouter = router({
         maxItems: baseItem.maxItems
       });
       if (!validation.isValid) {
-        throw new TRPCError37({ code: "BAD_REQUEST", message: validation.message });
+        throw new TRPCError48({ code: "BAD_REQUEST", message: validation.message });
       }
     }
-    const sessionCondition = userId ? eq61(carts.userId, userId) : eq61(carts.guestId, guestId);
+    const sessionCondition = userId ? eq65(carts.userId, userId) : eq65(carts.guestId, guestId);
     const [existing] = await db2.select().from(carts).where(
-      and24(
+      and28(
         sessionCondition,
-        or9(eq61(carts.status, "open"), eq61(carts.status, "active")),
-        input.cartId ? eq61(carts.id, input.cartId) : void 0
+        or12(eq65(carts.status, "open"), eq65(carts.status, "active")),
+        input.cartId ? eq65(carts.id, input.cartId) : void 0
       )
-    ).orderBy(desc28(carts.updatedAt)).limit(1);
+    ).orderBy(desc31(carts.updatedAt)).limit(1);
     let currentCartId;
     if (existing) {
       currentCartId = String(existing.id);
     } else {
-      currentCartId = crypto15.randomUUID();
+      currentCartId = crypto17.randomUUID();
       await db2.insert(carts).values({
         id: currentCartId,
         userId,
@@ -13054,7 +16320,7 @@ var cartItemsRouter = router({
       }
     }
     const newItem = {
-      id: crypto15.randomUUID(),
+      id: crypto17.randomUUID(),
       cartId: currentCartId,
       dishId: finalDishId,
       packageId: finalPackageId,
@@ -13073,64 +16339,64 @@ var cartItemsRouter = router({
   /**
    * ✅ REMOVER ITEM
    */
-  removeItem: publicProcedure.input(z48.object({ cartItemId: z48.string() })).mutation(async ({ input, ctx }) => {
+  removeItem: publicProcedure.input(z50.object({ cartItemId: z50.string() })).mutation(async ({ input, ctx }) => {
     const db2 = ctx.db;
     const userId = ctx.user?.id ? String(ctx.user.id) : null;
     const guestId = ctx.guestId || null;
-    const [item] = await db2.select().from(cartItems).where(eq61(cartItems.id, input.cartItemId)).limit(1);
-    if (!item) throw new TRPCError37({ code: "NOT_FOUND", message: "Item n\xE3o encontrado." });
+    const [item] = await db2.select().from(cartItems).where(eq65(cartItems.id, input.cartItemId)).limit(1);
+    if (!item) throw new TRPCError48({ code: "NOT_FOUND", message: "Item n\xE3o encontrado." });
     const currentCartId = item.cartId;
-    const [cart] = await db2.select().from(carts).where(eq61(carts.id, currentCartId)).limit(1);
+    const [cart] = await db2.select().from(carts).where(eq65(carts.id, currentCartId)).limit(1);
     assertCartOwnership(cart, userId, guestId);
-    await db2.delete(cartItems).where(eq61(cartItems.id, input.cartItemId));
+    await db2.delete(cartItems).where(eq65(cartItems.id, input.cartItemId));
     const newState = await syncCartState(db2, currentCartId, userId);
     return { ...newState, success: true };
   }),
   /**
    * ✅ ATUALIZAR QUANTIDADE
    */
-  updateQuantity: publicProcedure.input(z48.object({
-    cartItemId: z48.string(),
-    quantity: z48.number().min(1)
+  updateQuantity: publicProcedure.input(z50.object({
+    cartItemId: z50.string(),
+    quantity: z50.number().min(1)
   })).mutation(async ({ input, ctx }) => {
     const db2 = ctx.db;
     const userId = ctx.user?.id ? String(ctx.user.id) : null;
     const guestId = ctx.guestId || null;
-    const [item] = await db2.select().from(cartItems).where(eq61(cartItems.id, input.cartItemId)).limit(1);
-    if (!item) throw new TRPCError37({ code: "NOT_FOUND", message: "Item n\xE3o encontrado." });
-    const [cart] = await db2.select().from(carts).where(eq61(carts.id, item.cartId)).limit(1);
+    const [item] = await db2.select().from(cartItems).where(eq65(cartItems.id, input.cartItemId)).limit(1);
+    if (!item) throw new TRPCError48({ code: "NOT_FOUND", message: "Item n\xE3o encontrado." });
+    const [cart] = await db2.select().from(carts).where(eq65(carts.id, item.cartId)).limit(1);
     assertCartOwnership(cart, userId, guestId);
-    await db2.update(cartItems).set({ quantity: input.quantity }).where(eq61(cartItems.id, input.cartItemId));
+    await db2.update(cartItems).set({ quantity: input.quantity }).where(eq65(cartItems.id, input.cartItemId));
     const newState = await syncCartState(db2, item.cartId, userId);
     return { ...newState, success: true };
   })
 });
 
 // server/routers/storefront/cart/rewards.ts
-import { z as z49 } from "zod";
+import { z as z51 } from "zod";
 init_schema();
-import { eq as eq62, and as and25 } from "drizzle-orm";
+import { eq as eq66, and as and29 } from "drizzle-orm";
 init_db();
-import { TRPCError as TRPCError38 } from "@trpc/server";
+import { TRPCError as TRPCError49 } from "@trpc/server";
 async function assertCartOwnership2(db2, cartId, userId, guestId) {
   if (!db2) throw new Error("Database unavailable");
-  const [cart] = await db2.select().from(carts).where(eq62(carts.id, cartId)).limit(1);
+  const [cart] = await db2.select().from(carts).where(eq66(carts.id, cartId)).limit(1);
   if (!cart) {
-    throw new TRPCError38({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
+    throw new TRPCError49({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado." });
   }
   const ownsAsUser = !!userId && cart.userId === userId;
   const ownsAsGuest = !userId && !!guestId && cart.guestId === guestId;
   if (!ownsAsUser && !ownsAsGuest) {
-    throw new TRPCError38({ code: "FORBIDDEN", message: "Carrinho n\xE3o pertence \xE0 sess\xE3o atual." });
+    throw new TRPCError49({ code: "FORBIDDEN", message: "Carrinho n\xE3o pertence \xE0 sess\xE3o atual." });
   }
 }
 var cartRewardsRouter = router({
   /**
    * ✅ APLICAR CUPOM
    */
-  applyCoupon: publicProcedure.input(z49.object({
-    cartId: z49.string().uuid(),
-    code: z49.string().min(1)
+  applyCoupon: publicProcedure.input(z51.object({
+    cartId: z51.string().uuid(),
+    code: z51.string().min(1)
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     if (!db2) throw new Error("Database unavailable");
@@ -13138,13 +16404,13 @@ var cartRewardsRouter = router({
     const targetGuestId = ctx.guestId ? String(ctx.guestId) : null;
     await assertCartOwnership2(db2, input.cartId, targetUserId, targetGuestId);
     const [coupon] = await db2.select().from(coupons).where(
-      and25(
-        eq62(coupons.code, input.code.toUpperCase().trim()),
-        eq62(coupons.isActive, true)
+      and29(
+        eq66(coupons.code, input.code.toUpperCase().trim()),
+        eq66(coupons.isActive, true)
       )
     ).limit(1);
     if (!coupon) {
-      throw new TRPCError38({
+      throw new TRPCError49({
         code: "NOT_FOUND",
         message: "Cupom inv\xE1lido ou expirado."
       });
@@ -13156,7 +16422,7 @@ var cartRewardsRouter = router({
       discountValue: Number(coupon.discountValue || 0),
       discount_type: coupon.discountType
     };
-    await db2.update(carts).set(updateData).where(eq62(carts.id, input.cartId));
+    await db2.update(carts).set(updateData).where(eq66(carts.id, input.cartId));
     const newState = await syncCartState(db2, input.cartId, targetUserId || void 0);
     return {
       ...newState,
@@ -13167,7 +16433,7 @@ var cartRewardsRouter = router({
   /**
    * ✅ REMOVER CUPOM
    */
-  removeCoupon: publicProcedure.input(z49.object({ cartId: z49.string().uuid() })).mutation(async ({ ctx, input }) => {
+  removeCoupon: publicProcedure.input(z51.object({ cartId: z51.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     if (!db2) throw new Error("Database unavailable");
     const targetUserId = ctx.user?.id ? String(ctx.user.id) : null;
@@ -13179,7 +16445,7 @@ var cartRewardsRouter = router({
       discountValue: 0,
       discount_type: "fixed"
     };
-    await db2.update(carts).set(updateData).where(eq62(carts.id, input.cartId));
+    await db2.update(carts).set(updateData).where(eq66(carts.id, input.cartId));
     const newState = await syncCartState(db2, input.cartId, targetUserId || void 0);
     return {
       ...newState,
@@ -13190,9 +16456,9 @@ var cartRewardsRouter = router({
   /**
    * ✅ ALTERNAR FIDELIDADE
    */
-  toggleLoyalty: publicProcedure.input(z49.object({
-    cartId: z49.string().uuid(),
-    active: z49.boolean()
+  toggleLoyalty: publicProcedure.input(z51.object({
+    cartId: z51.string().uuid(),
+    active: z51.boolean()
   })).mutation(async ({ ctx, input }) => {
     const db2 = await getDb();
     if (!db2) throw new Error("Database unavailable");
@@ -13203,7 +16469,7 @@ var cartRewardsRouter = router({
       usesLoyalty: input.active,
       updatedAt: /* @__PURE__ */ new Date()
     };
-    await db2.update(carts).set(updateData).where(eq62(carts.id, input.cartId));
+    await db2.update(carts).set(updateData).where(eq66(carts.id, input.cartId));
     const newState = await syncCartState(db2, input.cartId, targetUserId || void 0);
     return {
       ...newState,
@@ -13218,31 +16484,31 @@ var cartRouter = router({
   items: cartItemsRouter,
   applyCoupon: cartRewardsRouter.applyCoupon,
   removeCoupon: cartRewardsRouter.removeCoupon,
-  toggleLoyalty: publicProcedure.input(z50.object({
-    cartId: z50.string().optional(),
-    active: z50.boolean()
+  toggleLoyalty: publicProcedure.input(z52.object({
+    cartId: z52.string().optional(),
+    active: z52.boolean()
   })).mutation(async ({ ctx, input }) => {
     const db2 = ctx.db;
     const userId = ctx.user?.id ? String(ctx.user.id) : null;
     const guestId = ctx.guestId ? String(ctx.guestId) : null;
-    const searchCondition = userId ? eq63(carts.userId, userId) : guestId ? eq63(carts.guestId, guestId) : null;
+    const searchCondition = userId ? eq67(carts.userId, userId) : guestId ? eq67(carts.guestId, guestId) : null;
     if (!searchCondition) {
-      throw new TRPCError39({ code: "UNAUTHORIZED", message: "Sess\xE3o inv\xE1lida" });
+      throw new TRPCError50({ code: "UNAUTHORIZED", message: "Sess\xE3o inv\xE1lida" });
     }
     const [cart] = await db2.select().from(carts).where(
-      and26(
-        or10(eq63(carts.status, "active"), eq63(carts.status, "open")),
+      and30(
+        or13(eq67(carts.status, "active"), eq67(carts.status, "open")),
         searchCondition,
-        input.cartId ? eq63(carts.id, input.cartId) : void 0
+        input.cartId ? eq67(carts.id, input.cartId) : void 0
       )
-    ).orderBy(desc29(carts.updatedAt)).limit(1);
+    ).orderBy(desc32(carts.updatedAt)).limit(1);
     if (!cart) {
-      throw new TRPCError39({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado" });
+      throw new TRPCError50({ code: "NOT_FOUND", message: "Carrinho n\xE3o encontrado" });
     }
     await db2.update(carts).set({
       usesLoyalty: input.active,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq63(carts.id, cart.id));
+    }).where(eq67(carts.id, cart.id));
     return await syncCartState(db2, cart.id, userId || void 0);
   }),
   getSummary: publicProcedure.query(async ({ ctx }) => {
@@ -13257,15 +16523,15 @@ var cartRouter = router({
         console.warn("[Cart] merge race condition ignorada:", mergeErr);
       }
     }
-    const searchCondition = userId ? eq63(carts.userId, userId) : eq63(carts.guestId, guestId);
+    const searchCondition = userId ? eq67(carts.userId, userId) : eq67(carts.guestId, guestId);
     let [cart] = await db2.select().from(carts).where(
-      and26(
-        or10(eq63(carts.status, "active"), eq63(carts.status, "open")),
+      and30(
+        or13(eq67(carts.status, "active"), eq67(carts.status, "open")),
         searchCondition
       )
-    ).orderBy(desc29(carts.updatedAt)).limit(1);
+    ).orderBy(desc32(carts.updatedAt)).limit(1);
     if (!cart) {
-      const newCartId = crypto16.randomUUID();
+      const newCartId = crypto18.randomUUID();
       const now = /* @__PURE__ */ new Date();
       await db2.insert(carts).values({
         id: newCartId,
@@ -13277,10 +16543,10 @@ var cartRouter = router({
         createdAt: now,
         updatedAt: now
       });
-      const [newCart] = await db2.select().from(carts).where(eq63(carts.id, newCartId)).limit(1);
+      const [newCart] = await db2.select().from(carts).where(eq67(carts.id, newCartId)).limit(1);
       cart = newCart;
     }
-    if (!cart) throw new TRPCError39({ code: "INTERNAL_SERVER_ERROR" });
+    if (!cart) throw new TRPCError50({ code: "INTERNAL_SERVER_ERROR" });
     const result = await syncCartState(db2, cart.id, userId || void 0);
     return {
       ...result,
@@ -13294,7 +16560,7 @@ var cartRouter = router({
     const userId = ctx.user?.id ? String(ctx.user.id) : null;
     const guestId = ctx.guestId ? String(ctx.guestId) : null;
     if (!userId && !guestId) {
-      throw new TRPCError39({ code: "BAD_REQUEST", message: "Sess\xE3o n\xE3o identificada." });
+      throw new TRPCError50({ code: "BAD_REQUEST", message: "Sess\xE3o n\xE3o identificada." });
     }
     if (userId && guestId) {
       try {
@@ -13303,12 +16569,12 @@ var cartRouter = router({
         console.warn("[Cart] merge race condition ignorada:", mergeErr);
       }
     }
-    const searchCondition = userId ? eq63(carts.userId, userId) : eq63(carts.guestId, guestId);
+    const searchCondition = userId ? eq67(carts.userId, userId) : eq67(carts.guestId, guestId);
     const [cart] = await db2.select().from(carts).where(
-      and26(or10(eq63(carts.status, "active"), eq63(carts.status, "open")), searchCondition)
-    ).orderBy(desc29(carts.updatedAt)).limit(1);
+      and30(or13(eq67(carts.status, "active"), eq67(carts.status, "open")), searchCondition)
+    ).orderBy(desc32(carts.updatedAt)).limit(1);
     if (!cart) {
-      const newCartId = crypto16.randomUUID();
+      const newCartId = crypto18.randomUUID();
       await db2.insert(carts).values({
         id: newCartId,
         userId,
@@ -13323,10 +16589,10 @@ var cartRouter = router({
 });
 
 // server/routers/storefront/checkout/index.ts
-import { TRPCError as TRPCError41 } from "@trpc/server";
-import { and as and29, eq as eq67, sql as sql30 } from "drizzle-orm";
+import { TRPCError as TRPCError52 } from "@trpc/server";
+import { and as and33, eq as eq71, sql as sql31 } from "drizzle-orm";
 import { randomUUID as randomUUID3 } from "crypto";
-import { z as z51 } from "zod";
+import { z as z53 } from "zod";
 init_db();
 init_encryption();
 init_schema();
@@ -13334,8 +16600,8 @@ init_schema();
 // server/routers/storefront/checkout/address.ts
 init_encryption();
 init_schema();
-import { TRPCError as TRPCError40 } from "@trpc/server";
-import { eq as eq64, sql as sql29 } from "drizzle-orm";
+import { TRPCError as TRPCError51 } from "@trpc/server";
+import { eq as eq68, sql as sql30 } from "drizzle-orm";
 import axios2 from "axios";
 function isPointInCircle(point, center, radiusMeters) {
   const earthRadius = 6371e3;
@@ -13381,7 +16647,7 @@ function toNumber2(value, fallback = 0) {
 function requireAddressField(value, fieldLabel) {
   const normalized = value.trim();
   if (!normalized) {
-    throw new TRPCError40({
+    throw new TRPCError51({
       code: "BAD_REQUEST",
       message: `Endere\xE7o incompleto: ${fieldLabel} \xE9 obrigat\xF3rio.`
     });
@@ -13391,7 +16657,7 @@ function requireAddressField(value, fieldLabel) {
 function normalizeState(value) {
   const normalized = value.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(normalized)) {
-    throw new TRPCError40({
+    throw new TRPCError51({
       code: "BAD_REQUEST",
       message: "Endere\xE7o inv\xE1lido: UF deve ter 2 letras."
     });
@@ -13409,7 +16675,7 @@ function buildAddressData(addr) {
   const state = normalizeState(safeDecrypt2(addr.state));
   const zipCode = normalizeDigits(safeDecrypt2(addr.zipCode));
   if (zipCode.length !== 8) {
-    throw new TRPCError40({
+    throw new TRPCError51({
       code: "BAD_REQUEST",
       message: "Endere\xE7o inv\xE1lido: CEP deve conter 8 d\xEDgitos."
     });
@@ -13460,15 +16726,15 @@ async function loadAddressSnapshot(tx, opts) {
     };
   }
   if (!opts.addressId || opts.addressId === "undefined") {
-    throw new TRPCError40({
+    throw new TRPCError51({
       code: "BAD_REQUEST",
       message: "ID do endere\xE7o inv\xE1lido ou n\xE3o informado."
     });
   }
-  const activeRules = await tx.select().from(shippingZones).where(eq64(shippingZones.isActive, true));
-  const [addr] = await tx.select().from(userAddresses).where(eq64(userAddresses.id, opts.addressId)).limit(1);
+  const activeRules = await tx.select().from(shippingZones).where(eq68(shippingZones.isActive, true));
+  const [addr] = await tx.select().from(userAddresses).where(eq68(userAddresses.id, opts.addressId)).limit(1);
   if (!addr) {
-    throw new TRPCError40({
+    throw new TRPCError51({
       code: "NOT_FOUND",
       message: "Endere\xE7o n\xE3o localizado."
     });
@@ -13498,7 +16764,7 @@ async function loadAddressSnapshot(tx, opts) {
         lng = safeNumber(firstMatch.lon, Number.NaN);
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
           await tx.execute(
-            sql29`UPDATE user_addresses SET lat = ${String(lat)}, lng = ${String(lng)} WHERE id = ${finalAddressData.id}`
+            sql30`UPDATE user_addresses SET lat = ${String(lat)}, lng = ${String(lng)} WHERE id = ${finalAddressData.id}`
           );
         }
       }
@@ -13529,7 +16795,7 @@ async function loadAddressSnapshot(tx, opts) {
       }
     }
   }
-  throw new TRPCError40({
+  throw new TRPCError51({
     code: "FORBIDDEN",
     message: `Infelizmente nossa log\xEDstica ainda n\xE3o atende a regi\xE3o do CEP ${finalAddressData.zipCode}.`
   });
@@ -13538,13 +16804,13 @@ async function loadAddressSnapshot(tx, opts) {
 // server/routers/storefront/checkout/orders.ts
 init_schema();
 init_encryption();
-import { and as and27, eq as eq65, inArray as inArray10, lte as lte4, or as or11 } from "drizzle-orm";
-import crypto17 from "crypto";
+import { and as and31, eq as eq69, inArray as inArray12, lte as lte6, or as or14 } from "drizzle-orm";
+import crypto19 from "crypto";
 function generateFriendlyOrderId2() {
-  const date = /* @__PURE__ */ new Date();
-  const year = String(date.getFullYear()).slice(-2);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const random = crypto17.randomBytes(2).toString("hex").toUpperCase();
+  const date2 = /* @__PURE__ */ new Date();
+  const year = String(date2.getFullYear()).slice(-2);
+  const month = String(date2.getMonth() + 1).padStart(2, "0");
+  const random = crypto19.randomBytes(2).toString("hex").toUpperCase();
   return `GS-${year}${month}-${random}`;
 }
 function safeDecrypt3(value) {
@@ -13578,8 +16844,6 @@ async function createOrderWithItems(params) {
     addressSnap,
     payMethod,
     verifiedItems,
-    pointsUsed,
-    pointsEarned,
     finalNet
   } = params;
   const newOrderId = generateFriendlyOrderId2();
@@ -13615,36 +16879,6 @@ async function createOrderWithItems(params) {
     notes: input.notes || ""
   };
   await tx.insert(orders).values(orderValues);
-  if (userId) {
-    try {
-      const historyEntries = [];
-      if (pointsUsed > 0) {
-        historyEntries.push({
-          id: crypto17.randomUUID(),
-          userId,
-          pointsChange: -Math.abs(pointsUsed),
-          type: "redeemed",
-          reason: "order_redemption",
-          orderId: newOrderId
-        });
-      }
-      if (pointsEarned > 0) {
-        historyEntries.push({
-          id: crypto17.randomUUID(),
-          userId,
-          pointsChange: Math.abs(pointsEarned),
-          type: "earned",
-          reason: "order_cashback",
-          orderId: newOrderId
-        });
-      }
-      if (historyEntries.length > 0) {
-        await tx.insert(loyaltyHistory).values(historyEntries);
-      }
-    } catch (err) {
-      console.error(`Erro fidelidade ${newOrderId}:`, err);
-    }
-  }
   if (verifiedItems?.length) {
     const itemsToInsert = verifiedItems.map((cItem) => {
       const opts = safeJsonParseRecord(cItem.options);
@@ -13653,7 +16887,7 @@ async function createOrderWithItems(params) {
       const totalPrice = toNumber3(cItem.totalPrice, unitPrice * qty);
       const dishName = typeof opts.dishName === "string" && opts.dishName || typeof opts.packageName === "string" && opts.packageName || cItem.name || "Item";
       return {
-        id: `ITM-${crypto17.randomBytes(3).toString("hex").toUpperCase()}`,
+        id: `ITM-${crypto19.randomBytes(3).toString("hex").toUpperCase()}`,
         orderId: newOrderId,
         dishId: cItem.dishId ? String(cItem.dishId) : null,
         packageId: cItem.packageId ? String(cItem.packageId) : null,
@@ -13671,16 +16905,16 @@ async function createOrderWithItems(params) {
 }
 async function cleanupCheckoutCarts(tx, params) {
   const cartIds = /* @__PURE__ */ new Set([params.cartId]);
-  const ownerConditions = [eq65(carts.userId, params.userId)];
+  const ownerConditions = [eq69(carts.userId, params.userId)];
   if (params.guestId) {
-    ownerConditions.push(eq65(carts.guestId, params.guestId));
-    ownerConditions.push(eq65(carts.sessionId, params.guestId));
+    ownerConditions.push(eq69(carts.guestId, params.guestId));
+    ownerConditions.push(eq69(carts.sessionId, params.guestId));
   }
   const activeCarts = await tx.select({ id: carts.id }).from(carts).where(
-    and27(
-      or11(eq65(carts.status, "active"), eq65(carts.status, "open")),
-      or11(...ownerConditions),
-      lte4(carts.updatedAt, params.closedBefore)
+    and31(
+      or14(eq69(carts.status, "active"), eq69(carts.status, "open")),
+      or14(...ownerConditions),
+      lte6(carts.updatedAt, params.closedBefore)
     )
   );
   for (const cart of activeCarts) {
@@ -13688,19 +16922,19 @@ async function cleanupCheckoutCarts(tx, params) {
   }
   const ids = Array.from(cartIds);
   if (ids.length === 0) return;
-  await tx.delete(cartItems).where(inArray10(cartItems.cartId, ids));
+  await tx.delete(cartItems).where(inArray12(cartItems.cartId, ids));
   await tx.update(carts).set({
     status: "completed",
     discountsJson: null,
     couponCode: null,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(inArray10(carts.id, ids));
+  }).where(inArray12(carts.id, ids));
 }
 
 // server/routers/storefront/checkout/payment.ts
 init_db();
 init_schema();
-import { eq as eq66, and as and28, like as like9, or as or12, asc as asc17 } from "drizzle-orm";
+import { eq as eq70, and as and32, like as like11, or as or15, asc as asc19 } from "drizzle-orm";
 var paymentRouter = router({
   /**
    * ✅ getMethods: Busca métodos GERAIS
@@ -13709,7 +16943,7 @@ var paymentRouter = router({
     try {
       const db2 = await getDb();
       if (!db2) return [];
-      const methods = await db2.select().from(paymentMethods).where(eq66(paymentMethods.isActive, true)).orderBy(asc17(paymentMethods.displayOrder));
+      const methods = await db2.select().from(paymentMethods).where(eq70(paymentMethods.isActive, true)).orderBy(asc19(paymentMethods.displayOrder));
       const mainMethods = methods.filter((m) => {
         const nameLower = (m.name || "").toLowerCase();
         return !nameLower.includes("alelo") && !nameLower.includes("sodexo") && !nameLower.includes("ticket") && !nameLower.includes("vr refei\xE7\xE3o") && !nameLower.includes("ben ");
@@ -13732,21 +16966,21 @@ var paymentRouter = router({
       const db2 = await getDb();
       if (!db2) return [];
       const brands = await db2.select().from(paymentMethods).where(
-        and28(
-          eq66(paymentMethods.isActive, true),
-          or12(
-            like9(paymentMethods.name, "%Alimenta\xE7\xE3o%"),
-            like9(paymentMethods.name, "%Refei\xE7\xE3o%"),
-            like9(paymentMethods.name, "%Alelo%"),
-            like9(paymentMethods.name, "%Sodexo%"),
-            like9(paymentMethods.name, "%Ticket%"),
-            like9(paymentMethods.name, "%Ben %"),
-            like9(paymentMethods.name, "%VR%"),
-            like9(paymentMethods.name, "%Caju%"),
-            like9(paymentMethods.name, "%Flash%")
+        and32(
+          eq70(paymentMethods.isActive, true),
+          or15(
+            like11(paymentMethods.name, "%Alimenta\xE7\xE3o%"),
+            like11(paymentMethods.name, "%Refei\xE7\xE3o%"),
+            like11(paymentMethods.name, "%Alelo%"),
+            like11(paymentMethods.name, "%Sodexo%"),
+            like11(paymentMethods.name, "%Ticket%"),
+            like11(paymentMethods.name, "%Ben %"),
+            like11(paymentMethods.name, "%VR%"),
+            like11(paymentMethods.name, "%Caju%"),
+            like11(paymentMethods.name, "%Flash%")
           )
         )
-      ).orderBy(asc17(paymentMethods.displayOrder));
+      ).orderBy(asc19(paymentMethods.displayOrder));
       return brands.map((b) => {
         const fullName = (b.name + " " + (b.description || "")).toLowerCase();
         let type = "va";
@@ -13771,7 +17005,7 @@ var paymentRouter = router({
 function ensureCustomerName(name) {
   const trimmed = name.trim();
   if (trimmed.length < 2) {
-    throw new TRPCError41({
+    throw new TRPCError52({
       code: "BAD_REQUEST",
       message: "O nome do cliente \xE9 obrigat\xF3rio."
     });
@@ -13781,7 +17015,7 @@ function ensureCustomerName(name) {
 function ensureValidCpf(value) {
   const cleanCpf = normalizeDigits(value);
   if (!isValidCPF(cleanCpf)) {
-    throw new TRPCError41({
+    throw new TRPCError52({
       code: "BAD_REQUEST",
       message: "O CPF informado \xE9 inv\xE1lido."
     });
@@ -13791,7 +17025,7 @@ function ensureValidCpf(value) {
 function ensureValidPhone(value) {
   const cleanPhone = normalizeDigits(value);
   if (cleanPhone.length !== 10 && cleanPhone.length !== 11) {
-    throw new TRPCError41({
+    throw new TRPCError52({
       code: "BAD_REQUEST",
       message: "O telefone informado \xE9 inv\xE1lido."
     });
@@ -13807,23 +17041,19 @@ var checkoutRouter = router({
       windowMs: 10 * 60 * 1e3
     })
   ).input(
-    z51.object({
-      id: z51.string().min(1),
-      paymentMethodId: z51.preprocess(
+    z53.object({
+      id: z53.string().min(1),
+      paymentMethodId: z53.preprocess(
         (value) => String(value || ""),
-        z51.string().min(1)
+        z53.string().min(1)
       ),
-      shippingType: z51.enum(["delivery", "pickup"]),
-      addressId: z51.string().nullable().optional(),
-      notes: z51.string().optional().nullable(),
-      customerDocument: z51.string().min(11, "CPF incompleto"),
-      customerName: z51.string().min(1, "Nome \xE9 obrigat\xF3rio"),
-      customerPhone: z51.string().min(10, "Telefone inv\xE1lido"),
-      useLoyaltyPoints: z51.boolean().default(false),
-      loyaltyDiscount: z51.number().optional(),
-      discountAmount: z51.number().optional(),
-      shippingCost: z51.number().optional(),
-      totalAmount: z51.number().optional()
+      shippingType: z53.enum(["delivery", "pickup"]),
+      addressId: z53.string().nullable().optional(),
+      notes: z53.string().optional().nullable(),
+      customerDocument: z53.string().min(11, "CPF incompleto"),
+      customerName: z53.string().min(1, "Nome \xE9 obrigat\xF3rio"),
+      customerPhone: z53.string().min(10, "Telefone inv\xE1lido"),
+      useLoyaltyPoints: z53.boolean().default(false)
     })
   ).mutation(async ({ input, ctx }) => {
     const cleanCpf = ensureValidCpf(input.customerDocument);
@@ -13839,19 +17069,19 @@ var checkoutRouter = router({
         const finalAddressId = input.addressId ?? null;
         if (input.shippingType === "delivery") {
           if (!finalAddressId || finalAddressId === "guest") {
-            throw new TRPCError41({
+            throw new TRPCError52({
               code: "BAD_REQUEST",
               message: "ID de endere\xE7o inv\xE1lido para entrega."
             });
           }
           const [existingAddress] = await tx.select({ id: userAddresses.id }).from(userAddresses).where(
-            and29(
-              eq67(userAddresses.id, finalAddressId),
-              eq67(userAddresses.userId, userId)
+            and33(
+              eq71(userAddresses.id, finalAddressId),
+              eq71(userAddresses.userId, userId)
             )
           ).limit(1);
           if (!existingAddress) {
-            throw new TRPCError41({
+            throw new TRPCError52({
               code: "FORBIDDEN",
               message: "Endere\xE7o n\xE3o localizado ou n\xE3o pertence \xE0 sua conta."
             });
@@ -13869,7 +17099,7 @@ var checkoutRouter = router({
           paymentMethodId: String(input.paymentMethodId),
           useLoyaltyPoints: input.useLoyaltyPoints
         });
-        const payMethod = await tx.select().from(paymentMethods).where(eq67(paymentMethods.id, String(input.paymentMethodId))).limit(1).then((rows) => rows[0]);
+        const payMethod = await tx.select().from(paymentMethods).where(eq71(paymentMethods.id, String(input.paymentMethodId))).limit(1).then((rows) => rows[0]);
         const orderId = await createOrderWithItems({
           tx: castTx,
           userId,
@@ -13900,13 +17130,11 @@ var checkoutRouter = router({
           },
           payMethod,
           verifiedItems: checkout.items,
-          pointsUsed: checkout.pointsUsed,
-          pointsEarned: checkout.pointsEarned,
           finalNet: checkout.total
         });
         const cleanOrderId = String(orderId).replace(/[#\s]/g, "");
         if (checkout.pointsUsed > 0 || checkout.pointsEarned > 0) {
-          const [userProfile] = await tx.select().from(users).where(eq67(users.id, userId)).limit(1);
+          const [userProfile] = await tx.select().from(users).where(eq71(users.id, userId)).limit(1);
           const currentBalance = Number(userProfile?.availablePoints || 0);
           if (checkout.pointsUsed > 0) {
             const finalPointsToRedeem = Math.min(
@@ -13922,8 +17150,8 @@ var checkoutRouter = router({
               reason: "Resgate em Pedido"
             });
             await tx.update(users).set({
-              availablePoints: sql30`${users.availablePoints} - ${finalPointsToRedeem}`
-            }).where(eq67(users.id, userId));
+              availablePoints: sql31`${users.availablePoints} - ${finalPointsToRedeem}`
+            }).where(eq71(users.id, userId));
           }
           if (checkout.pointsEarned > 0) {
             await tx.insert(loyaltyHistory).values({
@@ -13935,8 +17163,8 @@ var checkoutRouter = router({
               reason: "Compra Gourmet Saud\xE1vel"
             });
             await tx.update(users).set({
-              availablePoints: sql30`${users.availablePoints} + ${checkout.pointsEarned}`
-            }).where(eq67(users.id, userId));
+              availablePoints: sql31`${users.availablePoints} + ${checkout.pointsEarned}`
+            }).where(eq71(users.id, userId));
           }
         }
         await tx.update(users).set({
@@ -13946,7 +17174,7 @@ var checkoutRouter = router({
           phone: encrypt(cleanPhone),
           phoneIndex: piiHash(cleanPhone),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq67(users.id, userId));
+        }).where(eq71(users.id, userId));
         await cleanupCheckoutCarts(castTx, {
           cartId,
           userId,
@@ -13960,8 +17188,8 @@ var checkoutRouter = router({
         };
       });
     } catch (error) {
-      if (error instanceof TRPCError41) throw error;
-      throw new TRPCError41({
+      if (error instanceof TRPCError52) throw error;
+      throw new TRPCError52({
         code: "INTERNAL_SERVER_ERROR",
         message: error instanceof Error ? error.message : "Falha cr\xEDtica no processamento do pedido."
       });
@@ -13970,11 +17198,11 @@ var checkoutRouter = router({
 });
 
 // server/routers/storefront/orders.ts
-import { z as z52 } from "zod";
-import { TRPCError as TRPCError42 } from "@trpc/server";
+import { z as z54 } from "zod";
+import { TRPCError as TRPCError53 } from "@trpc/server";
 init_db();
 init_schema();
-import { eq as eq68, inArray as inArray11, desc as desc30 } from "drizzle-orm";
+import { eq as eq72, inArray as inArray13, desc as desc33 } from "drizzle-orm";
 function safeJsonParse2(value) {
   if (!value) return {};
   if (typeof value !== "string") {
@@ -13989,9 +17217,24 @@ function safeJsonParse2(value) {
   }
 }
 async function fetchOrderWithItems(db2, orderId) {
-  const [order] = await db2.select().from(orders).where(eq68(orders.id, orderId)).limit(1);
-  if (!order) throw new TRPCError42({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
-  const itemsRaw = await db2.select().from(orderItems).where(eq68(orderItems.orderId, order.id));
+  const [order] = await db2.select().from(orders).where(eq72(orders.id, orderId)).limit(1);
+  if (!order) throw new TRPCError53({ code: "NOT_FOUND", message: "Pedido n\xE3o encontrado." });
+  const itemsRaw = await db2.select({
+    id: orderItems.id,
+    orderId: orderItems.orderId,
+    dishId: orderItems.dishId,
+    packageId: orderItems.packageId,
+    dishName: orderItems.dishName,
+    sizeName: orderItems.sizeName,
+    quantity: orderItems.quantity,
+    unitPrice: orderItems.unitPrice,
+    discountAmount: orderItems.discountAmount,
+    totalPrice: orderItems.totalPrice,
+    options: orderItems.options,
+    appliedNutrition: orderItems.appliedNutrition,
+    dishImage: dishes.imageUrl,
+    packageImage: packages.imageUrl
+  }).from(orderItems).leftJoin(dishes, eq72(orderItems.dishId, dishes.id)).leftJoin(packages, eq72(orderItems.packageId, packages.id)).where(eq72(orderItems.orderId, order.id));
   const items = itemsRaw.map((i) => ({
     ...i,
     dishId: i.dishId ? Number(i.dishId) : null,
@@ -14000,7 +17243,8 @@ async function fetchOrderWithItems(db2, orderId) {
     unitPrice: safeNumber(i.unitPrice),
     totalPrice: safeNumber(i.totalPrice),
     options: safeJsonParse2(i.options),
-    appliedNutrition: safeJsonParse2(i.appliedNutrition)
+    appliedNutrition: safeJsonParse2(i.appliedNutrition),
+    imageUrl: i.dishImage || i.packageImage || null
   }));
   return {
     ...order,
@@ -14019,12 +17263,27 @@ var ordersRouter = router({
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError42({ code: "INTERNAL_SERVER_ERROR", message: "Banco indispon\xEDvel" });
+    if (!db2) throw new TRPCError53({ code: "INTERNAL_SERVER_ERROR", message: "Banco indispon\xEDvel" });
     const userId = String(ctx.user.id);
-    const baseOrders = await db2.select().from(orders).where(eq68(orders.userId, userId)).orderBy(desc30(orders.createdAt)).limit(50);
+    const baseOrders = await db2.select().from(orders).where(eq72(orders.userId, userId)).orderBy(desc33(orders.createdAt)).limit(50);
     if (baseOrders.length === 0) return [];
     const orderIds = baseOrders.map((o) => o.id);
-    const allItemsRaw = await db2.select().from(orderItems).where(inArray11(orderItems.orderId, orderIds));
+    const allItemsRaw = await db2.select({
+      id: orderItems.id,
+      orderId: orderItems.orderId,
+      dishId: orderItems.dishId,
+      packageId: orderItems.packageId,
+      dishName: orderItems.dishName,
+      sizeName: orderItems.sizeName,
+      quantity: orderItems.quantity,
+      unitPrice: orderItems.unitPrice,
+      discountAmount: orderItems.discountAmount,
+      totalPrice: orderItems.totalPrice,
+      options: orderItems.options,
+      appliedNutrition: orderItems.appliedNutrition,
+      dishImage: dishes.imageUrl,
+      packageImage: packages.imageUrl
+    }).from(orderItems).leftJoin(dishes, eq72(orderItems.dishId, dishes.id)).leftJoin(packages, eq72(orderItems.packageId, packages.id)).where(inArray13(orderItems.orderId, orderIds));
     return baseOrders.map((o) => {
       const orderItemsFiltered = allItemsRaw.filter((item) => item.orderId === o.id).map((item) => ({
         ...item,
@@ -14034,7 +17293,8 @@ var ordersRouter = router({
         unitPrice: safeNumber(item.unitPrice),
         totalPrice: safeNumber(item.totalPrice),
         options: safeJsonParse2(item.options),
-        appliedNutrition: safeJsonParse2(item.appliedNutrition)
+        appliedNutrition: safeJsonParse2(item.appliedNutrition),
+        imageUrl: item.dishImage || item.packageImage || null
       }));
       return {
         ...o,
@@ -14049,28 +17309,44 @@ var ordersRouter = router({
       };
     });
   }),
-  getPublicDetail: publicProcedure.input(z52.object({ orderId: z52.string() })).query(async ({ input }) => {
+  getPublicDetail: protectedProcedure.input(z54.object({ orderId: z54.string() })).query(async ({ input, ctx }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError42({ code: "INTERNAL_SERVER_ERROR" });
-    return await fetchOrderWithItems(db2, input.orderId);
+    if (!db2) throw new TRPCError53({ code: "INTERNAL_SERVER_ERROR" });
+    const order = await fetchOrderWithItems(db2, input.orderId);
+    if (String(order.userId) !== String(ctx.user.id)) {
+      logger.warn(
+        {
+          orderId: input.orderId,
+          userId: ctx.user.id,
+          ownerId: order.userId,
+          ip: ctx.req?.ip
+        },
+        "[SECURITY] Tentativa invalida de acesso a pedido"
+      );
+      throw new TRPCError53({
+        code: "FORBIDDEN",
+        message: "Pedido nao pertence ao usuario."
+      });
+    }
+    return order;
   }),
-  getById: protectedProcedure.input(z52.object({ id: z52.string() })).query(async ({ input, ctx }) => {
+  getById: protectedProcedure.input(z54.object({ id: z54.string() })).query(async ({ input, ctx }) => {
     const db2 = await getDb();
-    if (!db2) throw new TRPCError42({ code: "INTERNAL_SERVER_ERROR" });
+    if (!db2) throw new TRPCError53({ code: "INTERNAL_SERVER_ERROR" });
     const order = await fetchOrderWithItems(db2, input.id);
     if (String(order.userId) !== String(ctx.user.id)) {
-      throw new TRPCError42({ code: "FORBIDDEN", message: "Pedido n\xC3\xA3o pertence ao usu\xC3\xA1rio." });
+      throw new TRPCError53({ code: "FORBIDDEN", message: "Pedido n\xE3o pertence ao usu\xE1rio." });
     }
     return order;
   })
 });
 
 // server/routers/storefront/products.ts
-import { z as z53 } from "zod";
-import { TRPCError as TRPCError43 } from "@trpc/server";
+import { z as z55 } from "zod";
+import { TRPCError as TRPCError54 } from "@trpc/server";
 init_db();
 init_schema();
-import { eq as eq69, and as and30, asc as asc18, like as like10 } from "drizzle-orm";
+import { eq as eq73, and as and34, asc as asc20, like as like12 } from "drizzle-orm";
 var normalizeDish = (dish) => {
   if (!dish) return null;
   const toNum3 = (val) => {
@@ -14117,11 +17393,11 @@ var productsRouter = router({
   /**
    * 1. LISTAGEM DE PRODUTOS (Vitrine)
    */
-  list: publicProcedure.input(z53.object({
-    page: z53.number().default(1),
-    perPage: z53.number().default(100),
-    search: z53.string().nullish(),
-    category: z53.union([z53.number(), z53.string()]).nullish()
+  list: publicProcedure.input(z55.object({
+    page: z55.number().default(1),
+    perPage: z55.number().default(100),
+    search: z55.string().nullish(),
+    category: z55.union([z55.number(), z55.string()]).nullish()
   }).optional()).query(async ({ input }) => {
     const db2 = await getDb();
     const page = input?.page || 1;
@@ -14129,18 +17405,18 @@ var productsRouter = router({
     const search = input?.search;
     const category = input?.category;
     const offset = (page - 1) * perPage;
-    const conditions = [eq69(dishes.isActive, true)];
+    const conditions = [eq73(dishes.isActive, true)];
     if (search) {
-      conditions.push(like10(dishes.name, `%${search}%`));
+      conditions.push(like12(dishes.name, `%${search}%`));
     }
     if (category && category !== "all") {
       const catId = safeInteger(category, Number.NaN);
-      if (Number.isFinite(catId)) conditions.push(eq69(dishes.categoryId, catId));
+      if (Number.isFinite(catId)) conditions.push(eq73(dishes.categoryId, catId));
     }
     const rows = await db2.select({
       dish: dishes,
       categoryName: categories.name
-    }).from(dishes).leftJoin(categories, eq69(dishes.categoryId, categories.id)).where(and30(...conditions)).limit(perPage).offset(offset).orderBy(asc18(dishes.displayOrder));
+    }).from(dishes).leftJoin(categories, eq73(dishes.categoryId, categories.id)).where(and34(...conditions)).limit(perPage).offset(offset).orderBy(asc20(dishes.displayOrder));
     return rows.map((row) => {
       const normalized = normalizeDish(row.dish);
       return normalized ? { ...normalized, categoryName: row.categoryName } : null;
@@ -14149,26 +17425,26 @@ var productsRouter = router({
   /**
    * 2. DETALHE DO PRODUTO (Busca por ID)
    */
-  getById: publicProcedure.input(z53.object({ id: z53.number() })).query(async ({ input }) => {
+  getById: publicProcedure.input(z55.object({ id: z55.number() })).query(async ({ input }) => {
     const db2 = await getDb();
-    const [row] = await db2.select().from(dishes).where(and30(eq69(dishes.id, input.id), eq69(dishes.isActive, true))).limit(1);
-    if (!row) throw new TRPCError43({ code: "NOT_FOUND", message: "Produto n\xE3o encontrado." });
+    const [row] = await db2.select().from(dishes).where(and34(eq73(dishes.id, input.id), eq73(dishes.isActive, true))).limit(1);
+    if (!row) throw new TRPCError54({ code: "NOT_FOUND", message: "Produto n\xE3o encontrado." });
     const normalizedDish = normalizeDish(row);
     const sizesData = await db2.select({
       id: dishSizes.id,
       name: dishSizes.name,
       priceModifier: dishSizes.priceModifier,
       mainDishWeight: dishSizes.mainDishWeight
-    }).from(dishSizes).innerJoin(dishesToSizes, eq69(dishSizes.id, dishesToSizes.sizeId)).where(eq69(dishesToSizes.dishId, input.id));
+    }).from(dishSizes).innerJoin(dishesToSizes, eq73(dishSizes.id, dishesToSizes.sizeId)).where(eq73(dishesToSizes.dishId, input.id));
     const sizesWithDetails = await Promise.all(sizesData.map(async (size) => {
       const groups = await db2.select({
         id: accompanimentGroups.id,
         name: accompanimentGroups.name,
         minSelections: sizeAccompanimentGroups.minSelections,
         maxSelections: sizeAccompanimentGroups.maxSelections
-      }).from(sizeAccompanimentGroups).innerJoin(accompanimentGroups, eq69(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(and30(
-        eq69(sizeAccompanimentGroups.sizeId, size.id),
-        eq69(accompanimentGroups.isActive, true)
+      }).from(sizeAccompanimentGroups).innerJoin(accompanimentGroups, eq73(sizeAccompanimentGroups.accompanimentGroupId, accompanimentGroups.id)).where(and34(
+        eq73(sizeAccompanimentGroups.sizeId, size.id),
+        eq73(accompanimentGroups.isActive, true)
       ));
       const groupsWithExtras = await Promise.all(groups.map(async (group) => {
         const options = await db2.select({
@@ -14179,7 +17455,7 @@ var productsRouter = router({
           proteins: accompanimentOptions.proteins,
           carbs: accompanimentOptions.carbs,
           fatTotal: accompanimentOptions.fatTotal
-        }).from(accompanimentOptions).innerJoin(groupToOptions, eq69(accompanimentOptions.id, groupToOptions.optionId)).where(eq69(groupToOptions.groupId, group.id));
+        }).from(accompanimentOptions).innerJoin(groupToOptions, eq73(accompanimentOptions.id, groupToOptions.optionId)).where(eq73(groupToOptions.groupId, group.id));
         return {
           ...group,
           options: options.map((opt) => ({
@@ -14202,10 +17478,10 @@ var productsRouter = router({
 });
 
 // server/routers/storefront/packages.ts
-import { z as z54 } from "zod";
+import { z as z56 } from "zod";
 init_db();
 init_schema();
-import { eq as eq70, sql as sql31 } from "drizzle-orm";
+import { eq as eq74, sql as sql32 } from "drizzle-orm";
 var packagesRouter = router({
   /**
    * 📦 LIST: Lista todos os pacotes/kits ativos para a vitrine
@@ -14228,7 +17504,7 @@ var packagesRouter = router({
   /**
    * 🔍 GET BY ID: Detalhes do pacote e seus Slots para o Wizard
    */
-  getById: publicProcedure.input(z54.object({ id: z54.string() })).query(async ({ input }) => {
+  getById: publicProcedure.input(z56.object({ id: z56.string() })).query(async ({ input }) => {
     try {
       const result = await getPackageById(input.id);
       if (!result) return null;
@@ -14259,9 +17535,9 @@ var packagesRouter = router({
       const result = await db2.select({
         id: dishSizes.id,
         name: dishSizes.name,
-        mainDishWeight: sql31`CAST(COALESCE(${dishSizes.mainDishWeight}, 0) AS UNSIGNED)`,
+        mainDishWeight: sql32`CAST(COALESCE(${dishSizes.mainDishWeight}, 0) AS UNSIGNED)`,
         isActive: dishSizes.isActive
-      }).from(dishSizes).where(eq70(dishSizes.isActive, true));
+      }).from(dishSizes).where(eq74(dishSizes.isActive, true));
       return result || [];
     } catch {
       return [];
@@ -14274,7 +17550,7 @@ var packagesRouter = router({
     try {
       const db2 = await getDb();
       if (!db2) return [];
-      const dishesRaw = await db2.select().from(dishes).where(eq70(dishes.isActive, true));
+      const dishesRaw = await db2.select().from(dishes).where(eq74(dishes.isActive, true));
       return dishesRaw.map((dish) => {
         const rawNutri = dish.nutritionalInfo || dish.nutritional_info || dish.nutrition;
         let nutInfo = {};
@@ -14301,19 +17577,19 @@ var packagesRouter = router({
 });
 
 // server/routers/storefront/sizes.ts
-import { z as z55 } from "zod";
+import { z as z57 } from "zod";
 
 // server/admin-sizes.ts
 init_db();
 init_schema();
-import { asc as asc19, eq as eq71, and as and31 } from "drizzle-orm";
-import { TRPCError as TRPCError44 } from "@trpc/server";
+import { asc as asc21, eq as eq75, and as and35 } from "drizzle-orm";
+import { TRPCError as TRPCError55 } from "@trpc/server";
 function toPriceString(price) {
   if (price === void 0 || price === null || price === "") return "0.00";
   const normalized = typeof price === "string" ? price.replace(",", ".") : price;
   const num = safeNumber(normalized, Number.NaN);
   if (!Number.isFinite(num) || num < 0) {
-    throw new TRPCError44({ code: "BAD_REQUEST", message: "Valor monet\xC3\xA1rio inv\xC3\xA1lido." });
+    throw new TRPCError55({ code: "BAD_REQUEST", message: "Valor monet\xC3\xA1rio inv\xC3\xA1lido." });
   }
   return num.toFixed(2);
 }
@@ -14327,7 +17603,7 @@ function ensureValidJson(data) {
 }
 async function getAllDishSizes() {
   const db2 = await getDb();
-  const result = await db2.select().from(dishSizes).orderBy(asc19(dishSizes.displayOrder));
+  const result = await db2.select().from(dishSizes).orderBy(asc21(dishSizes.displayOrder));
   return result.map((size) => ({
     ...size,
     id: safeInteger(size.id),
@@ -14341,7 +17617,7 @@ async function upsertDishSize(data) {
   const db2 = await getDb();
   const id = data.id ? safeInteger(data.id, Number.NaN) : null;
   if (data.id && !Number.isFinite(id)) {
-    throw new TRPCError44({ code: "BAD_REQUEST", message: "ID do tamanho inv\xC3\xA1lido." });
+    throw new TRPCError55({ code: "BAD_REQUEST", message: "ID do tamanho inv\xC3\xA1lido." });
   }
   const payload = {
     name: data.name,
@@ -14357,7 +17633,7 @@ async function upsertDishSize(data) {
     updatedAt: /* @__PURE__ */ new Date()
   };
   if (id) {
-    await db2.update(dishSizes).set(payload).where(eq71(dishSizes.id, id));
+    await db2.update(dishSizes).set(payload).where(eq75(dishSizes.id, id));
     return { success: true, id };
   } else {
     const insertPayload = {
@@ -14373,21 +17649,21 @@ async function upsertDishSize(data) {
 async function deleteDishSize(id) {
   const db2 = await getDb();
   return await db2.transaction(async (tx) => {
-    await tx.delete(sizeAccompanimentGroups).where(eq71(sizeAccompanimentGroups.sizeId, id));
-    await tx.delete(dishesToSizes).where(eq71(dishesToSizes.sizeId, id));
-    return await tx.delete(dishSizes).where(eq71(dishSizes.id, id));
+    await tx.delete(sizeAccompanimentGroups).where(eq75(sizeAccompanimentGroups.sizeId, id));
+    await tx.delete(dishesToSizes).where(eq75(dishesToSizes.sizeId, id));
+    return await tx.delete(dishSizes).where(eq75(dishSizes.id, id));
   });
 }
 async function toggleSizeGroupLink(sizeId, groupId) {
   const db2 = await getDb();
-  const [existing] = await db2.select().from(sizeAccompanimentGroups).where(and31(
-    eq71(sizeAccompanimentGroups.sizeId, sizeId),
-    eq71(sizeAccompanimentGroups.accompanimentGroupId, groupId)
+  const [existing] = await db2.select().from(sizeAccompanimentGroups).where(and35(
+    eq75(sizeAccompanimentGroups.sizeId, sizeId),
+    eq75(sizeAccompanimentGroups.accompanimentGroupId, groupId)
   )).limit(1);
   if (existing) {
-    await db2.delete(sizeAccompanimentGroups).where(and31(
-      eq71(sizeAccompanimentGroups.sizeId, sizeId),
-      eq71(sizeAccompanimentGroups.accompanimentGroupId, groupId)
+    await db2.delete(sizeAccompanimentGroups).where(and35(
+      eq75(sizeAccompanimentGroups.sizeId, sizeId),
+      eq75(sizeAccompanimentGroups.accompanimentGroupId, groupId)
     ));
   } else {
     await db2.insert(sizeAccompanimentGroups).values({
@@ -14395,9 +17671,9 @@ async function toggleSizeGroupLink(sizeId, groupId) {
       accompanimentGroupId: groupId
     });
   }
-  const currentGroups = await db2.select({ id: sizeAccompanimentGroups.accompanimentGroupId }).from(sizeAccompanimentGroups).where(eq71(sizeAccompanimentGroups.sizeId, sizeId));
+  const currentGroups = await db2.select({ id: sizeAccompanimentGroups.accompanimentGroupId }).from(sizeAccompanimentGroups).where(eq75(sizeAccompanimentGroups.sizeId, sizeId));
   const newOrder = currentGroups.map((g) => g.id);
-  await db2.update(dishSizes).set({ groupsOrder: JSON.stringify(newOrder) }).where(eq71(dishSizes.id, sizeId));
+  await db2.update(dishSizes).set({ groupsOrder: JSON.stringify(newOrder) }).where(eq75(dishSizes.id, sizeId));
   return { success: true, linked: !existing };
 }
 
@@ -14413,13 +17689,13 @@ var sizesRouter = router({
   /**
    * Cria ou Atualiza um tamanho (Usa sua função upsert)
    */
-  upsert: adminProcedure.input(z55.object({
-    id: z55.number().optional().nullable(),
-    name: z55.string().min(1, "Nome \xE9 obrigat\xF3rio"),
-    priceModifier: z55.union([z55.string(), z55.number()]).default("0.00"),
-    mainDishWeight: z55.union([z55.string(), z55.number()]).default(200),
-    isActive: z55.boolean().default(true),
-    groupsOrder: z55.array(z55.number()).optional()
+  upsert: adminProcedure.input(z57.object({
+    id: z57.number().optional().nullable(),
+    name: z57.string().min(1, "Nome \xE9 obrigat\xF3rio"),
+    priceModifier: z57.union([z57.string(), z57.number()]).default("0.00"),
+    mainDishWeight: z57.union([z57.string(), z57.number()]).default(200),
+    isActive: z57.boolean().default(true),
+    groupsOrder: z57.array(z57.number()).optional()
   }).passthrough()).mutation(async ({ input }) => {
     const result = await upsertDishSize(input);
     return {
@@ -14431,7 +17707,7 @@ var sizesRouter = router({
   /**
    * Remove um tamanho e seus vínculos (Transação garantida)
    */
-  delete: adminProcedure.input(z55.object({ id: z55.number() })).mutation(async ({ input }) => {
+  delete: adminProcedure.input(z57.object({ id: z57.number() })).mutation(async ({ input }) => {
     await deleteDishSize(input.id);
     return {
       success: true,
@@ -14449,9 +17725,9 @@ var sizesRouter = router({
   /**
    * Liga ou desliga um grupo de um tamanho específico
    */
-  toggleLink: adminProcedure.input(z55.object({
-    sizeId: z55.number(),
-    groupId: z55.number()
+  toggleLink: adminProcedure.input(z57.object({
+    sizeId: z57.number(),
+    groupId: z57.number()
   })).mutation(async ({ input }) => {
     const result = await toggleSizeGroupLink(input.sizeId, input.groupId);
     return {
@@ -14462,30 +17738,30 @@ var sizesRouter = router({
 });
 
 // server/routers/storefront/coupons.ts
-import { z as z56 } from "zod";
+import { z as z58 } from "zod";
 init_db();
 init_schema();
-import { eq as eq72, and as and32, gte as gte5, lte as lte5, or as or13, isNull as isNull4 } from "drizzle-orm";
-import { TRPCError as TRPCError45 } from "@trpc/server";
+import { eq as eq76, and as and36, gte as gte7, lte as lte7, or as or16, isNull as isNull6 } from "drizzle-orm";
+import { TRPCError as TRPCError56 } from "@trpc/server";
 var couponsRouter = router({
   /**
    * 🎟️ VALIDAR: Usado para verificar a existência e regras do cupom.
    * Feedback: O Interceptor Global cuidará do erro caso o cupom falhe.
    */
-  validate: publicProcedure.input(z56.object({ code: z56.string().toUpperCase().trim() })).query(async ({ input }) => {
+  validate: publicProcedure.input(z58.object({ code: z58.string().toUpperCase().trim() })).query(async ({ input }) => {
     const db2 = await getDb();
     const now = /* @__PURE__ */ new Date();
     const [coupon] = await db2.select().from(coupons).where(
-      and32(
-        eq72(coupons.code, input.code),
-        eq72(coupons.isActive, true),
+      and36(
+        eq76(coupons.code, input.code),
+        eq76(coupons.isActive, true),
         // Validação de janela temporal (ou nulo para cupons vitalícios)
-        or13(isNull4(coupons.validFrom), lte5(coupons.validFrom, now)),
-        or13(isNull4(coupons.validUntil), gte5(coupons.validUntil, now))
+        or16(isNull6(coupons.validFrom), lte7(coupons.validFrom, now)),
+        or16(isNull6(coupons.validUntil), gte7(coupons.validUntil, now))
       )
     ).limit(1);
     if (!coupon) {
-      throw new TRPCError45({
+      throw new TRPCError56({
         code: "NOT_FOUND",
         message: "Este cupom n\xE3o \xE9 v\xE1lido, expirou ou n\xE3o existe."
       });
@@ -14505,12 +17781,12 @@ var couponsRouter = router({
 // server/routers/storefront/discounts.ts
 init_db();
 init_schema();
-import { eq as eq73, asc as asc20 } from "drizzle-orm";
+import { eq as eq77, asc as asc22 } from "drizzle-orm";
 var fetchRulesLogic = async () => {
   const db2 = await getDb();
   if (!db2) return [];
   try {
-    const rules = await db2.select().from(discountRules).where(eq73(discountRules.isActive, true)).orderBy(asc20(discountRules.minQuantity));
+    const rules = await db2.select().from(discountRules).where(eq77(discountRules.isActive, true)).orderBy(asc22(discountRules.minQuantity));
     return rules.map((rule) => ({
       ...rule,
       // Normalização de tipos para o Frontend (Numbers puros)
@@ -14542,8 +17818,8 @@ var discountsRouter = router({
 // server/routers/storefront/loyalty.ts
 init_db();
 init_schema();
-import { sql as sql32, eq as eq74 } from "drizzle-orm";
-import { z as z57 } from "zod";
+import { sql as sql33, eq as eq78 } from "drizzle-orm";
+import { z as z59 } from "zod";
 var loyaltyRouter = router({
   /**
    * ✅ GET POINTS
@@ -14552,12 +17828,12 @@ var loyaltyRouter = router({
     const userId = ctx.user.id;
     try {
       const db2 = await getDb();
-      const [balanceQuery] = await db2.execute(sql32`
+      const [balanceQuery] = await db2.execute(sql33`
         SELECT COALESCE(SUM(points_change), 0) as total_balance 
         FROM loyalty_history 
         WHERE user_id = ${userId}
       `);
-      const [userRow] = await db2.select().from(users).where(eq74(users.id, userId)).limit(1);
+      const [userRow] = await db2.select().from(users).where(eq78(users.id, userId)).limit(1);
       const rows = Array.isArray(balanceQuery) ? balanceQuery : [balanceQuery];
       const firstRow = rows[0];
       const points = Number(firstRow?.total_balance || 0);
@@ -14577,12 +17853,12 @@ var loyaltyRouter = router({
   /**
    * ✅ GET HISTORY
    */
-  getHistory: protectedProcedure.input(z57.object({ limit: z57.number().default(5) }).optional()).query(async ({ ctx, input }) => {
+  getHistory: protectedProcedure.input(z59.object({ limit: z59.number().default(5) }).optional()).query(async ({ ctx, input }) => {
     const userId = ctx.user.id;
     const limit = input?.limit ?? 5;
     try {
       const db2 = await getDb();
-      const [rows] = await db2.execute(sql32`
+      const [rows] = await db2.execute(sql33`
           SELECT id, reason, description, points_change, created_at 
           FROM loyalty_history 
           WHERE user_id = ${userId} 
@@ -14634,7 +17910,7 @@ var loyaltyRouter = router({
   getCustomerSummary: protectedProcedure.query(async ({ ctx }) => {
     try {
       const db2 = await getDb();
-      const [result] = await db2.execute(sql32`
+      const [result] = await db2.execute(sql33`
         SELECT COALESCE(SUM(points_change), 0) as total_balance 
         FROM loyalty_history 
         WHERE user_id = ${ctx.user.id}
@@ -14657,7 +17933,7 @@ var loyaltyRouter = router({
     logger.debug({ userId }, "Verificando saldo do usu\xE1rio via getUserBalance");
     try {
       const db2 = await getDb();
-      const [result] = await db2.execute(sql32`
+      const [result] = await db2.execute(sql33`
         SELECT COALESCE(SUM(points_change), 0) as total_balance 
         FROM loyalty_history 
         WHERE user_id = ${userId}
@@ -14674,8 +17950,8 @@ var loyaltyRouter = router({
 
 // server/routers/storefront/public.ts
 init_db();
-import { z as z59 } from "zod";
-import { eq as eq76, asc as asc22, and as and33, like as like11, inArray as inArray12 } from "drizzle-orm";
+import { z as z61 } from "zod";
+import { eq as eq80, asc as asc24, and as and37, like as like13, inArray as inArray14, sql as sql34 } from "drizzle-orm";
 init_encryption();
 import axios3 from "axios";
 init_schema();
@@ -14684,9 +17960,9 @@ init_schema();
 // server/routers/storefront/paymentMethods.ts
 init_db();
 init_schema();
-import { z as z58 } from "zod";
-import { eq as eq75, asc as asc21 } from "drizzle-orm";
-import { TRPCError as TRPCError46 } from "@trpc/server";
+import { z as z60 } from "zod";
+import { eq as eq79, asc as asc23 } from "drizzle-orm";
+import { TRPCError as TRPCError57 } from "@trpc/server";
 function toSlug(input) {
   const base = String(input ?? "").trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
   return base || "metodo_pagamento";
@@ -14698,33 +17974,33 @@ function toMoneyString(v) {
   const n2 = Number(String(v).replace(",", "."));
   return Number.isFinite(n2) ? n2.toFixed(2) : "0.00";
 }
-var paymentMethodSchema = z58.object({
-  name: z58.string().min(1, "O nome \xE9 obrigat\xF3rio"),
-  isActive: z58.boolean().optional().default(true),
-  discountPercentage: z58.coerce.number().min(0).max(100).optional().default(0),
-  displayOrder: z58.coerce.number().int().optional().default(0),
-  description: z58.string().optional().nullable(),
-  icon: z58.string().optional().nullable(),
-  slug: z58.string().optional(),
-  instructions: z58.string().optional().nullable()
+var paymentMethodSchema = z60.object({
+  name: z60.string().min(1, "O nome \xE9 obrigat\xF3rio"),
+  isActive: z60.boolean().optional().default(true),
+  discountPercentage: z60.coerce.number().min(0).max(100).optional().default(0),
+  displayOrder: z60.coerce.number().int().optional().default(0),
+  description: z60.string().optional().nullable(),
+  icon: z60.string().optional().nullable(),
+  slug: z60.string().optional(),
+  instructions: z60.string().optional().nullable()
 });
 var paymentMethodsRouter = router({
   list: publicProcedure.query(async () => {
     const db2 = await getDb();
     try {
-      return await db2.select().from(paymentMethods).where(eq75(paymentMethods.isActive, true)).orderBy(asc21(paymentMethods.displayOrder), asc21(paymentMethods.name));
+      return await db2.select().from(paymentMethods).where(eq79(paymentMethods.isActive, true)).orderBy(asc23(paymentMethods.displayOrder), asc23(paymentMethods.name));
     } catch {
-      throw new TRPCError46({
+      throw new TRPCError57({
         code: "INTERNAL_SERVER_ERROR",
         message: "Erro ao buscar pagamentos"
       });
     }
   }),
-  get: publicProcedure.input(z58.object({ id: z58.coerce.string() })).query(async ({ input }) => {
+  get: publicProcedure.input(z60.object({ id: z60.coerce.string() })).query(async ({ input }) => {
     const db2 = await getDb();
-    const [method] = await db2.select().from(paymentMethods).where(eq75(paymentMethods.id, input.id)).limit(1);
+    const [method] = await db2.select().from(paymentMethods).where(eq79(paymentMethods.id, input.id)).limit(1);
     if (!method)
-      throw new TRPCError46({ code: "NOT_FOUND", message: "M\xE9todo n\xE3o encontrado." });
+      throw new TRPCError57({ code: "NOT_FOUND", message: "M\xE9todo n\xE3o encontrado." });
     return method;
   }),
   create: adminProcedure.input(paymentMethodSchema).mutation(async ({ input }) => {
@@ -14747,10 +18023,10 @@ var paymentMethodsRouter = router({
       return { success: true, message: "M\xE9todo criado com sucesso!" };
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erro ao criar.";
-      throw new TRPCError46({ code: "BAD_REQUEST", message: msg });
+      throw new TRPCError57({ code: "BAD_REQUEST", message: msg });
     }
   }),
-  update: adminProcedure.input(paymentMethodSchema.partial().extend({ id: z58.coerce.string() })).mutation(async ({ input }) => {
+  update: adminProcedure.input(paymentMethodSchema.partial().extend({ id: z60.coerce.string() })).mutation(async ({ input }) => {
     const db2 = await getDb();
     try {
       const { id, ...data } = input;
@@ -14765,20 +18041,20 @@ var paymentMethodsRouter = router({
       if (data.displayOrder !== void 0) {
         updateData.displayOrder = Number.isFinite(Number(data.displayOrder)) ? Number(data.displayOrder) : 0;
       }
-      await db2.update(paymentMethods).set(updateData).where(eq75(paymentMethods.id, id));
+      await db2.update(paymentMethods).set(updateData).where(eq79(paymentMethods.id, id));
       return { success: true, message: "Atualizado com sucesso." };
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erro ao atualizar.";
-      throw new TRPCError46({ code: "BAD_REQUEST", message: msg });
+      throw new TRPCError57({ code: "BAD_REQUEST", message: msg });
     }
   }),
-  delete: adminProcedure.input(z58.object({ id: z58.coerce.string() })).mutation(async ({ input }) => {
+  delete: adminProcedure.input(z60.object({ id: z60.coerce.string() })).mutation(async ({ input }) => {
     const db2 = await getDb();
     try {
-      await db2.delete(paymentMethods).where(eq75(paymentMethods.id, input.id));
+      await db2.delete(paymentMethods).where(eq79(paymentMethods.id, input.id));
       return { success: true, message: "Removido com sucesso." };
     } catch {
-      throw new TRPCError46({
+      throw new TRPCError57({
         code: "CONFLICT",
         message: "Erro ao excluir (poss\xEDvel v\xEDnculo com pedidos)."
       });
@@ -14801,10 +18077,12 @@ async function fetchAllStoreSettings() {
       "partners_json",
       "company_social_info",
       "favicon_url",
-      "google_analytics_id"
+      "google_analytics_id",
       // ✅ necessário para o useAnalytics
+      "gtm_id"
+      // ✅ necessário para o GTM
     ];
-    const extraConfigs = await db2.select().from(appConfigs).where(inArray12(appConfigs.configKey, configKeys));
+    const extraConfigs = await db2.select().from(appConfigs).where(inArray14(appConfigs.configKey, configKeys));
     const getVal = (k) => extraConfigs.find((r) => r.configKey === k)?.configValue;
     const rawSocial = getVal("company_social_info");
     let socialData = null;
@@ -14823,6 +18101,8 @@ async function fetchAllStoreSettings() {
       ...general,
       favicon: getVal("favicon_url") || general.favicon || "/favicon.ico",
       googleAnalyticsId: getVal("google_analytics_id") || null,
+      gtmId: getVal("gtm_id") || null,
+      // ✅ expõe GTM ID para o frontend
       pickupEnabled: shipping?.pickupEnabled ?? general.pickupEnabled ?? true,
       pickupLabel: shipping?.pickupLabel ?? general.pickupLabel ?? "Retirada no Local",
       pickupInstruction: shipping?.pickupInstruction ?? general.pickupInstruction ?? "Apresente o n\xFAmero do pedido no balc\xE3o.",
@@ -14875,16 +18155,16 @@ var normalizeDish2 = (dish) => {
 var publicRouter = router({
   paymentMethods: paymentMethodsRouter,
   referral: router({
-    bindCode: publicProcedure.input(z59.object({ code: z59.string().min(1), sessionId: z59.string().min(1) })).mutation(async ({ input }) => {
+    bindCode: publicProcedure.input(z61.object({ code: z61.string().min(1), sessionId: z61.string().min(1) })).mutation(async ({ input }) => {
       const db2 = await getDb();
       const normalizedCode = input.code.toLowerCase().replace(/\s+/g, "");
-      const [partner] = await db2.select().from(referrals).where(and33(eq76(referrals.code, normalizedCode), eq76(referrals.isActive, true))).limit(1);
+      const [partner] = await db2.select().from(referrals).where(and37(eq80(referrals.code, normalizedCode), eq80(referrals.isActive, true))).limit(1);
       if (!partner) return { success: false, message: "C\xF3digo inv\xE1lido." };
-      await db2.update(sessions).set({ referralCode: normalizedCode }).where(eq76(sessions.id, input.sessionId));
+      await db2.update(sessions).set({ referralCode: normalizedCode }).where(eq80(sessions.id, input.sessionId));
       return { success: true, appliedCode: normalizedCode, partnerName: partner.name };
     })
   }),
-  getProfessionalReviews: publicProcedure.input(z59.object({ dishId: z59.string() })).query(async ({ input }) => {
+  getProfessionalReviews: publicProcedure.input(z61.object({ dishId: z61.string() })).query(async ({ input }) => {
     const db2 = await getDb();
     const rawReviews = await db2.select({
       id: professionalReviews.id,
@@ -14892,7 +18172,7 @@ var publicRouter = router({
       highlights: professionalReviews.nutritionalHighlights,
       authorNameEncrypted: users.name,
       authorTitle: user_profiles.professional_title
-    }).from(professionalReviews).innerJoin(users, eq76(professionalReviews.userId, users.id)).innerJoin(user_profiles, eq76(users.id, user_profiles.userId)).where(and33(eq76(professionalReviews.dishId, input.dishId), eq76(professionalReviews.isActive, true)));
+    }).from(professionalReviews).innerJoin(users, eq80(professionalReviews.userId, users.id)).innerJoin(user_profiles, eq80(users.id, user_profiles.userId)).where(and37(eq80(professionalReviews.dishId, input.dishId), eq80(professionalReviews.isActive, true)));
     return rawReviews.map((review) => ({
       id: review.id,
       insight: review.insight,
@@ -14904,9 +18184,18 @@ var publicRouter = router({
   dishes: router({
     categories: publicProcedure.query(async () => {
       const db2 = await getDb();
-      return await db2.select().from(categories).where(eq76(categories.isActive, true)).orderBy(asc22(categories.displayOrder));
+      const cats = await db2.select().from(categories).where(eq80(categories.isActive, true)).orderBy(asc24(categories.displayOrder));
+      const counts = await db2.select({
+        categoryId: dishes.categoryId,
+        count: sql34`count(${dishes.id})`
+      }).from(dishes).where(eq80(dishes.isActive, true)).groupBy(dishes.categoryId);
+      const countsMap = new Map(counts.map((c) => [c.categoryId, Number(c.count)]));
+      return cats.map((c) => ({
+        ...c,
+        dishCount: countsMap.get(c.id) || 0
+      }));
     }),
-    getById: publicProcedure.input(z59.object({ id: z59.number() })).query(async ({ input }) => {
+    getById: publicProcedure.input(z61.object({ id: z61.number() })).query(async ({ input }) => {
       const details = await getDishDetails(input.id);
       if (!details) return null;
       const normalized = normalizeDish2(details);
@@ -14920,21 +18209,21 @@ var publicRouter = router({
         accompaniments: d.accompaniments || []
       };
     }),
-    list: publicProcedure.input(z59.object({
-      page: z59.number().default(1),
-      perPage: z59.number().default(100),
-      search: z59.string().nullish(),
-      category: z59.union([z59.number(), z59.string()]).nullish()
+    list: publicProcedure.input(z61.object({
+      page: z61.number().default(1),
+      perPage: z61.number().default(100),
+      search: z61.string().nullish(),
+      category: z61.union([z61.number(), z61.string()]).nullish()
     }).optional()).query(async ({ input }) => {
       const db2 = await getDb();
       const dishesTable = dishes;
-      const conditions = [eq76(dishesTable.isActive, true)];
-      if (input?.search) conditions.push(like11(dishesTable.name, `%${input.search}%`));
+      const conditions = [eq80(dishesTable.isActive, true)];
+      if (input?.search) conditions.push(like13(dishesTable.name, `%${input.search}%`));
       if (input?.category && input.category !== "all") {
         const catId = safeInteger(input.category, Number.NaN);
-        if (Number.isFinite(catId)) conditions.push(eq76(dishesTable.categoryId, catId));
+        if (Number.isFinite(catId)) conditions.push(eq80(dishesTable.categoryId, catId));
       }
-      const rows = await db2.select().from(dishesTable).where(and33(...conditions)).orderBy(asc22(dishesTable.displayOrder));
+      const rows = await db2.select().from(dishesTable).where(and37(...conditions)).orderBy(asc24(dishesTable.displayOrder));
       return rows.map(normalizeDish2).filter(Boolean);
     })
   }),
@@ -14950,9 +18239,9 @@ var publicRouter = router({
    */
   getShowcases: publicProcedure.query(async () => {
     const db2 = await getDb();
-    const activeShowcases = await db2.select().from(showcases).where(eq76(showcases.active, true)).orderBy(asc22(showcases.order));
+    const activeShowcases = await db2.select().from(showcases).where(eq80(showcases.active, true)).orderBy(asc24(showcases.order));
     if (activeShowcases.length === 0) return [];
-    const activeDishesRows = await db2.select().from(dishes).where(eq76(dishes.isActive, true)).orderBy(asc22(dishes.displayOrder));
+    const activeDishesRows = await db2.select().from(dishes).where(eq80(dishes.isActive, true)).orderBy(asc24(dishes.displayOrder));
     const normalizedDishes = activeDishesRows.map(normalizeDish2).filter(Boolean);
     return activeShowcases.map((sc) => {
       let dishIds = [];
@@ -14967,7 +18256,7 @@ var publicRouter = router({
       };
     });
   }),
-  getCep: publicProcedure.input(z59.object({ cep: z59.string().min(8) })).query(async ({ input }) => {
+  getCep: publicProcedure.input(z61.object({ cep: z61.string().min(8) })).query(async ({ input }) => {
     const cleanCep = input.cep.replace(/\D/g, "");
     if (cleanCep.length !== 8) return null;
     try {
@@ -14976,6 +18265,52 @@ var publicRouter = router({
       return { street: data.logradouro, neighborhood: data.bairro, city: data.localidade, state: data.uf };
     } catch {
       return null;
+    }
+  }),
+  logClientError: publicProcedure.use(createRateLimitMiddleware({
+    keyPrefix: "client-error-logging",
+    limit: 20,
+    windowMs: 60 * 1e3
+  })).input(z61.object({
+    errorName: z61.string(),
+    errorMessage: z61.string(),
+    errorStack: z61.string().optional(),
+    url: z61.string().optional(),
+    userAgent: z61.string().optional(),
+    metadata: z61.record(z61.any()).optional()
+  })).mutation(async ({ input, ctx }) => {
+    try {
+      const actor = { userId: "system" };
+      let requestId = void 0;
+      if (ctx) {
+        if (ctx.user) {
+          actor.userId = ctx.user.id;
+        }
+        if (ctx.req) {
+          requestId = ctx.req.requestId || ctx.req.headers?.["x-request-id"] || ctx.req.headers?.["x-correlation-id"];
+          actor.ipAddress = ctx.req.ip || ctx.req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1";
+          actor.userAgent = ctx.req.headers?.["user-agent"] || input.userAgent || "unknown";
+        }
+      }
+      const errorObj = new Error(input.errorMessage);
+      errorObj.name = input.errorName;
+      if (input.errorStack) {
+        errorObj.stack = input.errorStack;
+      }
+      await AuditLogService.recordError({
+        module: "client",
+        source: "frontend",
+        error: errorObj,
+        actor,
+        requestId,
+        route: input.url,
+        severity: "critical",
+        metadata: input.metadata || {}
+      });
+      return { success: true };
+    } catch (err) {
+      console.error("Erro ao processar logClientError:", err);
+      return { success: false };
     }
   })
 });
@@ -14990,7 +18325,7 @@ var storefrontRouter = router({
     getPublicSettings: publicProcedure.query(async () => {
       const db2 = await getDb();
       if (!db2) return { googleAnalyticsId: null };
-      const [config] = await db2.select().from(appConfigs).where(eq77(appConfigs.configKey, "google_analytics_id")).limit(1);
+      const [config] = await db2.select().from(appConfigs).where(eq81(appConfigs.configKey, "google_analytics_id")).limit(1);
       return {
         googleAnalyticsId: config?.configValue || null
       };
@@ -15029,25 +18364,25 @@ var storefrontRouter = router({
 });
 
 // server/api/admin/bi-export.ts
-import { z as z60 } from "zod";
+import { z as z62 } from "zod";
 
 // server/logic/bi-exporter.ts
 init_db();
 init_schema2();
-import { and as and34, gte as gte6, lte as lte6, inArray as inArray13, asc as asc23 } from "drizzle-orm";
+import { and as and38, gte as gte8, lte as lte8, inArray as inArray15, asc as asc25 } from "drizzle-orm";
 async function getHistoricalOrdersForBI(startDate, endDate) {
   const db2 = await getDb();
   try {
     const historicalOrders = await db2.select().from(orders).where(
-      and34(
-        gte6(orders.createdAt, new Date(startDate)),
-        lte6(orders.createdAt, new Date(endDate)),
-        inArray13(orders.status, ["completed", "delivered", "shipped"])
+      and38(
+        gte8(orders.createdAt, new Date(startDate)),
+        lte8(orders.createdAt, new Date(endDate)),
+        inArray15(orders.status, ["completed", "delivered", "shipped"])
       )
-    ).orderBy(asc23(orders.createdAt));
+    ).orderBy(asc25(orders.createdAt));
     if (historicalOrders.length === 0) return [];
     const orderIds = historicalOrders.map((o) => o.id);
-    const items = await db2.select().from(orderItems).where(inArray13(orderItems.orderId, orderIds));
+    const items = await db2.select().from(orderItems).where(inArray15(orderItems.orderId, orderIds));
     return historicalOrders.map((order) => {
       const filteredItems = items.filter((i) => i.orderId === order.id);
       return {
@@ -15080,9 +18415,9 @@ async function getHistoricalOrdersForBI(startDate, endDate) {
 // server/api/admin/bi-export.ts
 var biExportRouter = router({
   run: adminProcedure.input(
-    z60.object({
-      start: z60.string(),
-      end: z60.string()
+    z62.object({
+      start: z62.string(),
+      end: z62.string()
     })
   ).query(async ({ input }) => {
     return getHistoricalOrdersForBI(input.start, input.end);
@@ -15090,15 +18425,15 @@ var biExportRouter = router({
 });
 
 // server/api/routers/dishes.ts
-init_db();
 init_schema();
-import { and as and35, asc as asc24, eq as eq78, like as like12 } from "drizzle-orm";
-import { z as z61 } from "zod";
-var listInputSchema = z61.object({
-  page: z61.number().default(1),
-  perPage: z61.number().default(100),
-  search: z61.string().nullish(),
-  category: z61.union([z61.number(), z61.string()]).nullish()
+init_db();
+import { and as and39, asc as asc26, eq as eq82, like as like14 } from "drizzle-orm";
+import { z as z63 } from "zod";
+var listInputSchema = z63.object({
+  page: z63.number().default(1),
+  perPage: z63.number().default(100),
+  search: z63.string().nullish(),
+  category: z63.union([z63.number(), z63.string()]).nullish()
 }).optional();
 async function getInventoryData() {
   const db2 = await getDb();
@@ -15113,10 +18448,10 @@ async function getInventoryData() {
           }
         }
       },
-      where: eq78(dishes.isActive, true)
+      where: eq82(dishes.isActive, true)
     }),
     db2.query.accompanimentOptions.findMany({
-      where: eq78(accompanimentOptions.isActive, true)
+      where: eq82(accompanimentOptions.isActive, true)
     })
   ]);
   return {
@@ -15130,17 +18465,17 @@ async function listPublicDishes(input) {
   const page = input?.page || 1;
   const perPage = input?.perPage || 100;
   const offset = (page - 1) * perPage;
-  const conditions = [eq78(dishes.isActive, true)];
+  const conditions = [eq82(dishes.isActive, true)];
   if (input?.search) {
-    conditions.push(like12(dishes.name, `%${input.search}%`));
+    conditions.push(like14(dishes.name, `%${input.search}%`));
   }
   if (input?.category && input.category !== "all") {
     const categoryId = Number(input.category);
     if (!Number.isNaN(categoryId)) {
-      conditions.push(eq78(dishes.categoryId, categoryId));
+      conditions.push(eq82(dishes.categoryId, categoryId));
     }
   }
-  return db2.select().from(dishes).where(and35(...conditions)).orderBy(asc24(dishes.displayOrder)).limit(perPage).offset(offset);
+  return db2.select().from(dishes).where(and39(...conditions)).orderBy(asc26(dishes.displayOrder)).limit(perPage).offset(offset);
 }
 var dishesRouter = router({
   list: publicProcedure.input(listInputSchema).query(async ({ input }) => {
@@ -15153,7 +18488,7 @@ var dishesRouter = router({
 
 // server/api/routers/integration.ts
 init_schema();
-import { asc as asc25, desc as desc31, eq as eq79, inArray as inArray14 } from "drizzle-orm";
+import { asc as asc27, desc as desc34, eq as eq83, inArray as inArray16 } from "drizzle-orm";
 var integrationRouter = router({
   /**
    * 1. INTELIGÊNCIA DE CLIENTES (CRM & LTV)
@@ -15219,8 +18554,8 @@ var integrationRouter = router({
             with: { ingredient: { columns: { name: true } } }
           }
         },
-        where: eq79(dishes.isActive, true),
-        orderBy: [asc25(dishes.name)]
+        where: eq83(dishes.isActive, true),
+        orderBy: [asc27(dishes.name)]
       }),
       ctx.db.query.accompanimentOptions.findMany({
         columns: {
@@ -15231,7 +18566,7 @@ var integrationRouter = router({
           proteins: true,
           ingredients: true
         },
-        where: eq79(accompanimentOptions.isActive, true)
+        where: eq83(accompanimentOptions.isActive, true)
       })
     ]);
     return { dishes: allDishes, accompaniments: allAccompaniments };
@@ -15268,8 +18603,8 @@ var integrationRouter = router({
           }
         }
       },
-      where: inArray14(orders.paymentStatus, ["paid"]),
-      orderBy: [desc31(orders.createdAt)],
+      where: inArray16(orders.paymentStatus, ["paid"]),
+      orderBy: [desc34(orders.createdAt)],
       limit: 200
     });
     return result;
@@ -15281,7 +18616,7 @@ var integrationRouter = router({
   getShippingIntelligence: internalProcedure.query(async ({ ctx }) => {
     const [zones, mesh] = await Promise.all([
       ctx.db.query.shippingZones.findMany({
-        where: eq79(shippingZones.isActive, true)
+        where: eq83(shippingZones.isActive, true)
       }),
       ctx.db.query.geoMesh.findMany({
         columns: { zipCode: true, neighborhood: true, lat: true, lng: true },
@@ -15327,11 +18662,33 @@ var appRouter = router({
 // server/_core/context.ts
 init_db();
 init_schema();
-import { eq as eq80, and as and36, isNull as isNull5 } from "drizzle-orm";
+import { eq as eq84, and as and40, isNull as isNull7 } from "drizzle-orm";
 async function createContext({ req, res }) {
   const db2 = await getDb();
   const sessionId = lucia.readSessionCookie(req.headers.cookie ?? "");
-  const { session, user } = sessionId ? await lucia.validateSession(sessionId) : { session: null, user: null };
+  let { session, user } = sessionId ? await lucia.validateSession(sessionId) : { session: null, user: null };
+  if (user && user.deletedAt) {
+    if (session) {
+      await lucia.invalidateSession(session.id);
+    }
+    void AuditLogService.record({
+      actor: {
+        userId: user.id,
+        ipAddress: req.ip || req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+        userAgent: req.headers?.["user-agent"] || "unknown",
+        requestId: req?.requestId
+      },
+      module: "auth",
+      action: "LOGIN_BLOCKED_DELETED",
+      severity: "critical",
+      entityType: "auth_event",
+      entityId: user.id,
+      entityLabel: user.email,
+      newValues: { reason: "active_session_soft_deleted" }
+    });
+    session = null;
+    user = null;
+  }
   const guestId = req.headers["x-guest-id"];
   const referralCode = req.headers["x-referral-code"] || req.headers["referral"];
   if (guestId) {
@@ -15353,16 +18710,15 @@ async function createContext({ req, res }) {
         if (referralCode) {
           const cleanReferral = referralCode.toLowerCase().trim();
           await db2.update(users).set({ referralCode: cleanReferral }).where(
-            and36(
-              eq80(users.id, user.id),
+            and40(
+              eq84(users.id, user.id),
               // Só vincula se o usuário ainda for um "órfão"
-              isNull5(users.referralCode)
+              isNull7(users.referralCode)
             )
           ).then((result) => {
             const parsedResult = result;
             const affected = parsedResult[0]?.affectedRows || 0;
             if (affected > 0) {
-              console.log(`\x1B[32m%s\x1B[0m`, `\u2705 [Referral Success] Usu\xE1rio ${user.id} agora \xE9 indicado de: ${cleanReferral}`);
             }
           }).catch((err) => console.error("\u274C Erro ao vincular referral ao user:", err));
         }
@@ -15374,6 +18730,9 @@ async function createContext({ req, res }) {
   try {
     if (session && session.fresh) {
       const newCookie = lucia.createSessionCookie(session.id);
+      if (req.hostname && (req.hostname === "localhost" || req.hostname === "127.0.0.1" || req.hostname.startsWith("192.168.24."))) {
+        newCookie.attributes.secure = false;
+      }
       newCookie.attributes.maxAge = void 0;
       newCookie.attributes.expires = void 0;
       if (typeof res.appendHeader === "function") {
@@ -15383,6 +18742,9 @@ async function createContext({ req, res }) {
       }
     } else if (!session && sessionId) {
       const blankCookie = lucia.createBlankSessionCookie();
+      if (req.hostname && (req.hostname === "localhost" || req.hostname === "127.0.0.1" || req.hostname.startsWith("192.168.24."))) {
+        blankCookie.attributes.secure = false;
+      }
       if (typeof res.appendHeader === "function") {
         res.appendHeader("Set-Cookie", blankCookie.serialize());
       } else {
@@ -15397,15 +18759,16 @@ async function createContext({ req, res }) {
 
 // server/_core/index.ts
 import path4 from "path";
-import fs3 from "fs";
+import fs4 from "fs";
+import crypto23 from "crypto";
 
 // server/workers/nutriWorker.ts
 import { Worker as Worker2 } from "bullmq";
 init_db();
 init_schema();
 init_encryption();
-import { eq as eq81 } from "drizzle-orm";
-import crypto19 from "crypto";
+import { eq as eq85 } from "drizzle-orm";
+import crypto21 from "crypto";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import "dotenv/config";
 
@@ -15467,7 +18830,7 @@ function buildNutriAiCatalog(dbDishes, dishSizesRaw, allOptions) {
 }
 
 // server/workers/helpers/normalizeAiPrescriptionResult.ts
-import crypto18 from "crypto";
+import crypto20 from "crypto";
 function toStr(v) {
   return String(v ?? "");
 }
@@ -15530,7 +18893,7 @@ function normalizeOption(option, catalog) {
   const extrasPrice = selectedAccs.reduce((sum4, acc) => sum4 + acc.extraPrice, 0);
   const finalPrice = basePrice + extrasPrice;
   return {
-    id: option.id || `opt-${crypto18.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+    id: option.id || `opt-${crypto20.randomUUID?.() || Math.random().toString(36).slice(2)}`,
     dishId: dish.id,
     sizeId: size.id,
     name: dish.name,
@@ -15649,7 +19012,7 @@ var nutriWorker = new Worker2(
   NUTRI_QUEUE_NAME,
   async (job) => {
     const { scanId, rawText } = job.data;
-    const runId = crypto19.randomUUID();
+    const runId = crypto21.randomUUID();
     const startTime = Date.now();
     console.log(`
 [DEBUG] \u{1F680} --- IN\xCDCIO DO JOB ---`);
@@ -15657,7 +19020,7 @@ var nutriWorker = new Worker2(
     try {
       const db2 = await getDb();
       if (!db2) throw new Error("Database connection failed");
-      const setting = await db2.select().from(appConfigs).where(eq81(appConfigs.configKey, "gemini_api_key")).limit(1);
+      const setting = await db2.select().from(appConfigs).where(eq85(appConfigs.configKey, "gemini_api_key")).limit(1);
       let activeApiKey = process.env.GEMINI_API_KEY;
       if (setting[0]?.configValue) {
         const decryptedKey = decrypt(setting[0].configValue);
@@ -15682,7 +19045,7 @@ var nutriWorker = new Worker2(
         console.log(`[DEBUG] \u26A0\uFE0F Falha na requisi\xE7\xE3o de debug:`, message);
       }
       console.log(`[DEBUG] \u{1F4E6} Coletando dados do cat\xE1logo...`);
-      const dbDishes = await db2.select().from(dishes).where(eq81(dishes.isActive, true));
+      const dbDishes = await db2.select().from(dishes).where(eq85(dishes.isActive, true));
       const dishSizesRaw = await db2.select({
         dishId: dishesToSizes.dishId,
         sizeId: dishSizes.id,
@@ -15694,16 +19057,16 @@ var nutriWorker = new Worker2(
         groupName: accompanimentGroups.name,
         minSelections: sizeAccompanimentGroups.minSelections,
         maxSelections: sizeAccompanimentGroups.maxSelections
-      }).from(dishesToSizes).innerJoin(dishSizes, eq81(dishesToSizes.sizeId, dishSizes.id)).leftJoin(
+      }).from(dishesToSizes).innerJoin(dishSizes, eq85(dishesToSizes.sizeId, dishSizes.id)).leftJoin(
         sizeAccompanimentGroups,
-        eq81(dishSizes.id, sizeAccompanimentGroups.sizeId)
+        eq85(dishSizes.id, sizeAccompanimentGroups.sizeId)
       ).leftJoin(
         accompanimentGroups,
-        eq81(
+        eq85(
           sizeAccompanimentGroups.accompanimentGroupId,
           accompanimentGroups.id
         )
-      ).where(eq81(dishSizes.isActive, true));
+      ).where(eq85(dishSizes.isActive, true));
       const allOptions = await db2.select({
         id: accompanimentOptions.id,
         groupId: groupToOptions.groupId,
@@ -15715,10 +19078,10 @@ var nutriWorker = new Worker2(
         priceModifier: accompanimentOptions.priceModifier
       }).from(accompanimentOptions).innerJoin(
         groupToOptions,
-        eq81(accompanimentOptions.id, groupToOptions.optionId)
-      ).where(eq81(accompanimentOptions.isActive, true));
+        eq85(accompanimentOptions.id, groupToOptions.optionId)
+      ).where(eq85(accompanimentOptions.isActive, true));
       console.log(`[DEBUG] \u{1F9E0} Coletando termos aprendidos...`);
-      const learnedTermsRaw = await db2.select().from(aiExpertTerms).where(eq81(aiExpertTerms.isActive, true));
+      const learnedTermsRaw = await db2.select().from(aiExpertTerms).where(eq85(aiExpertTerms.isActive, true));
       const learnedTerms = learnedTermsRaw.map((t2) => ({
         term: t2.term || "",
         targetId: t2.targetId || "",
@@ -15773,7 +19136,7 @@ var nutriWorker = new Worker2(
       await db2.update(nutriScansTemp).set({
         suggestedData: suggestedData || {},
         status: "completed"
-      }).where(eq81(nutriScansTemp.id, scanId));
+      }).where(eq85(nutriScansTemp.id, scanId));
       console.log(`[DEBUG] \u2705 Finalizado: ${scanId}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Erro desconhecido";
@@ -15781,7 +19144,7 @@ var nutriWorker = new Worker2(
 [DEBUG] \u274C FALHA NO JOB:`, errorMessage);
       const db2 = await getDb();
       if (db2 && scanId) {
-        await db2.update(nutriScansTemp).set({ status: "failed" }).where(eq81(nutriScansTemp.id, scanId));
+        await db2.update(nutriScansTemp).set({ status: "failed" }).where(eq85(nutriScansTemp.id, scanId));
         await db2.insert(agentRuns).values({
           id: runId,
           scanId,
@@ -15800,7 +19163,10 @@ nutriWorker.on("error", (err) => {
 });
 
 // server/_core/security-middleware.ts
+import crypto22 from "crypto";
 var CSRF_TTL_SECONDS = 24 * 60 * 60;
+var CSRF_COOKIE_NAME = "gourmet_csrf_token";
+var CSRF_HEADER_NAME = "x-csrf-token";
 function setupSecurityHeaders(app2) {
   app2.use((req, res, next) => {
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -15851,6 +19217,48 @@ function setupSecurityHeaders(app2) {
     next();
   });
 }
+function setupCsrfProtection(app2) {
+  const cookieOptions = {
+    httpOnly: false,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: CSRF_TTL_SECONDS * 1e3
+  };
+  const issueToken = (req, res) => {
+    const existing = getCookieValue(req, CSRF_COOKIE_NAME);
+    const token = existing && /^[a-f0-9]{64}$/i.test(existing) ? existing : crypto22.randomBytes(32).toString("hex");
+    res.cookie(CSRF_COOKIE_NAME, token, cookieOptions);
+    return token;
+  };
+  app2.get("/api/csrf-token", (req, res) => {
+    const token = issueToken(req, res);
+    res.json({ csrfToken: token });
+  });
+  app2.use((req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      if (req.path.startsWith("/trpc")) {
+        issueToken(req, res);
+      }
+      return next();
+    }
+    if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
+      if (hasBearerAuthorization(req)) {
+        return next();
+      }
+      const headerToken = req.headers[CSRF_HEADER_NAME];
+      const token = (Array.isArray(headerToken) ? headerToken[0] : headerToken) || req.body?.csrfToken || req.query?.csrfToken;
+      const cookieToken = getCookieValue(req, CSRF_COOKIE_NAME);
+      if (!token || !cookieToken || cookieToken !== token) {
+        logger.warn(
+          { method: req.method, path: req.path, ip: getClientIp2(req) },
+          "[SECURITY] Falha na validacao do Token CSRF"
+        );
+        return res.status(403).json({ error: "CSRF token validation failed" });
+      }
+    }
+    next();
+  });
+}
 function setupSecurityLogging(app2) {
   app2.use((req, res, next) => {
     const start = Date.now();
@@ -15885,6 +19293,19 @@ function isLocalRequest2(req) {
   const clientIp = getClientIp2(req);
   return clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost";
 }
+function getCookieValue(req, name) {
+  const parsedCookie = req.cookies?.[name];
+  if (typeof parsedCookie === "string") return parsedCookie;
+  const cookieHeader = req.headers.cookie || "";
+  const cookies = cookieHeader.split(";").map((part) => part.trim());
+  const prefix = `${name}=`;
+  const match = cookies.find((part) => part.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+}
+function hasBearerAuthorization(req) {
+  const authorization = req.headers.authorization;
+  return typeof authorization === "string" && authorization.startsWith("Bearer ");
+}
 
 // server/_core/maintenance-middleware.ts
 import path3 from "path";
@@ -15896,11 +19317,11 @@ var ALLOWED_IPS = /* @__PURE__ */ new Set([
 var BYPASS_PATHS = ["/trpc/public.health", "/uploads/"];
 var cachedMaintenanceState = null;
 var lastChecked = 0;
-var CACHE_TTL_MS = 1e4;
+var CACHE_TTL_MS2 = 1e4;
 async function isMaintenanceActive() {
   if (process.env.MAINTENANCE_MODE === "true") return true;
   const now = Date.now();
-  if (cachedMaintenanceState !== null && now - lastChecked < CACHE_TTL_MS) {
+  if (cachedMaintenanceState !== null && now - lastChecked < CACHE_TTL_MS2) {
     return cachedMaintenanceState;
   }
   try {
@@ -15938,6 +19359,12 @@ function setupMaintenanceMode(app2, distPath2) {
 // server/_core/index.ts
 var app = express();
 app.set("trust proxy", 1);
+app.use((req, res, next) => {
+  const requestId = req.headers["x-request-id"] || req.headers["x-correlation-id"] || crypto23.randomUUID();
+  req.requestId = Array.isArray(requestId) ? requestId[0] : requestId;
+  res.setHeader("x-request-id", req.requestId);
+  next();
+});
 logger.info(`\u{1F680} Iniciando servidor em: ${(/* @__PURE__ */ new Date()).toLocaleString()}`);
 logger.debug({ cwd: process.cwd() }, "Informa\xE7\xF5es do ambiente de execu\xE7\xE3o");
 app.use(express.json({ limit: "5mb" }));
@@ -15956,6 +19383,16 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://192.168.24.2:5173",
+      "http://192.168.24.7:5173",
+      "http://192.168.24.8:5173",
+      "http://192.168.24.2:3001",
+      "http://192.168.24.7:3001",
+      "http://192.168.24.8:3001",
+      "http://192.168.24.2",
+      "http://192.168.24.7",
+      "http://192.168.24.8",
       "https://gourmetsaudavel.com",
       "https://www.gourmetsaudavel.com"
     ],
@@ -15964,17 +19401,21 @@ app.use(
     allowedHeaders: [
       "Content-Type",
       "Authorization",
+      "x-csrf-token",
       "x-guest-id",
-      "x-referral-code"
+      "x-referral-code",
+      "x-request-id",
+      "x-correlation-id"
     ]
   })
 );
 app.use(globalLimiter);
 app.use("/trpc/auth", authLimiter);
 app.use("/trpc/checkout", checkoutLimiter);
+setupCsrfProtection(app);
 var UPLOADS_PATH = path4.join(process.cwd(), "public", "uploads");
-if (!fs3.existsSync(UPLOADS_PATH)) {
-  fs3.mkdirSync(UPLOADS_PATH, { recursive: true });
+if (!fs4.existsSync(UPLOADS_PATH)) {
+  fs4.mkdirSync(UPLOADS_PATH, { recursive: true });
   logger.info({ path: UPLOADS_PATH }, "Pasta de uploads criada com sucesso");
 }
 app.use("/uploads", express.static(UPLOADS_PATH));
@@ -16012,7 +19453,7 @@ app.use(
   })
 );
 var distPath = path4.join(process.cwd(), "dist", "public");
-if (fs3.existsSync(distPath)) {
+if (fs4.existsSync(distPath)) {
   logger.info({ staticPath: distPath }, "Servindo Frontend est\xE1tico");
   setupMaintenanceMode(app, distPath);
   app.use(express.static(distPath));
@@ -16028,6 +19469,32 @@ if (fs3.existsSync(distPath)) {
     res.send("Backend Online - Rodando em modo de desenvolvimento.");
   });
 }
+app.use((err, req, res, next) => {
+  const requestId = req.requestId || req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"];
+  const actor = {
+    userId: req.user?.id || "system",
+    ipAddress: req.ip || req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "127.0.0.1",
+    userAgent: req.headers?.["user-agent"] || "unknown"
+  };
+  void AuditLogService.recordError({
+    module: "system",
+    source: "express",
+    error: err,
+    actor,
+    requestId,
+    route: req.originalUrl || req.url,
+    severity: "critical",
+    metadata: {
+      method: req.method,
+      query: req.query
+    }
+  });
+  res.status(500).json({
+    error: "Internal Server Error",
+    message: "Ocorreu um erro interno no servidor.",
+    requestId
+  });
+});
 var PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   logger.info(`\u2705 [READY] Servidor rodando na porta ${PORT}`);

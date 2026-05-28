@@ -197,7 +197,7 @@ export function StepDeliveryPDV({ data, onUpdate, hideNavigation }: StepDelivery
                     </p>
                   </>
                 ) : (
-                  <span className="text-slate-300 italic text-[10px] uppercase font-bold">Nenhum endereço definido</span>
+                  <span className="text-slate-500 italic text-[10px] uppercase font-bold">Nenhum endereço definido</span>
                 )}
               </div>
             )}

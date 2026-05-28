@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { trpc } from "@/_core/trpc";
+import { safeNumber } from "@/lib/safe-parse";
 
 // --- INTERFACES ---
 interface OrderItem {
@@ -195,7 +196,7 @@ export function useAdminOrderWizard(draftId: string | null) {
       if (updatedState.paymentMethod && paymentMethods.length > 0) {
         const methodObj = paymentMethods.find(m => String(m.id) === String(updatedState.paymentMethod));
         const discStr = methodObj?.discountPercentage || methodObj?.discount_percentage || "0";
-        const methodDiscountPerc = parseFloat(String(discStr).replace(',', '.'));
+        const methodDiscountPerc = safeNumber(String(discStr).replace(',', '.'));
         paymentBonus = Number(((subtotal * methodDiscountPerc) / 100).toFixed(2));
       }
       

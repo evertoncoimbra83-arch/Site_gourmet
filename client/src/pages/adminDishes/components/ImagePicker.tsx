@@ -2,6 +2,7 @@ import React, { useState } from "react"; // ✅ Adicionado React para resolver e
 import { Button } from "@/components/ui/button";
 import { ImagePlus, Trash2, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { normalizeImageUrl } from "@shared/utils/assets";
 
 // ✅ Importação absoluta mantida conforme sua correção anterior
 import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
@@ -16,22 +17,6 @@ interface ImagePickerProps {
 export default function ImagePicker({ label, value, onChange, className }: ImagePickerProps) {
   const [open, setOpen] = useState(false);
 
-  const getPreviewUrl = (path: string | null | undefined) => {
-    if (!path) return "";
-    if (path.startsWith("http") || path.startsWith("blob:")) return path;
-
-    const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
-    let clean = path.replace(/\\/g, "/");
-
-    if (clean.includes("/uploads/")) clean = clean.split("/uploads/")[1];
-    else if (clean.includes("/public/")) clean = clean.split("/public/")[1];
-
-    clean = clean.replace(/^\//, "");
-    if (!clean.startsWith("uploads/")) clean = `uploads/${clean}`;
-
-    return `${baseUrl}/${clean}`;
-  };
-
   const handleSelect = (url: string) => {
     let cleanPath = url;
     if (url.includes("/uploads/")) {
@@ -42,7 +27,7 @@ export default function ImagePicker({ label, value, onChange, className }: Image
     setOpen(false);
   };
 
-  const previewUrl = getPreviewUrl(value);
+  const previewUrl = normalizeImageUrl(value) || "";
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>

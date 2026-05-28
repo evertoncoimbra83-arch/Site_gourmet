@@ -1,6 +1,6 @@
 // client/src/app/view/AppView.tsx
 import React, { Suspense, lazy } from "react";
-import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 
 import { publicRoutes, adminRoutes } from "../logic/routesConfig";
 import { AppInteligence } from "../logic/AppInteligence";
@@ -12,12 +12,13 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { AccessibilityWidget } from "@/components/AccessibilityWidget";
 import { useGAPageTracking } from "@/_core/hooks/useGAPageTracking";
 import { useAnalytics } from "@/_core/hooks/useAnalytics";
-
-import OrderPrintCenter from "../../pages/adminOrders/components/orderDrawer/print/OrderPrintCenter";
+import { useAccessibility } from "@/_core/hooks/useAccessibility";
+import { useBrandTheme } from "@/_core/hooks/useBrandTheme";
+import type { AppRole } from "@shared/security/rbac";
 
 const LoginPage = lazy(() => import("../../pages/Login"));
 
-type AllowedRoles = "admin" | "user" | "nutri";
+type AllowedRoles = AppRole;
 
 interface AppRoute {
   path: string;
@@ -26,22 +27,30 @@ interface AppRoute {
   role?: AllowedRoles | AllowedRoles[];
 }
 
-const PublicLayout = () => (
-  <>
-    <Header />
-    <main className="min-h-[70vh]">
-      <Outlet />
-    </main>
-    <AccessibilityWidget />
-    <Footer />
-  </>
-);
+const PublicLayout = () => {
+  useBrandTheme();
+  return (
+    <>
+      <Header />
+      <main className="min-h-[70vh]">
+        <Outlet />
+      </main>
+      <AccessibilityWidget />
+      <Footer />
+    </>
+  );
+};
 
 const AdminWrapper = () => (
   <ProtectedRoute requiredRole="admin">
     <AdminLayout />
   </ProtectedRoute>
 );
+
+const RedirectToPrint = () => {
+  const { id } = useParams();
+  return <Navigate to={`/admin/orders/${id}/print`} replace />;
+};
 
 export function AppView() {
   const { pathname } = useLocation();
@@ -51,6 +60,7 @@ export function AppView() {
   // ✅ Bootstrap GA4 — injeta o script no mount da aplicação
   useAnalytics();
   useGAPageTracking();
+  useAccessibility();
 
   return (
     <>
@@ -68,11 +78,7 @@ export function AppView() {
           <Route path="/admin">
             <Route
               path="pedidos/:id/imprimir"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <OrderPrintCenter />
-                </ProtectedRoute>
-              }
+              element={<RedirectToPrint />}
             />
 
             <Route element={<AdminWrapper />}>
@@ -83,7 +89,15 @@ export function AppView() {
                   key={r.path}
                   path={r.path === "" ? undefined : r.path.replace(/^\//, "")}
                   index={r.path === ""}
-                  element={<r.element />}
+                  element={
+                    r.role ? (
+                      <ProtectedRoute requiredRole={r.role}>
+                        <r.element />
+                      </ProtectedRoute>
+                    ) : (
+                      <r.element />
+                    )
+                  }
                 />
               ))}
             </Route>

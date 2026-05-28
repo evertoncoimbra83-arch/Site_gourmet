@@ -1,5 +1,6 @@
 // products/drawer/NutritionSummaryBar
 import React, { useMemo } from "react"; // ✅ Adicionado React
+import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { PieChart } from "lucide-react"; // ✅ Removido AlertCircle (não usado)
 
@@ -31,7 +32,7 @@ export const NutritionSummaryBar = ({
 
   const stats = useMemo(() => {
     // ✅ Tipagem do parâmetro da função interna para evitar 'any'
-    const p = (v: string | number | undefined | null) => parseFloat(String(v || 0).replace(",", "."));
+    const p = (v: string | number | undefined | null) => safeNumber(String(v || 0).replace(",", "."));
 
     // 1. Macros do Prato Principal
     let totalKcal = p(data?.kcal || data?.energyKcal || data?.energy_kcal);
@@ -71,7 +72,7 @@ export const NutritionSummaryBar = ({
     <div className="bg-white border-y border-slate-100 p-6 space-y-4 animate-in fade-in slide-in-from-bottom-2 text-left">
       <div className="flex justify-between items-end">
         <div className="flex flex-col">
-          <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1">
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-1">
             Total Nutricional <span className="text-[8px] opacity-50 italic">(Prato + Itens)</span>
           </span>
           <span className="text-2xl font-black text-slate-900 italic leading-none">
@@ -105,9 +106,9 @@ export const NutritionSummaryBar = ({
             <div key={item.label} className="flex flex-col items-start">
               <div className="flex items-center gap-1.5">
                 <div className={cn("w-1.5 h-1.5 rounded-full", item.color)} />
-                <span className="text-[9px] font-black uppercase text-slate-400">{item.label}</span>
+                <span className="text-[9px] font-black uppercase text-slate-500">{item.label}</span>
               </div>
-              <span className="text-[11px] font-black text-slate-800">{item.val.toFixed(1)}<span className="text-[8px] ml-0.5 text-slate-400">g</span></span>
+              <span className="text-[11px] font-black text-slate-800">{item.val.toFixed(1)}<span className="text-[8px] ml-0.5 text-slate-500">g</span></span>
             </div>
           ))}
         </div>

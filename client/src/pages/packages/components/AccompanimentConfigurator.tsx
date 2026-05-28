@@ -67,6 +67,7 @@ export function AccompanimentConfigurator({
       const optionData = group.options.find((o) => String(o.id) === String(optionId));
       
       if (optionData) {
+        const optionMeta = optionData as unknown as Record<string, unknown>;
         const countInGroup = currentSelections.filter((a) => String(a.groupId) === String(group.id)).length;
         const max = Number(group.maxSelections || 1);
 
@@ -83,7 +84,18 @@ export function AccompanimentConfigurator({
           name: String(optionData.name),
           groupId: String(group.id),
           groupName: String(group.name),
-          weight: Number(optionData.weight || optionData.defaultGrammage || 100)
+          weight: Number(optionData.weight || optionData.defaultGrammage || 100),
+          priceModifier: Number(optionData.priceModifier || 0),
+          nutritional_info:
+            optionMeta.nutritional_info ||
+            optionMeta.nutritionalInfo ||
+            optionMeta.nutrition ||
+            null,
+          nutritionalInfo:
+            optionMeta.nutritionalInfo ||
+            optionMeta.nutritional_info ||
+            optionMeta.nutrition ||
+            null,
         } as AccompanimentOption);
       }
     }
@@ -140,10 +152,14 @@ export function AccompanimentConfigurator({
             <div className="flex items-center gap-3 px-1">
               <div className="h-px flex-1 bg-slate-100" />
               <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] whitespace-nowrap">
-                Personalizar Marmita
+                2. Personalize com acompanhamentos
               </h4>
               <div className="h-px flex-1 bg-slate-100" />
             </div>
+
+            <p className="px-1 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Escolha conforme as regras de cada grupo. Itens adicionais aparecem no card da opção.
+            </p>
 
             <AccompanimentSelector 
               groups={typedGroups} 

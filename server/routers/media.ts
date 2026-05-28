@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { media } from "../../drizzle/schema";
-import { publicProcedure, router } from "../_core/trpc";
+import { adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { sanitizeMediaFolder } from "../lib/upload-security";
 
@@ -12,7 +12,7 @@ function normalizeMediaFolderFilter(folder?: string | null) {
 }
 
 export const mediaRouter = router({
-  getImagesByFolder: publicProcedure
+  getImagesByFolder: adminProcedure
     .input(
       z.object({
         folder: z.string().optional().default("all"),

@@ -11,8 +11,9 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 
 import { lucia } from "../../auth.js";
-import { createRateLimitMiddleware, adminProcedure, router } from "../../_core/trpc.js";
+import { createRateLimitMiddleware, superAdminProcedure, router } from "../../_core/trpc.js";
 import { logger } from "../../logger.js";
+import { AuditLogService } from "../../services/AuditLogService.js";
 
 const BACKUP_DIR = "/var/backups";
 const BACKUP_FILE_REGEX = /^[a-zA-Z0-9._-]+\.sql\.gz$/;
@@ -32,7 +33,7 @@ type BackupMetadata = {
   modifiedAt: Date;
 };
 
-type DatabaseCredentials = {
+export type DatabaseCredentials = {
   host: string;
   port: string;
   user: string;
@@ -59,7 +60,7 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-function resolveBackupPath(filename: string): string {
+export function resolveBackupPath(filename: string): string {
   const safeFilename = sanitizeFilename(filename);
   if (!safeFilename) {
     throw new TRPCError({
@@ -133,7 +134,7 @@ async function listBackupFiles(): Promise<BackupMetadata[]> {
     );
 }
 
-function getDatabaseCredentials(): DatabaseCredentials {
+export function getDatabaseCredentials(): DatabaseCredentials {
   const databaseUrl = process.env.DATABASE_URL;
   let parsedUrl: URL | null = null;
 
@@ -177,7 +178,7 @@ function getDatabaseCredentials(): DatabaseCredentials {
   return { host, port, user, password, database };
 }
 
-function buildTimestamp() {
+export function buildTimestamp() {
   const now = new Date();
   const pad = (value: number) => String(value).padStart(2, "0");
   return [
@@ -323,7 +324,7 @@ async function requireAdminRequest(req: Request) {
 
   const { session, user } = await lucia.validateSession(sessionId);
 
-  if (!session || !user || user.role !== "admin") {
+  if (!session || !user || user.role !== "super_admin") {
     return null;
   }
 
@@ -347,6 +348,38 @@ export async function handleAdminBackupDownload(req: Request, res: Response) {
       return res.status(404).json({ error: "Backup não encontrado." });
     }
 
+    // REGISTRO DE AUDITORIA CRÍTICO (LGPD / Segurança)
+    const clientIp = typeof req.ip === "string" ? req.ip.split(",")[0].trim() : (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1";
+    const userAgent = req.headers["user-agent"] || "unknown";
+    const requestId = (req as any).requestId || req.headers["x-request-id"] || req.headers["x-correlation-id"] || undefined;
+
+    let sizeBytes = 0;
+    try {
+      const stats = await fs.stat(filePath);
+      sizeBytes = stats.size;
+    } catch {
+      // Ignora erro ao ler metadados do arquivo
+    }
+
+    void AuditLogService.record({
+      actor: {
+        userId: auth.user.id,
+        ipAddress: clientIp,
+        userAgent,
+        requestId,
+      },
+      module: "backup",
+      action: "DOWNLOAD",
+      severity: "critical",
+      entityType: "var/backups",
+      entityId: safeFilename,
+      entityLabel: `Backup Físico: ${safeFilename}`,
+      newValues: {
+        filename: safeFilename,
+        sizeBytes,
+      },
+    });
+
     res.setHeader("Content-Type", "application/gzip");
     res.setHeader(
       "Content-Disposition",
@@ -364,11 +397,11 @@ export async function handleAdminBackupDownload(req: Request, res: Response) {
 }
 
 export const backupsAdminRouter = router({
-  list: adminProcedure.query(async () => {
+  list: superAdminProcedure.query(async () => {
     return listBackupFiles();
   }),
 
-  create: adminProcedure
+  create: superAdminProcedure
     .use(createBackupRateLimit)
     .mutation(async () => {
       const now = Date.now();
@@ -418,7 +451,7 @@ export const backupsAdminRouter = router({
       }
     }),
 
-  delete: adminProcedure
+  delete: superAdminProcedure
     .input(
       z.object({
         filename: z.string().min(1),

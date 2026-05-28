@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  Globe, Mail, MessageCircle, MapPin, Instagram, 
-  Facebook, Loader2, ImageIcon, Camera, Sparkles 
+import {
+  Globe, Mail, MessageCircle, MapPin, Instagram,
+  Facebook, Loader2, ImageIcon, Camera, Sparkles
 } from "lucide-react";
 import { MediaPickerModal } from "@/components/MediaPickerModal";
 import { CompanyFormData, CompanySocialInfo } from "../logic/useCompanyInfo";
@@ -69,8 +69,8 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
           <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
             <Sparkles size={12} className="text-emerald-500" /> Logomarca do Sistema
           </Label>
-          
-          <div 
+
+          <div
             onClick={() => setIsMediaOpen(true)}
             className={cn(
               "group relative h-40 w-full max-w-sm rounded-3xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden bg-slate-50",
@@ -79,16 +79,16 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
           >
             {formData?.logoUrl ? (
               <div className="relative w-full h-full flex items-center justify-center p-6">
-                <img 
-                  src={getLogoPreview(formData.logoUrl) || ""} 
-                  className="max-h-full max-w-full object-contain transition-transform group-hover:scale-105" 
-                  alt="Logo Preview" 
+                <img
+                  src={getLogoPreview(formData.logoUrl) || ""}
+                  className="max-h-full max-w-full object-contain transition-transform group-hover:scale-105"
+                  alt="Logo Preview"
                 />
                 <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                   <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-xl">
-                      <Camera size={14} className="text-emerald-600" />
-                      <span className="text-slate-900 text-[10px] font-black uppercase tracking-widest">Trocar Logo</span>
-                   </div>
+                  <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-xl">
+                    <Camera size={14} className="text-emerald-600" />
+                    <span className="text-slate-900 text-[10px] font-black uppercase tracking-widest">Trocar Logo</span>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -104,9 +104,9 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100 text-left">
           <div className="space-y-2 md:col-span-2 text-left">
             <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 text-left">
-              <MapPin size={12}/> Endereço Completo
+              <MapPin size={12} /> Endereço Completo
             </Label>
-            <Input 
+            <Input
               value={social?.address || ""}
               onChange={e => actions.updateSocial("address", e.target.value)}
               placeholder="Rua, Número, Bairro - Cidade/UF"
@@ -116,21 +116,21 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
 
           <div className="space-y-2 text-left">
             <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 text-left">
-              <MessageCircle size={12}/> WhatsApp de Atendimento
+              <MessageCircle size={12} /> WhatsApp de Atendimento
             </Label>
-            <Input 
+            <Input
               value={social?.whatsapp || ""}
               onChange={e => actions.updateSocial("whatsapp", e.target.value)}
               placeholder="(00) 00000-0000"
               className="h-12 rounded-xl bg-slate-50 border-none font-bold shadow-inner focus-visible:ring-2 focus-visible:ring-emerald-500/20 text-left"
             />
           </div>
-          
+
           <div className="space-y-2 text-left">
             <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 text-left">
-              <Mail size={12}/> Email de Contato
+              <Mail size={12} /> Email de Contato
             </Label>
-            <Input 
+            <Input
               value={social?.email || ""}
               onChange={e => actions.updateSocial("email", e.target.value)}
               placeholder="contato@empresa.com"
@@ -140,9 +140,9 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
 
           <div className="space-y-2 text-left">
             <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 text-left">
-              <Instagram size={12}/> Instagram
+              <Instagram size={12} /> Instagram
             </Label>
-            <Input 
+            <Input
               value={social?.instagram || ""}
               onChange={e => actions.updateSocial("instagram", e.target.value)}
               placeholder="@seu.perfil"
@@ -152,9 +152,9 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
 
           <div className="space-y-2 text-left">
             <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 text-left">
-              <Facebook size={12}/> Facebook
+              <Facebook size={12} /> Facebook
             </Label>
-            <Input 
+            <Input
               value={social?.facebook || ""}
               onChange={e => actions.updateSocial("facebook", e.target.value)}
               placeholder="fb.com/suapagina"
@@ -165,7 +165,7 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
       </CardContent>
 
       {/* ✅ Modal de Mídia integrado para escolher a logo */}
-      <MediaPickerModal 
+      <MediaPickerModal
         open={isMediaOpen}
         onClose={() => setIsMediaOpen(false)}
         onSelect={(url) => {

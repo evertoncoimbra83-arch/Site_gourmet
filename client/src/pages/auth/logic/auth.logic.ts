@@ -4,7 +4,7 @@
  * 📝 CAMPOS OBRIGATÓRIOS (CHECKLIST):
  * - NAME: Nome completo (mínimo 2 letras)
  * - CPF: 11 dígitos numéricos (Validação matemática obrigatória)
- * - PASSWORD: Mínimo 6 caracteres
+ * - PASSWORD: Minimo 8 caracteres
  * - PHONE: WhatsApp formatado apenas com números
  */
 

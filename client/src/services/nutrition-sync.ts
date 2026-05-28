@@ -2,6 +2,7 @@ import { getDb } from "../../../server/db";
 // ✅ Importamos apenas o que temos certeza absoluta que está exportado em index.ts
 import { dishes } from "../../../drizzle/schema"; 
 import { eq, sql } from "drizzle-orm";
+import { safeNumber } from "../lib/safe-parse";
 
 /**
  * Sincroniza a tabela 'dishes' com base na ficha técnica
@@ -39,8 +40,8 @@ export async function syncDishNutrition(dishId: number) {
       .update(dishes)
       .set({
         // Convertendo para String, pois colunas decimais/numéricas esperam strings no Drizzle
-        energyKcal: String(Math.round(Number(totals.kcal) || 0)),
-        energyKj: String(Math.round(Number(totals.kj) || 0)),
+        energyKcal: String(Math.round(safeNumber(totals.kcal))),
+        energyKj: String(Math.round(safeNumber(totals.kj))),
         proteins: String(Number(totals.proteins || 0).toFixed(2)),
         carbs: String(Number(totals.carbs || 0).toFixed(2)),
         fiber: String(Number(totals.fiber || 0).toFixed(2)),

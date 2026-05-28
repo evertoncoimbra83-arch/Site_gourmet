@@ -101,7 +101,7 @@ export function SizeSelector({
     <div className="space-y-5">
       <div className="px-1">
         <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest italic">
-          1. Escolha o Tamanho
+          1. Qual o tamanho ideal para sua fome?
         </Label>
       </div>
 
@@ -129,7 +129,7 @@ export function SizeSelector({
               {weight && (
                 <span className={cn(
                   "text-[8px] font-bold mt-1 uppercase tracking-tighter opacity-70",
-                  isSelected ? "text-slate-300" : "text-slate-400"
+                  isSelected ? "text-slate-300" : "text-slate-500"
                 )}>
                   {weight}g
                 </span>
@@ -151,7 +151,7 @@ export function SizeSelector({
           <div className="flex items-center gap-2 px-1">
             <div className="h-px flex-1 bg-slate-100" />
             <Label className="text-[10px] font-black uppercase text-emerald-600 tracking-widest italic shrink-0">
-              2. Personalize seu {selectedSizeObj.name}
+              2. Complete sua marmita com acompanhamentos
             </Label>
             <div className="h-px flex-1 bg-slate-100" />
           </div>
