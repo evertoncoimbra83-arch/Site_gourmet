@@ -45,17 +45,13 @@ export function useAiDashboardLogic() {
   /**
    * 🛡️ Função de Delete com trava de segurança (Admin Only)
    */
-  const handleDeleteScan = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-
+  const handleDeleteScan = (id: string) => {
     if (!isAdminRole(user?.role)) {
       toast.error("Apenas administradores podem remover mapeamentos históricos.");
       return;
     }
 
-    if (confirm("Tem certeza que deseja arquivar e remover esta análise permanentemente?")) {
-      deleteMutation.mutate({ id });
-    }
+    deleteMutation.mutate({ id });
   };
 
   return {

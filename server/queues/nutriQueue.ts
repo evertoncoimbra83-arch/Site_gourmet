@@ -29,6 +29,8 @@ export const nutriQueue = new Queue(NUTRI_QUEUE_NAME, {
   },
 });
 
+import crypto from "crypto";
+
 /**
  * Função para adicionar uma dieta na fila
  */
@@ -36,6 +38,13 @@ export async function addPrescriptionToQueue(data: {
   scanId: string;
   rawText: string;
   userId?: string;
+  requestId?: string;
 }) {
-  return await nutriQueue.add("analyze-prescription", data);
+  const payload = {
+    scanId: data.scanId,
+    rawText: data.rawText,
+    userId: data.userId,
+    requestId: data.requestId || crypto.randomUUID(),
+  };
+  return await nutriQueue.add("analyze-prescription", payload);
 }

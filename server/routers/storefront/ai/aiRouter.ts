@@ -138,7 +138,8 @@ export const aiRouter = router({
       await addPrescriptionToQueue({
         scanId: taskId,
         rawText: rawText,
-        userId: userId
+        userId: userId,
+        requestId: (ctx.req as any)?.requestId
       });
 
       return { success: true, taskId, cached: false };

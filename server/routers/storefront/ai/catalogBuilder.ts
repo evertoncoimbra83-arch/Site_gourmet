@@ -40,7 +40,9 @@ export async function buildNutriAiCatalog() {
           id: opt.id,
           name: opt.name,
           priceModifier: opt.priceModifier,
-          macros: { kcal: opt.energyKcal, proteina: opt.proteins, carbos: opt.carbs }
+          macros: { kcal: opt.energyKcal, proteina: opt.proteins, carbos: opt.carbs },
+          isNoAccompaniment: Boolean(opt.isNoAccompaniment),
+          is_no_accompaniment: Boolean(opt.isNoAccompaniment),
         }));
 
         return {

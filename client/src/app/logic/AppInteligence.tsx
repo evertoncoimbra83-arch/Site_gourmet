@@ -5,6 +5,7 @@ import { useVisitorId } from "@/_core/hooks/useVisitorId";
 import { clarity } from "react-microsoft-clarity";
 import OneSignal from "react-onesignal";
 import { trpc } from "@/_core/trpc";
+import { getInjectableGtmId, shouldInitializeClientSdk } from "./sdkGuards";
 
 // ✅ Variáveis de controle globais (não resetam no re-render do React)
 let isOneSignalInitialized = false;
@@ -21,7 +22,7 @@ export function AppInteligence() {
   // 1. Injetar Google Tag Manager dinamicamente via DB
   useEffect(() => {
     const s = settings as Record<string, unknown> | undefined;
-    const gtmId = typeof s?.gtmId === "string" ? s.gtmId : null;
+    const gtmId = getInjectableGtmId(s?.gtmId);
     if (!gtmId || isGtmInjected) return;
 
     // Script principal no <head>
@@ -64,21 +65,23 @@ export function AppInteligence() {
   // 2. Inicializar SDKs (OneSignal + Clarity)
   useEffect(() => {
     if (isOneSignalInitialized || isOneSignalInitializing) return;
+    if (
+      !shouldInitializeClientSdk({
+        hostname: window.location.hostname,
+        pathname,
+      })
+    ) {
+      return;
+    }
 
     const initSDKs = async () => {
       isOneSignalInitializing = true;
       try {
-        const hostname = window.location.hostname;
-        const isAuthorizedDomain =
-          hostname === "gourmetsaudavel.com" || hostname === "localhost";
-
-        if (isAuthorizedDomain) {
-          await OneSignal.init({
-            appId: "a3c426a1-fd0a-4fda-9c13-e32b6705442a",
-            allowLocalhostAsSecureOrigin: true,
-          });
-          isOneSignalInitialized = true;
-        }
+        await OneSignal.init({
+          appId: "a3c426a1-fd0a-4fda-9c13-e32b6705442a",
+          allowLocalhostAsSecureOrigin: true,
+        });
+        isOneSignalInitialized = true;
 
         if (!clarity.hasStarted()) {
           clarity.init("vfh49ngyny");
@@ -97,10 +100,19 @@ export function AppInteligence() {
     };
 
     initSDKs();
-  }, []);
+  }, [pathname]);
 
   // 3. Identificar Usuário
   useEffect(() => {
+    if (
+      !shouldInitializeClientSdk({
+        hostname: window.location.hostname,
+        pathname,
+      })
+    ) {
+      return;
+    }
+
     if (isAuthenticated && user?.email) {
       if (clarity.hasStarted()) {
         clarity.identify(user.id, {
@@ -125,7 +137,7 @@ export function AppInteligence() {
     if (visitorId && clarity.hasStarted()) {
       clarity.setTag("deviceId", visitorId);
     }
-  }, [user, isAuthenticated, visitorId]);
+  }, [user, isAuthenticated, visitorId, pathname]);
 
   // 4. Títulos Dinâmicos
   useEffect(() => {

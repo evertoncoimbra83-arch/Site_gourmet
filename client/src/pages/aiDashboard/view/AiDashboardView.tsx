@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { isSameMonth } from "date-fns"; 
 import { useAuth } from "@/_core/hooks/useAuth"; 
-
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 // ✅ Definindo os tipos de status para evitar o erro de 'any' do ESLint
 type ScanStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -26,6 +26,7 @@ export default function AiDashboardView() {
   const { user } = useAuth(); 
   
   const [expandedScanId, setExpandedScanId] = useState<string | null>(null);
+  const [scanToDelete, setScanToDelete] = useState<string | null>(null);
 
   const scansThisMonth = scans.filter(s => 
     isSameMonth(new Date(s.createdAt), new Date())
@@ -124,8 +125,9 @@ export default function AiDashboardView() {
                         // ✅ Resolvendo Erro TS 2322: Garantindo que onDelete receba uma função
                         // Se não for Admin, passamos uma função que não faz nada (no-op)
                         onDelete={isAdmin ? (e) => {
+                            e.stopPropagation();
                             if (isExpanded) setExpandedScanId(null);
-                            handleDeleteScan(e, scan.id);
+                            setScanToDelete(scan.id);
                         } : () => { /* No-op para não-admins */ }} 
                       />
 
@@ -149,6 +151,22 @@ export default function AiDashboardView() {
           </div>
         )}
       </main>
+
+      <ConfirmDialog
+        open={scanToDelete !== null}
+        title="Arquivar Análise"
+        description="Tem certeza que deseja arquivar e remover esta análise permanentemente?"
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (scanToDelete !== null) {
+            handleDeleteScan(scanToDelete);
+            setScanToDelete(null);
+          }
+        }}
+        onCancel={() => setScanToDelete(null)}
+      />
     </div>
   );
 }
