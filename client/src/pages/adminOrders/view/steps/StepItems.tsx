@@ -7,9 +7,10 @@ import { Search, Plus, Trash2, ShoppingCart, Loader2, Package, UtensilsCrossed, 
 import { appToast as toast } from "@/lib/app-toast";
 import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
+import { getManualSaleDraftQueryInput } from "../../logic/draftCache";
 
 import ProductDrawer from "../steps/products/view/ProductDrawer";
-import PackageDrawer from "../steps/packages/view/PackageDrawer"; 
+import PackageDrawer from "../steps/packages/view/PackageDrawer";
 
 // --- INTERFACES ---
 interface Dish {
@@ -28,10 +29,10 @@ interface NutritionData {
 }
 
 interface AccompanimentItem {
-  group?: string; 
-  groupName?: string; 
-  name: string; 
-  weight?: number | string; 
+  group?: string;
+  groupName?: string;
+  name: string;
+  weight?: number | string;
 }
 
 interface MealItem {
@@ -46,9 +47,11 @@ interface ItemOptions {
   sizeName?: string;
   selectedSizeName?: string;
   size?: string;
+  hasNoAvailableAccompaniments?: boolean;
+  noAccompanimentsMessage?: string;
   meals?: MealItem[];
   accompaniments?: AccompanimentItem[];
-  selectedAccs?: AccompanimentItem[]; 
+  selectedAccs?: AccompanimentItem[];
   selectedAccompaniments?: AccompanimentItem[];
 }
 
@@ -72,12 +75,11 @@ interface DrawerConfirmPayload {
 
 // ✅ Interface para o Bypass de Tipagem atualizada (ESLint friendly)
 interface OrdersAdminApi {
-  getDraft: { 
+  getDraft: {
     useQuery: (input: Record<string, unknown>, opts?: Record<string, unknown>) => { data: unknown; isLoading: boolean };
-    invalidate: () => void;
   };
-  listPackages: { 
-    useQuery: (input: Record<string, unknown>, opts?: Record<string, unknown>) => { data: { data: unknown }; isLoading: boolean } 
+  listPackages: {
+    useQuery: (input: Record<string, unknown>, opts?: Record<string, unknown>) => { data: { data: unknown }; isLoading: boolean }
   };
   addItem: { useMutation: (opts: Record<string, unknown>) => { mutate: (data: Record<string, unknown>) => void } };
   removeItem: { useMutation: (opts: Record<string, unknown>) => { mutate: (id: string) => void } };
@@ -88,16 +90,24 @@ export default function StepItems({ draftId }: { draftId: string }) {
   const [activeTab, setActiveTab] = useState<"dishes" | "packages">("dishes");
   const [search, setSearch] = useState("");
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
-  const [selectedPackage, setSelectedPackage] = useState<PackageType | null>(null); 
-  
+  const [selectedPackage, setSelectedPackage] = useState<PackageType | null>(null);
+
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [tempPrice, setTempPrice] = useState<string>("");
 
   // ✅ BYPASS: Cast para evitar TS2339 e avisos do ESLint
   const ordersAdmin = (trpc.admin.ordersAdmin as unknown as OrdersAdminApi);
+  const utils = trpc.useUtils();
+  const draftQueryInput = getManualSaleDraftQueryInput(draftId);
+
+  const refetchDraft = async () => {
+    await utils.admin.ordersAdmin.getDraft.invalidate(draftQueryInput, {
+      refetchType: "all",
+    });
+  };
 
   const { data: draftRaw, isLoading: isLoadingDraft } = ordersAdmin.getDraft.useQuery(
-    { adminId: "admin_default" }, 
+    draftQueryInput,
     { enabled: !!draftId, staleTime: 0 }
   );
 
@@ -117,30 +127,35 @@ export default function StepItems({ draftId }: { draftId: string }) {
   };
 
   const { data: dishesResponse, isLoading: isLoadingDishes } = trpc.public.dishes.list.useQuery(
-    { search: search || null, perPage: 8, page: 1 }, 
+    { search: search || null, perPage: 8, page: 1 },
     { enabled: search.trim().length > 1 && activeTab === "dishes" }
   );
 
   const { data: packagesResponse, isLoading: isLoadingPackages } = ordersAdmin.listPackages.useQuery(
     { search: search || null, page: 1, perPage: 20 },
-    { enabled: search.trim().length > 1 && activeTab === "packages" } 
+    { enabled: search.trim().length > 1 && activeTab === "packages" }
   );
 
   const addItemMutation = ordersAdmin.addItem.useMutation({
-    onSuccess: () => {
-      ordersAdmin.getDraft.invalidate();
+    onSuccess: async () => {
+      await refetchDraft();
       toast.success("Item adicionado!");
-    }
+    },
+    onError: (err: unknown) => toast.error((err as { message?: string }).message || "Erro ao adicionar item."),
   });
 
   const removeItemMutation = ordersAdmin.removeItem.useMutation({
-    onSuccess: () => {
-      ordersAdmin.getDraft.invalidate();
-    }
+    onSuccess: async () => {
+      await refetchDraft();
+      toast.success("Item removido.");
+    },
+    onError: (err: unknown) => toast.error((err as { message?: string }).message || "Erro ao remover item."),
   });
 
   const updateItemMutation = ordersAdmin.updateItem.useMutation({
-    onSuccess: () => ordersAdmin.getDraft.invalidate(),
+    onSuccess: async () => {
+      await refetchDraft();
+    },
     onError: (err: unknown) => toast.error((err as { message: string }).message)
   });
 
@@ -164,7 +179,7 @@ export default function StepItems({ draftId }: { draftId: string }) {
   const renderItemDetails = (it: OrderItem) => {
     try {
       const options = (safeParse(it.options) || {}) as ItemOptions;
-      
+
       if (options?.isPackage || it.packageId) {
         const meals = options?.meals || [];
         return (
@@ -198,20 +213,30 @@ export default function StepItems({ draftId }: { draftId: string }) {
 
       const accompaniments = options?.accompaniments || options?.selectedAccs || options?.selectedAccompaniments || [];
       const sizeLabel = options?.selectedSizeName || options?.size || options?.sizeName;
+      const noAccompanimentsMessage =
+        typeof options?.noAccompanimentsMessage === "string"
+          ? options.noAccompanimentsMessage.trim()
+          : "";
 
       return (
         <div className="mt-2 space-y-2 text-left">
           {sizeLabel && <Badge className="bg-slate-900 text-white text-[8px] font-black uppercase px-2 h-4 italic">TAMANHO {sizeLabel}</Badge>}
           <div className="flex flex-wrap gap-1.5">
-            {accompaniments.map((acc: AccompanimentItem, idx: number) => (
-              <div key={idx} className="flex flex-col bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
-                <span className="text-[6px] font-black text-emerald-400 uppercase leading-none mb-0.5">{acc.group || acc.groupName || "Acomp."}</span>
-                <div className="flex items-center gap-1">
-                  <Check size={7} className="text-emerald-500" strokeWidth={4} />
-                  <span className="text-[9px] font-black text-emerald-700 uppercase">{acc.name}</span>
+            {accompaniments.length > 0 ? (
+              accompaniments.map((acc: AccompanimentItem, idx: number) => (
+                <div key={idx} className="flex flex-col bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                  <span className="text-[6px] font-black text-emerald-400 uppercase leading-none mb-0.5">{acc.group || acc.groupName || "Acomp."}</span>
+                  <div className="flex items-center gap-1">
+                    <Check size={7} className="text-emerald-500" strokeWidth={4} />
+                    <span className="text-[9px] font-black text-emerald-700 uppercase">{acc.name}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : noAccompanimentsMessage ? (
+              <span className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[9px] font-bold text-slate-500">
+                {noAccompanimentsMessage}
+              </span>
+            ) : null}
           </div>
         </div>
       );
@@ -223,7 +248,7 @@ export default function StepItems({ draftId }: { draftId: string }) {
       <div className="bg-slate-900 p-6 rounded-4xl shadow-xl border-b-4 border-emerald-500 mx-2 mt-2">
         <div className="flex gap-4 mb-5">
           {(["dishes", "packages"] as const).map((tab) => (
-            <button 
+            <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSearch(""); }}
               className={cn("font-black uppercase text-[9px] tracking-widest transition-all px-2", activeTab === tab ? "text-emerald-400 scale-105" : "text-slate-500 hover:text-slate-400")}
@@ -235,15 +260,15 @@ export default function StepItems({ draftId }: { draftId: string }) {
 
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-emerald-400 transition-colors" size={18} />
-          <input 
-            className="w-full h-12 bg-white rounded-2xl pl-11 pr-4 font-bold text-sm outline-none uppercase placeholder:text-slate-300" 
+          <input
+            className="w-full h-12 bg-white rounded-2xl pl-11 pr-4 font-bold text-sm outline-none uppercase placeholder:text-slate-300"
             placeholder={activeTab === "dishes" ? "Buscar prato..." : "Qual pacote?"}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
           {(isLoadingDishes || isLoadingPackages) && search.trim().length > 1 && <Loader2 className="absolute right-4 top-3.5 animate-spin text-emerald-500" size={18} />}
         </div>
-        
+
         {search.trim().length > 1 && (
           <div className="mt-3 grid grid-cols-1 gap-1 bg-slate-800 p-2 rounded-2xl max-h-60 overflow-y-auto border border-slate-700 shadow-2xl">
             {activeTab === "dishes" ? (
@@ -307,7 +332,7 @@ export default function StepItems({ draftId }: { draftId: string }) {
                                       const rawNut = it.applied_nutrition || it.appliedNutrition;
                                       const nut = safeParse(rawNut) as NutritionData | NutritionData[];
                                       if (!nut) return "N/A";
-                                      const totalKcal = Array.isArray(nut) 
+                                      const totalKcal = Array.isArray(nut)
                                         ? nut.reduce((acc: number, m: NutritionData) => acc + Number(m.energyKcal || m.energy_kcal || 0), 0)
                                         : Number((nut as NutritionData)?.energyKcal || (nut as NutritionData)?.energy_kcal || 0);
                                       return totalKcal > 0 ? `${Math.round(totalKcal)} Kcal` : "N/A";
@@ -320,12 +345,12 @@ export default function StepItems({ draftId }: { draftId: string }) {
                     </div>
                     {renderItemDetails(it)}
                   </div>
-                  
+
                   <div className="flex flex-col items-end gap-3 shrink-0">
                     {editingPriceId === it.id ? (
                       <div className="flex items-center gap-1 bg-emerald-50 rounded-lg p-1 border border-emerald-200">
                         <span className="text-[10px] font-black text-emerald-600 pl-1">R$</span>
-                        <input 
+                        <input
                           type="number"
                           autoFocus
                           className="w-16 bg-transparent text-sm font-black text-emerald-900 outline-none p-0 border-none h-6"
@@ -336,7 +361,7 @@ export default function StepItems({ draftId }: { draftId: string }) {
                         />
                       </div>
                     ) : (
-                      <div 
+                      <div
                         onClick={() => { setEditingPriceId(it.id); setTempPrice(String(it.unitPrice || 0)); }}
                         className="group flex items-center gap-1 cursor-pointer hover:bg-slate-50 px-2 py-1 rounded-lg transition-colors border border-transparent hover:border-slate-200"
                         title="Clique para editar o preço"
@@ -360,38 +385,38 @@ export default function StepItems({ draftId }: { draftId: string }) {
       </div>
 
       {selectedDish && (
-        <ProductDrawer 
-          dishId={selectedDish.id} 
-          onClose={() => { setSelectedDish(null); setSearch(""); }} 
+        <ProductDrawer
+          dishId={selectedDish.id}
+          onClose={() => { setSelectedDish(null); setSearch(""); }}
           onConfirm={(data: unknown) => {
             const typedData = data as DrawerConfirmPayload;
-            addItemMutation.mutate({ 
-              draftId, 
-              dishId: String(selectedDish.id), 
-              name: selectedDish.name, 
-              ...typedData 
+            addItemMutation.mutate({
+              draftId,
+              dishId: String(selectedDish.id),
+              name: selectedDish.name,
+              ...typedData
             } as unknown as Record<string, unknown>);
             setSelectedDish(null);
             setSearch("");
-          }} 
+          }}
         />
       )}
 
       {selectedPackage && (
-        <PackageDrawer 
+        <PackageDrawer
           packageId={selectedPackage.id}
-          onClose={() => { setSelectedPackage(null); setSearch(""); }} 
+          onClose={() => { setSelectedPackage(null); setSearch(""); }}
           onConfirm={(data: unknown) => {
             const typedData = data as DrawerConfirmPayload;
-            addItemMutation.mutate({ 
-              draftId, 
-              packageId: String(selectedPackage.id), 
-              name: selectedPackage.name, 
-              ...typedData 
+            addItemMutation.mutate({
+              draftId,
+              packageId: String(selectedPackage.id),
+              name: selectedPackage.name,
+              ...typedData
             } as unknown as Record<string, unknown>);
             setSelectedPackage(null);
             setSearch("");
-          }} 
+          }}
         />
       )}
     </div>

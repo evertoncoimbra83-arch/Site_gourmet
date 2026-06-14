@@ -15,6 +15,8 @@ export interface MealOption {
 export interface ItemOptions {
   sizeName?: string;
   selectedSizeName?: string;
+  hasNoAvailableAccompaniments?: boolean;
+  noAccompanimentsMessage?: string;
   meals?: MealOption[];
   selectedAccs?: Array<{ name: string; weight?: number | string }>;
   selectedAccompaniments?: Array<{ name: string; weight?: number | string }>;
@@ -246,6 +248,11 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
           const opts = safeParseJSON<ItemOptions>(item.parsedOptions || (item.options as string)) || {};
           const meals = item.packageItems || opts.meals || [];
           const isPkg = meals.length > 0;
+          const singleAccs = opts.selectedAccs || opts.selectedAccompaniments || [];
+          const noAccompanimentsMessage =
+            typeof opts.noAccompanimentsMessage === "string"
+              ? opts.noAccompanimentsMessage.trim()
+              : "";
 
           return (
             <div key={idx} className="item">
@@ -268,11 +275,19 @@ export default function OrderPrintTemplate({ order }: { order: OrderData | null 
                 ))}
 
               {!isPkg &&
-                (opts.selectedAccs || opts.selectedAccompaniments || []).map((acc, aIdx) => (
-                  <div key={aIdx} className="item-detail">
-                    - {acc.name} {acc.weight ? `(${acc.weight}g)` : ""}
-                  </div>
-                ))}
+                (singleAccs.length > 0
+                  ? singleAccs.map((acc, aIdx) => (
+                      <div key={aIdx} className="item-detail">
+                        - {acc.name} {acc.weight ? `(${acc.weight}g)` : ""}
+                      </div>
+                    ))
+                  : noAccompanimentsMessage
+                    ? (
+                        <div className="item-detail">
+                          - {noAccompanimentsMessage}
+                        </div>
+                      )
+                    : null)}
             </div>
           );
         })}

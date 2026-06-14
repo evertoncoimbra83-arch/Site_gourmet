@@ -1,20 +1,21 @@
 import { useAdminOrderWizard } from "../../logic/useAdminOrderWizard";
 import { trpc } from "@/_core/trpc";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import React, { ComponentProps } from "react"; 
+import React, { ComponentProps, useState } from "react";
 
 import StepCustomer from "./StepCustomer";
 import StepDelivery from "./StepDelivery";
 import StepItems from "./StepItems";
 
-import { 
-  Loader2, ShoppingCart, Zap, Ticket, ArrowRight, 
-  Star, CreditCard, Banknote, Landmark, 
+import {
+  Loader2, ShoppingCart, Zap, Ticket, ArrowRight,
+  Star, CreditCard, Banknote, Landmark,
   CircleDollarSign, QrCode, Check, X, Calendar, Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/components/ui/use-toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { appToast as toast } from "@/lib/app-toast";
 import { safeNumber } from "@/lib/safe-parse";
 import { normalizeImageUrl } from "@shared/utils/assets";
 import { cn } from "@/lib/utils";
@@ -31,12 +32,6 @@ function asString(v: unknown, fallback = ""): string {
 }
 
 // --- INTERFACES LOCAIS ---
-interface ToastArgs {
-  title?: string;
-  description?: string;
-  variant?: "default" | "destructive";
-}
-
 interface TRPCMutation<TInput = unknown, TOutput = unknown> {
   useMutation: (opts?: {
     onSuccess?: (data: TOutput) => void;
@@ -139,7 +134,7 @@ const IconMap: Record<string, React.ElementType> = {
   pix: QrCode,
   cash: Banknote,
   bank: Landmark,
-  meal: Ticket, 
+  meal: Ticket,
   default: CircleDollarSign,
 };
 
@@ -147,8 +142,8 @@ export default function AdminOrderCreate() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const draftId = searchParams.get("draftId");
-  
-  const { toast } = useToast() as unknown as { toast: (args: ToastArgs) => void };
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+
   const utils = trpc.useUtils();
 
   const { orderData, updateData, totals, isLoading: loadingWizard } = useAdminOrderWizard(draftId) as unknown as WizardReturn;
@@ -166,17 +161,17 @@ export default function AdminOrderCreate() {
   const applyLoyaltyMutation = ordersApi.applyLoyalty.useMutation({
     onSuccess: () => {
       ordersUtils.getDraft.invalidate();
-      toast({ title: "Sucesso!", description: "Pontos utilizados!" });
+      toast.success("Pontos utilizados.");
     },
     onError: (err) => {
-      toast({ variant: "destructive", title: "Erro", description: err.message });
+      toast.error("Nao foi possivel aplicar fidelidade.", { description: err.message });
     }
   });
 
   const removeLoyaltyMutation = ordersApi.removeLoyalty.useMutation({
     onSuccess: () => {
-      ordersUtils.getDraft.invalidate(); 
-      toast({ title: "Removido", description: "Fidelidade removida." });
+      ordersUtils.getDraft.invalidate();
+      toast.info("Fidelidade removida.");
     }
   });
 
@@ -199,26 +194,26 @@ export default function AdminOrderCreate() {
       });
 
       ordersUtils.getDraft.invalidate();
-      toast({ title: "Cupom Aplicado", description: `R$ ${calculatedDiscount.toFixed(2)} de desconto concedido.` });
+      toast.success("Cupom aplicado.", { description: `R$ ${calculatedDiscount.toFixed(2)} de desconto concedido.` });
     },
-    onError: (err) => toast({ variant: "destructive", title: "Erro", description: err.message })
+    onError: (err) => toast.error("Nao foi possivel aplicar o cupom.", { description: err.message })
   });
 
   const placeOrderMutation = ordersApi.placeOrder.useMutation({
     onSuccess: (res) => {
-      toast({ title: "Venda Finalizada", description: "Pedido registrado no sistema." });
+      toast.success("Venda finalizada.", { description: "Pedido registrado no sistema." });
       ordersUtils.list.invalidate();
-      navigate(`/admin/orders/success?orderId=${res.orderId}`); 
+      navigate(`/admin/orders/success?orderId=${res.orderId}`);
     },
-    onError: (err) => toast({ variant: "destructive", title: "Erro ao finalizar", description: err.message })
+    onError: (err) => toast.error("Nao foi possivel finalizar a venda.", { description: err.message })
   });
 
   const cancelSessionMutation = ordersApi.cancelSession.useMutation({
     onSuccess: () => {
-      toast({ title: "Sessão Cancelada", description: "Venda removida com sucesso." });
+      toast.info("Sessao cancelada.", { description: "Venda removida com sucesso." });
       navigate("/admin/orders");
     },
-    onError: (err) => toast({ variant: "destructive", title: "Erro ao cancelar", description: err.message })
+    onError: (err) => toast.error("Nao foi possivel cancelar a venda.", { description: err.message })
   });
 
   // --- HANDLERS ---
@@ -227,41 +222,39 @@ export default function AdminOrderCreate() {
     const customerId = orderData.customer?.id;
     if (!draftId) return;
     if (!customerId) {
-        toast({ variant: "destructive", title: "Atenção", description: "Selecione um cliente primeiro." });
+        toast.warning("Selecione um cliente primeiro.");
         return;
     }
 
-    applyLoyaltyMutation.mutate({ 
-      draftId: String(draftId), 
-      pointsInput: String(customerId) 
+    applyLoyaltyMutation.mutate({
+      draftId: String(draftId),
+      pointsInput: String(customerId)
     });
   };
 
   const handleFinalize = () => {
     if (!orderData.customer) {
-        toast({ variant: "destructive", title: "Atenção", description: "Selecione um cliente." });
+        toast.warning("Selecione um cliente.");
         return;
     }
     if (!orderData.paymentMethod) {
-        toast({ variant: "destructive", title: "Atenção", description: "Selecione o pagamento." });
+        toast.warning("Selecione o pagamento.");
         return;
     }
     if (totals.itemCount === 0) {
-        toast({ variant: "destructive", title: "Carrinho Vazio", description: "Adicione itens." });
+        toast.warning("Carrinho vazio.", { description: "Adicione itens." });
         return;
     }
     placeOrderMutation.mutate({ draftId: String(draftId) });
   };
 
   const handleCancel = () => {
-    if (confirm("Deseja cancelar esta venda? O rascunho será excluído.")) {
-        cancelSessionMutation.mutate({ draftId: String(draftId) });
-    }
+    setIsCancelDialogOpen(true);
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let meta: Record<string, unknown> = {};
-    try { 
+    try {
       const parsed = JSON.parse(asString(orderData.metadataJson, "{}"));
       if (isRecord(parsed)) meta = parsed;
     } catch { /* ignore */ }
@@ -273,7 +266,7 @@ export default function AdminOrderCreate() {
       await updateData({ customer: null, address: null });
       return;
     }
-    
+
     const basicSelection = isRecord(selection) ? selection : {};
     const basicCustomer = (isRecord(basicSelection.customer) ? basicSelection.customer : basicSelection) as unknown as CustomerFull;
 
@@ -284,9 +277,9 @@ export default function AdminOrderCreate() {
 
     try {
       const fullCustomer = await usersUtils.getDetails.fetch({ id: basicCustomer.id });
-      await updateData({ 
-        customer: fullCustomer ?? basicCustomer, 
-        address: fullCustomer?.address ?? basicSelection.address ?? null 
+      await updateData({
+        customer: fullCustomer ?? basicCustomer,
+        address: fullCustomer?.address ?? basicSelection.address ?? null
       });
     } catch (err) {
       console.error(err);
@@ -303,18 +296,30 @@ export default function AdminOrderCreate() {
   }
 
   const paymentDiscountOnly = Math.max(0, orderData.discountValue - (orderData.couponCode ? orderData.couponValue : 0) - (orderData.loyaltyValue || 0));
-  
+
   let currentMeta: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(asString(orderData.metadataJson, "{}"));
     if (isRecord(parsed)) currentMeta = parsed;
   } catch { /* ignore */ }
-  
+
   const orderDate = asString(currentMeta.orderDate) || new Date().toISOString().split('T')[0];
 
   return (
     <div className="max-w-[1600px] mx-auto p-4 lg:p-8 animate-in fade-in duration-500 font-sans">
-      
+      <ConfirmDialog
+        open={isCancelDialogOpen}
+        title="Cancelar venda manual?"
+        description="O rascunho atual sera descartado e nao podera ser recuperado."
+        confirmLabel="Cancelar venda"
+        cancelLabel="Continuar editando"
+        destructive
+        loading={cancelSessionMutation.isPending}
+        onCancel={() => setIsCancelDialogOpen(false)}
+        onConfirm={() => cancelSessionMutation.mutate({ draftId: String(draftId) })}
+      />
+
+
       <header className="mb-8 flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm gap-4">
         <div className="flex items-center gap-4">
           <div className="bg-emerald-500 p-3 rounded-2xl text-white shadow-lg shadow-emerald-200">
@@ -322,7 +327,7 @@ export default function AdminOrderCreate() {
           </div>
           <div>
             <h1 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
-              PDV <span className="text-emerald-500">Express</span>
+              Venda <span className="text-emerald-500">Manual</span>
             </h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Venda Direta Admin</p>
           </div>
@@ -333,8 +338,8 @@ export default function AdminOrderCreate() {
               <label className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-1">
                 <Calendar size={10} /> Data da Venda
               </label>
-              <input 
-                type="date" 
+              <input
+                type="date"
                 value={orderDate}
                 onChange={handleDateChange}
                 className="bg-slate-50 border-none rounded-xl px-3 py-2 text-xs font-black uppercase text-slate-600 outline-none cursor-pointer focus:ring-2 ring-emerald-500 transition-all"
@@ -347,9 +352,9 @@ export default function AdminOrderCreate() {
                 R$ {Number(totals?.total ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
               </p>
            </div>
-           <Button 
-            variant="ghost" 
-            size="icon" 
+           <Button
+            variant="ghost"
+            size="icon"
             onClick={handleCancel}
             disabled={cancelSessionMutation.isPending}
             className="h-12 w-12 rounded-2xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
@@ -362,10 +367,10 @@ export default function AdminOrderCreate() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <div className="lg:col-span-8 space-y-6 pb-20">
           <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-2">
-            <StepCustomer 
-              selected={orderData.customer as unknown as ComponentProps<typeof StepCustomer>['selected']} 
-              onSelect={handleCustomerSelect} 
-              isSinglePageView 
+            <StepCustomer
+              selected={orderData.customer as unknown as ComponentProps<typeof StepCustomer>['selected']}
+              onSelect={handleCustomerSelect}
+              isSinglePageView
             />
           </section>
 
@@ -378,9 +383,9 @@ export default function AdminOrderCreate() {
           </section>
 
           <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-2">
-             <StepDelivery 
-               data={orderData as unknown as ComponentProps<typeof StepDelivery>['data']} 
-               onUpdate={updateData as unknown as ComponentProps<typeof StepDelivery>['onUpdate']} 
+             <StepDelivery
+               data={orderData as unknown as ComponentProps<typeof StepDelivery>['data']}
+               onUpdate={updateData as unknown as ComponentProps<typeof StepDelivery>['onUpdate']}
              />
           </section>
         </div>
@@ -429,20 +434,20 @@ export default function AdminOrderCreate() {
                 <Ticket size={16} className="text-slate-400" />
                 <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Descontos Extras</h3>
              </div>
-             
+
              <div className="flex gap-2 relative">
-                <Input 
-                  id="couponInput" 
-                  placeholder={orderData.couponCode ? `CUPOM: ${orderData.couponCode}` : "CUPOM"} 
+                <Input
+                  id="couponInput"
+                  placeholder={orderData.couponCode ? `CUPOM: ${orderData.couponCode}` : "CUPOM"}
                   disabled={!!orderData.couponCode}
-                  className={cn("rounded-xl uppercase font-black text-xs h-12 pr-10", orderData.couponCode && "bg-emerald-50 text-emerald-700 border-emerald-200")} 
+                  className={cn("rounded-xl uppercase font-black text-xs h-12 pr-10", orderData.couponCode && "bg-emerald-50 text-emerald-700 border-emerald-200")}
                 />
                 {orderData.couponCode ? (
                   <button onClick={() => updateData({ couponCode: null, couponValue: 0 })} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-emerald-600 hover:text-red-500 transition-colors">
                     <X size={16} strokeWidth={3} />
                   </button>
                 ) : (
-                  <Button 
+                  <Button
                     onClick={() => {
                       const el = document.getElementById("couponInput") as HTMLInputElement;
                       const code = el?.value;
@@ -462,10 +467,10 @@ export default function AdminOrderCreate() {
              {orderData.customer?.id && (
                 <div className="space-y-2">
                   <div className="relative">
-                    <Button 
-                      onClick={handleApplyLoyalty} 
+                    <Button
+                      onClick={handleApplyLoyalty}
                       disabled={applyLoyaltyMutation.isPending || removeLoyaltyMutation.isPending || (orderData.customer.availablePoints || 0) <= 0 || orderData.loyaltyValue > 0}
-                      variant="ghost" 
+                      variant="ghost"
                       className={cn(
                         "w-full h-12 rounded-xl gap-2 font-black uppercase text-[10px] transition-all shadow-sm",
                         orderData.loyaltyValue > 0 ? "bg-amber-500 text-white hover:bg-amber-600" : "bg-amber-50 text-amber-600 border border-amber-100"
@@ -473,7 +478,7 @@ export default function AdminOrderCreate() {
                     >
                       {applyLoyaltyMutation.isPending || removeLoyaltyMutation.isPending ? <Loader2 className="animate-spin" size={14} /> : (
                         <>
-                          <Star size={14} fill="currentColor" /> 
+                          <Star size={14} fill="currentColor" />
                           {orderData.loyaltyValue > 0 ? `USANDO ${orderData.loyaltyPointsUsed} PONTOS` : "Usar Fidelidade"}
                         </>
                       )}
@@ -527,7 +532,7 @@ export default function AdminOrderCreate() {
               </div>
              </div>
 
-            <Button 
+            <Button
               onClick={handleFinalize}
               disabled={!orderData.customer || !orderData.paymentMethod || totals.itemCount === 0 || placeOrderMutation.isPending}
               className="w-full h-20 rounded-3xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black uppercase tracking-widest text-lg shadow-xl group transition-all"

@@ -1,22 +1,27 @@
 import React, { ComponentProps, useEffect, useMemo, useState, useRef } from "react";
-import { 
-  Sheet, 
-  SheetContent, 
-  SheetTitle, 
-  SheetDescription 
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetDescription
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Minus, Plus, ShoppingBag, X, ChevronDown } from "lucide-react";
 import { trpc } from "@/_core/trpc";
 import { cn } from "@/lib/utils";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 // ✅ HOOKS CENTRALIZADOS
 import { useDishNutrition } from "@/pages/products/logic/useDishNutrition";
 import { mapDishFromDb } from "@/pages/products/logic/mappers";
+import { hasAccompaniments, validateAccSelections } from "@/pages/products/logic/validation";
+
+const NO_ACCOMPANIMENTS_FALLBACK =
+  "Este tamanho não possui acompanhamentos. O peso informado corresponde ao prato principal.";
 
 // ✅ COMPONENTES VISUAIS
-import { NutritionInfo } from "@/pages/products/drawer/NutritionInfo"; 
+import { NutritionInfo } from "@/pages/products/drawer/NutritionInfo";
 import { SizeSelector } from "@/pages/products/drawer/SizeSelector";
 
 // --- TIPOS DERIVADOS ---
@@ -41,7 +46,7 @@ interface SizeOption {
   id: number | string;
   name: string;
   priceModifier: number;
-  accompanimentGroups: unknown[]; 
+  accompanimentGroups: unknown[];
   [key: string]: unknown;
 }
 
@@ -82,8 +87,8 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
 
   useEffect(() => {
     if (dish) {
-      setQuantity(1); 
-      setSelectedAccs([]); 
+      setQuantity(1);
+      setSelectedAccs([]);
       setSelectedSize(null);
       setShowFullNutrition(false);
     }
@@ -102,19 +107,12 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
     const sizeMod = Number(selectedSize?.priceModifier || 0);
     const sizeFactor = 1 + (sizeMod / 100);
     const accsMod = selectedAccs?.reduce((sum, a) => sum + Number(a.priceModifier || 0), 0) || 0;
-    
+
     return Number(((referencePrice * sizeFactor) + accsMod).toFixed(2));
   }, [dish, selectedSize, selectedAccs, hasDiscount, salePrice, basePrice]);
 
   const isAccompanimentsComplete = useMemo(() => {
-    if (!selectedSize) return false;
-    const groups = (selectedSize.accompanimentGroups || []) as Record<string, unknown>[];
-    if (groups.length === 0) return true;
-    return groups.every((group) => {
-      const gId = group.groupId || group.id;
-      const count = selectedAccs.filter(a => String(a.groupId) === String(gId)).length;
-      return count >= Number(group.minSelections || 0);
-    });
+    return validateAccSelections(selectedAccs as any, selectedSize as any).ok;
   }, [selectedSize, selectedAccs]);
 
   // ✅ CORREÇÃO 2: Handler compatível com ambos (Add e Remove)
@@ -195,6 +193,12 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
       selectedSizeId: selectedSize?.id,
       selectedSizeName: selectedSize?.name,
       selectedAccompaniments: normalizedAccs,
+      hasNoAvailableAccompaniments: selectedSize ? !hasAccompaniments(selectedSize) : false,
+      noAccompanimentsMessage:
+        selectedSize && !hasAccompaniments(selectedSize)
+          ? String(selectedSize.noAccompanimentsMessage || "").trim() ||
+            NO_ACCOMPANIMENTS_FALLBACK
+          : undefined,
       size: selectedSize?.name,
       _type: 'single'
     };
@@ -208,14 +212,14 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
       dishId: String(dish?.id),
       image: dish?.imageUrl
     });
-    
+
     setIsSubmitting(false);
   };
 
   // ✅ CORREÇÃO 3: useMemo retornando o tipo exato 'SizesType' sem 'any'
   const processedSizes = useMemo<SizesType>(() => {
     const rawSizes = (dish?.sizes || []) as unknown[];
-    
+
     return (rawSizes.map((size) => {
       const s = size as Record<string, unknown>;
       const groups = (s.accompanimentGroups || []) as Record<string, unknown>[];
@@ -243,7 +247,7 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
       <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col h-full bg-[#FBFBFC] border-none shadow-2xl focus:outline-none overflow-hidden">
         <SheetTitle className="sr-only">Configurar {dish?.name}</SheetTitle>
         <SheetDescription className="sr-only">Personalize seu prato</SheetDescription>
-        
+
         <div className="relative shrink-0 bg-white border-b border-slate-50">
           <div className="absolute top-4 right-4 z-50 md:hidden">
             <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full bg-black/10 backdrop-blur-md text-white">
@@ -252,7 +256,18 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
           </div>
           <div className="relative w-full h-44 md:h-64 bg-slate-100">
             {dish?.imageUrl ? (
-              <img src={dish.imageUrl} className="w-full h-full object-cover" alt={dish.name} />
+              <img
+                src={resolveImageUrl(dish.imageUrl, "product")}
+                className="w-full h-full object-cover"
+                alt={dish.name}
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.dataset.fallbackApplied) {
+                    target.dataset.fallbackApplied = "true";
+                    target.src = getImageFallback("product");
+                  }
+                }}
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-slate-300"><ShoppingBag size={40} /></div>
             )}
@@ -296,9 +311,9 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
                 </div>
                 {showFullNutrition && (
                   <div className="px-4 pb-4 pt-2 border-t border-slate-50 bg-slate-50/30">
-                    <NutritionInfo 
-                      data={totalNutrition} 
-                      totalWeight={totalNutrition.yieldWeight} 
+                    <NutritionInfo
+                      data={totalNutrition}
+                      totalWeight={totalNutrition.yieldWeight}
                     />
                   </div>
                 )}
@@ -309,10 +324,10 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
               <div className="flex h-40 items-center justify-center"><Loader2 className="animate-spin text-emerald-500" /></div>
             ) : (
               <div ref={sizeSelectorRef}>
-                <SizeSelector 
-                  sizes={processedSizes} 
-                  selectedId={selectedSize?.id ?? null} 
-                  onSelect={(s: unknown) => { setSelectedSize(s as SizeOption); setSelectedAccs([]); scrollTo(sizeSelectorRef); }} 
+                <SizeSelector
+                  sizes={processedSizes}
+                  selectedId={selectedSize?.id ?? null}
+                  onSelect={(s: unknown) => { setSelectedSize(s as SizeOption); setSelectedAccs([]); scrollTo(sizeSelectorRef); }}
                   selectedAccs={selectedAccs as unknown as SelectedAccsType}
                   onAddAcc={handleAccSelection}
                   // ✅ Usamos o wrapper que compatibiliza os tipos
@@ -325,7 +340,7 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
 
         {dish && (
           <div ref={footerRef} className="p-4 md:p-6 border-t bg-white shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-50 w-full">
-            <div className="w-full space-y-4"> 
+            <div className="w-full space-y-4">
               {!isAccompanimentsComplete && (
                 <div className="bg-amber-50 rounded-xl py-2.5 border border-amber-100 flex items-center justify-center gap-2">
                   <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest italic animate-pulse">
@@ -333,19 +348,19 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
                   </p>
                 </div>
               )}
-              
+
               <div className="flex gap-2 items-center w-full">
                 <div className="flex items-center bg-slate-50 rounded-2xl h-14 px-1 shrink-0 border border-slate-100">
                   <Button variant="ghost" size="icon" className="h-10 w-10 hover:bg-white rounded-xl" onClick={() => setQuantity(Math.max(1, quantity - 1))}><Minus size={14} /></Button>
                   <span className="w-8 text-center font-black text-base italic">{quantity}</span>
                   <Button variant="ghost" size="icon" className="h-10 w-10 hover:bg-white rounded-xl" onClick={() => setQuantity(quantity + 1)}><Plus size={14} /></Button>
                 </div>
-                
-                <Button 
-                  disabled={!isAccompanimentsComplete || isSubmitting || !selectedSize} 
+
+                <Button
+                  disabled={!isAccompanimentsComplete || isSubmitting || !selectedSize}
                   onClick={handleConfirm}
                   className={cn(
-                    "flex-1 h-14 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl overflow-hidden", 
+                    "flex-1 h-14 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl overflow-hidden",
                     isAccompanimentsComplete ? "bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98]" : "bg-slate-100 text-slate-400"
                   )}
                 >
@@ -353,7 +368,7 @@ export default function ProductDrawer({ dishId, onClose, onConfirm }: ProductDra
                     <div className="flex items-center justify-between w-full px-2">
                       <span className="hidden md:inline italic truncate pr-2">Confirmar Item</span>
                       <ShoppingBag size={20} className="md:hidden ml-2" />
-                      
+
                       <span className="bg-white/10 px-3 py-1.5 rounded-lg whitespace-nowrap text-[12px] border border-white/5">
                         R$ {(totalUnitPrice * quantity).toFixed(2)}
                       </span>

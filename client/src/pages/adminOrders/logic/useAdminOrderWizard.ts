@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { trpc } from "@/_core/trpc";
 import { safeNumber } from "@/lib/safe-parse";
+import { getManualSaleDraftQueryInput } from "./draftCache";
 
 // --- INTERFACES ---
 interface OrderItem {
@@ -73,14 +74,14 @@ interface PaymentMethod {
 
 // ✅ CORREÇÃO ESLint: Trocado 'any' por tipos seguros para satisfazer o no-explicit-any
 interface OrderWizardApi {
-  getDraft: { 
+  getDraft: {
     useQuery: (
-      input: Record<string, unknown>, 
+      input: Record<string, unknown>,
       opts?: Record<string, unknown>
-    ) => { data: unknown; isLoading: boolean } 
+    ) => { data: unknown; isLoading: boolean; isError: boolean; error: unknown }
   };
-  updateSession: { 
-    useMutation: () => { mutate: (data: Record<string, unknown>) => void } 
+  updateSession: {
+    useMutation: () => { mutate: (data: Record<string, unknown>) => void }
   };
   invalidate: () => void;
 }
@@ -113,9 +114,10 @@ export function useAdminOrderWizard(draftId: string | null) {
   });
 
   const ordersAdminApi = (trpc.admin.ordersAdmin as unknown as OrderWizardApi);
+  const draftQueryInput = draftId ? getManualSaleDraftQueryInput(draftId) : { draftId };
 
-  const { data, isLoading } = ordersAdminApi.getDraft.useQuery(
-    { adminId: "admin_default" },
+  const { data, isLoading, isError, error } = ordersAdminApi.getDraft.useQuery(
+    draftQueryInput,
     {
       enabled: !!draftId && draftId !== "undefined" && draftId !== "null",
       staleTime: 0,
@@ -123,7 +125,7 @@ export function useAdminOrderWizard(draftId: string | null) {
   );
 
   const draft = data as OrderDraft | undefined;
-  
+
   const { data: paymentMethodsRaw = [] } = trpc.public.paymentMethods.list.useQuery();
   const paymentMethods = (paymentMethodsRaw as unknown as PaymentMethod[]);
 
@@ -132,16 +134,16 @@ export function useAdminOrderWizard(draftId: string | null) {
   useEffect(() => {
     if (draft) {
       const isNewDraft = draftId !== lastDraftId.current;
-      
+
       if (!isHydrated.current || isNewDraft) {
         const meta: MetadataShape = draft.metadataJson ? JSON.parse(draft.metadataJson) : {};
-        
+
         setOrderData(prev => {
           const newState = {
             ...prev,
             customer: meta.customer || null,
             deliveryMode: meta.deliveryMode || 'delivery',
-            address: meta.address || null, 
+            address: meta.address || null,
             items: draft.items || [],
             deliveryFee: Number(draft.shippingValue || meta.deliveryFee || 0),
             paymentMethod: meta.paymentMethod || "",
@@ -199,7 +201,7 @@ export function useAdminOrderWizard(draftId: string | null) {
         const methodDiscountPerc = safeNumber(String(discStr).replace(',', '.'));
         paymentBonus = Number(((subtotal * methodDiscountPerc) / 100).toFixed(2));
       }
-      
+
       updatedState.paymentDiscountValue = paymentBonus;
       updatedState.discountValue = Number((
         Number(updatedState.couponValue || 0) +
@@ -223,7 +225,7 @@ export function useAdminOrderWizard(draftId: string | null) {
         metadataJson: JSON.stringify({
           ...orderData,
           currentStep: step,
-          items: undefined 
+          items: undefined
         })
       });
     }, 800);
@@ -242,6 +244,8 @@ export function useAdminOrderWizard(draftId: string | null) {
     updateData,
     totals: { subtotal, total, itemCount: draft?.items?.length || 0 },
     isLoading,
+    isError,
+    error,
     invalidate: () => (utils.admin.ordersAdmin as unknown as OrderWizardApi).invalidate()
   };
 }

@@ -76,6 +76,8 @@ interface RawSize {
   weight?: string;
   mainDishWeight?: number;
   main_dish_weight?: number;
+  noAccompanimentsMessage?: string;
+  no_accompaniments_message?: string;
   groupsOrder?: string | number[];
   groups_order?: string | number[];
   accompanimentGroups?: RawGroup[];
@@ -124,7 +126,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
 
     return {
       energyKcal: kcal,
-      energyKj: kj || (kcal * 4.184), 
+      energyKj: kj || (kcal * 4.184),
       proteins: num(source.proteins ?? source.protein),
       carbs: num(source.carbs ?? source.carbohydrates),
       fatTotal: num(source.fatTotal ?? source.fat_total ?? source.fats),
@@ -145,7 +147,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
     id: Number(dish.id),
     name: dish.name,
     description: dish.description,
-    imageUrl: dish.imageUrl || dish.image_url, 
+    imageUrl: dish.imageUrl || dish.image_url,
     price: Number(dish.price || dish.basePrice || 0),
     salePrice: (dish.salePrice || dish.sale_price) ? Number(dish.salePrice || dish.sale_price) : null,
     showNutrition,
@@ -158,12 +160,12 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
 
     nutrition: extractNutrition(dish),
 
-    sizes: Array.isArray(dish.sizes) 
+    sizes: Array.isArray(dish.sizes)
       ? dish.sizes
           .filter((s, idx, self) => idx === self.findIndex(t => t.id === s.id))
           .sort((a, b) => num(a.displayOrder ?? a.display_order) - num(b.displayOrder ?? b.display_order))
           .map((size) => {
-            const gOrder: number[] = Array.isArray(size.groupsOrder) ? (size.groupsOrder as number[]) : 
+            const gOrder: number[] = Array.isArray(size.groupsOrder) ? (size.groupsOrder as number[]) :
                                    (typeof size.groups_order === 'string' ? JSON.parse(size.groups_order || "[]") : (size.groups_order || []));
 
             const rawGroups = size.accompanimentGroups || size.groups || [];
@@ -176,9 +178,10 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
               iconKey: size.iconKey || size.icon_key || "Box",
               weight: size.weight || "",
               main_dish_weight: num(size.mainDishWeight ?? size.main_dish_weight ?? 200),
-              groupsOrder: gOrder, 
+              noAccompanimentsMessage: (size.noAccompanimentsMessage ?? size.no_accompaniments_message) || "",
+              groupsOrder: gOrder,
 
-              accompanimentGroups: Array.isArray(rawGroups) 
+              accompanimentGroups: Array.isArray(rawGroups)
                 ? rawGroups
                     .filter((g, idx, self) => {
                       const currentId = g.groupId || g.id;
@@ -192,7 +195,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
                       return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
                     })
                     .map((group) => {
-                      const itemsOrder: number[] = Array.isArray(group.itemsOrder) ? (group.itemsOrder as number[]) : 
+                      const itemsOrder: number[] = Array.isArray(group.itemsOrder) ? (group.itemsOrder as number[]) :
                                                 (typeof group.items_order === 'string' ? JSON.parse(group.items_order || "[]") : (group.items_order || []));
 
                       return {
@@ -203,7 +206,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
                         maxSelections: num(group.maxSelections || group.max_selections || 1),
                         minSelections: num(group.minSelections || group.min_selections || 0),
                         required: Boolean(group.isRequired || group.is_required || num(group.minSelections || group.min_selections) > 0),
-                        
+
                         options: (Array.isArray(group.options) ? group.options : [])
                           .filter((opt, idx, self) => opt && idx === self.findIndex(t => t && t.id === opt.id))
                           .map((opt) => {
@@ -229,7 +232,7 @@ export function mapDishFromDb(dish: RawDish | null | undefined) {
                           })
                       };
                     })
-                : [] 
+                : []
             };
           })
       : [],

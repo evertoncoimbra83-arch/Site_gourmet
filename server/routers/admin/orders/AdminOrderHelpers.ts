@@ -1,6 +1,6 @@
 import { decrypt, encrypt } from "../../../encryption.js";
 import crypto from "crypto";
-import { safeJsonParse } from "../../../lib/safe-parse.js";
+import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
 
 /**
  * Descriptografa valores vindos do banco de dados.
@@ -14,7 +14,7 @@ export const unseal = (val: unknown): string => {
     if (str.split(':').length === 3) {
       const decrypted = decrypt(str);
       // ✅ CORREÇÃO: Garante que se o decrypt retornar null, entregamos uma string
-      return decrypted ?? str; 
+      return decrypted ?? str;
     }
     return str;
   } catch {
@@ -41,8 +41,8 @@ export const processDraftMetadata = (metadataJson: string): string => {
     const data = safeJsonParse<Record<string, unknown>>(metadataJson, {});
 
     const fieldsToRemove = [
-      'paymentMethod', 'notes', 'deliveryMode', 'couponCode', 
-      'couponValue', 'loyaltyPointsUsed', 'loyaltyValue', 
+      'paymentMethod', 'notes', 'deliveryMode', 'couponCode',
+      'couponValue', 'loyaltyPointsUsed', 'loyaltyValue',
       'discountSource', 'currentStep', 'discountValue', 'shippingValue',
       'paymentDiscountValue'
     ];
@@ -51,15 +51,15 @@ export const processDraftMetadata = (metadataJson: string): string => {
     // ✅ Tipagem robusta para a função interna de criptografia
     const encryptFields = (obj: Record<string, unknown> | undefined, fields: string[]) => {
       if (!obj) return;
-      fields.forEach(f => { 
-        if (obj[f]) obj[f] = encrypt(String(obj[f])); 
+      fields.forEach(f => {
+        if (obj[f]) obj[f] = encrypt(String(obj[f]));
       });
     };
 
     if (data.customer) encryptFields(data.customer as Record<string, unknown>, ['name', 'phone']);
     if (data.address) {
       encryptFields(data.address as Record<string, unknown>, [
-        'shipping_address', 'shipping_address_number', 'shipping_neighborhood', 
+        'shipping_address', 'shipping_address_number', 'shipping_neighborhood',
         'shipping_address_complement', 'zipCode', 'shipping_city', 'shipping_state'
       ]); // ✅ FIX: Padronizado para zipCode para casar com o restante do fluxo
     }
@@ -70,3 +70,21 @@ export const processDraftMetadata = (metadataJson: string): string => {
     return metadataJson;
   }
 };
+
+/**
+ * Retorna o ID numérico do pedido sem colisões lógicas
+ */
+export function getNumericOrderId(orderId: string): number {
+  // Se for um número puro e couber no limite de inteiros de 32 bits (10 dígitos ou menos)
+  if (/^\d+$/.test(orderId) && orderId.length < 10) {
+    return safeNumber(orderId);
+  }
+
+  // Caso contrário (ex: GS-29781, UUIDs), calcula o hash determinístico da string inteira
+  let hash = 0;
+  for (let i = 0; i < orderId.length; i++) {
+    hash = (hash << 5) - hash + orderId.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}

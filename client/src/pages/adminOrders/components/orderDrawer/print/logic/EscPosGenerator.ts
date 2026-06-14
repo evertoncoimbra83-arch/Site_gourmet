@@ -120,6 +120,7 @@ interface Meal {
 interface ItemOptions {
   sizeName?: string;
   selectedSizeName?: string;
+  noAccompanimentsMessage?: string;
   meals?: Meal[];
   selectedAccs?: Acc[];
   selectedAccompaniments?: Acc[];
@@ -225,6 +226,10 @@ export function generateEscPos(order: ReceiptOrderData): Uint8Array {
     const isPackage = meals.length > 0;
     const itemName = (item.name || item.dishName || "ITEM").toUpperCase();
     const size = opts.sizeName || opts.selectedSizeName;
+    const noAccompanimentsMessage =
+      typeof opts.noAccompanimentsMessage === "string"
+        ? opts.noAccompanimentsMessage.trim()
+        : "";
 
     push(bytes(CMD.BOLD_ON));
     push(line(`${item.quantity}x ${itemName}${size ? ` [${size.toUpperCase()}]` : ""}`));
@@ -240,8 +245,14 @@ export function generateEscPos(order: ReceiptOrderData): Uint8Array {
         }
       }
     } else {
-      for (const acc of opts.selectedAccs || opts.selectedAccompaniments || []) {
+      const singleAccs = opts.selectedAccs || opts.selectedAccompaniments || [];
+      for (const acc of singleAccs) {
         push(line(`  + ${acc.name.toUpperCase()}${acc.weight ? ` (${acc.weight}g)` : ""}`));
+      }
+      if (singleAccs.length === 0 && noAccompanimentsMessage) {
+        for (const messageLine of wrapText(noAccompanimentsMessage, 44)) {
+          push(line(`  ${messageLine}`));
+        }
       }
     }
 

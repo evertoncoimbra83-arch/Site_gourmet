@@ -1,8 +1,9 @@
 import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { Check } from "lucide-react"; 
+import { Check, Info } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { AccompanimentList } from "./AccompanimentList";
+import { hasAccompaniments } from "@/pages/products/logic/validation";
 
 // --- INTERFACES SINCRONIZADAS COM ACCOMPANIMENTLIST ---
 
@@ -35,6 +36,7 @@ interface Size {
   main_dish_weight?: number;
   mainDishWeight?: number;
   weight?: number;
+  noAccompanimentsMessage?: string;
   accompanimentGroups?: AccompanimentGroup[];
   groups?: AccompanimentGroup[];
   groupsOrder?: string | number[];
@@ -49,13 +51,13 @@ interface SizeSelectorProps {
   onRemoveAcc: (group: AccompanimentGroup, optionId: string | number) => void;
 }
 
-export function SizeSelector({ 
-  sizes, 
-  selectedId, 
-  onSelect, 
-  selectedAccs, 
-  onAddAcc, 
-  onRemoveAcc 
+export function SizeSelector({
+  sizes,
+  selectedId,
+  onSelect,
+  selectedAccs,
+  onAddAcc,
+  onRemoveAcc
 }: SizeSelectorProps) {
   if (!sizes?.length) return null;
 
@@ -65,8 +67,8 @@ export function SizeSelector({
   }, [sizes]);
 
   // 2. Encontrar o objeto do tamanho selecionado
-  const selectedSizeObj = useMemo(() => 
-    sortedSizes.find(s => Number(s.id) === Number(selectedId)), 
+  const selectedSizeObj = useMemo(() =>
+    sortedSizes.find(s => Number(s.id) === Number(selectedId)),
   [selectedId, sortedSizes]);
 
   // 3. Lógica de ordenação dos grupos
@@ -75,8 +77,8 @@ export function SizeSelector({
     const rawGroups = selectedSizeObj.accompanimentGroups || selectedSizeObj.groups || [];
     let groupsOrder: number[] = [];
     try {
-      groupsOrder = typeof selectedSizeObj.groupsOrder === 'string' 
-        ? JSON.parse(selectedSizeObj.groupsOrder) 
+      groupsOrder = typeof selectedSizeObj.groupsOrder === 'string'
+        ? JSON.parse(selectedSizeObj.groupsOrder)
         : (selectedSizeObj.groupsOrder || []);
     } catch { groupsOrder = []; }
 
@@ -88,6 +90,8 @@ export function SizeSelector({
     });
   }, [selectedSizeObj]);
 
+  const hasAccs = useMemo(() => hasAccompaniments(selectedSizeObj), [selectedSizeObj]);
+
   return (
     <div className="space-y-5 text-left">
       <div className="px-1">
@@ -96,7 +100,11 @@ export function SizeSelector({
         </Label>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 px-1">
+      <div className={cn(
+        "grid gap-2 px-1",
+        sortedSizes.length === 1 ? "grid-cols-1 max-w-[200px]" :
+        sortedSizes.length === 2 ? "grid-cols-2" : "grid-cols-3"
+      )}>
         {sortedSizes.map((size) => {
           const isSelected = Number(selectedId) === Number(size.id);
           const weight = size.main_dish_weight || size.mainDishWeight || size.weight;
@@ -116,7 +124,7 @@ export function SizeSelector({
               <span className="font-black text-[10px] uppercase italic leading-none">
                 {size.name}
               </span>
-              
+
               {weight && (
                 <span className={cn(
                   "text-[8px] font-bold mt-1 uppercase tracking-tighter opacity-70",
@@ -141,18 +149,32 @@ export function SizeSelector({
           <div className="flex items-center gap-2 px-1">
             <div className="h-px flex-1 bg-slate-100" />
             <Label className="text-[10px] font-black uppercase text-emerald-600 tracking-widest italic shrink-0">
-              2. Personalize seu {selectedSizeObj.name}
+              {hasAccs ? `2. Personalize seu ${selectedSizeObj.name}` : "Acompanhamentos"}
             </Label>
             <div className="h-px flex-1 bg-slate-100" />
           </div>
 
           <div className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm text-left">
-            <AccompanimentList 
-              groups={orderedGroups} 
-              selectedAccs={selectedAccs}
-              onAdd={onAddAcc}
-              onRemove={onRemoveAcc}
-            />
+            {hasAccs ? (
+              <AccompanimentList
+                groups={orderedGroups}
+                selectedAccs={selectedAccs}
+                onAdd={onAddAcc}
+                onRemove={onRemoveAcc}
+              />
+            ) : (
+              <div className="bg-amber-50/50 border border-amber-100/80 rounded-2xl p-5 text-center flex flex-col items-center gap-2 animate-in fade-in zoom-in duration-300">
+                <div className="w-8 h-8 rounded-full bg-amber-100/60 flex items-center justify-center text-amber-600 shrink-0">
+                  <Info size={16} strokeWidth={2.5} />
+                </div>
+                <h4 className="text-[10px] font-black uppercase text-amber-800 tracking-wider">
+                  Sem acompanhamentos para este tamanho
+                </h4>
+                <p className="text-[11px] font-medium text-amber-700/80 leading-relaxed max-w-xs mx-auto">
+                  {selectedSizeObj.noAccompanimentsMessage || "Este tamanho não possui acompanhamentos. O peso informado corresponde ao prato principal."}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

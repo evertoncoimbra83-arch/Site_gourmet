@@ -40,16 +40,16 @@ interface Props {
   getImageUrl?: (url: string | null | undefined) => string; // Opcional
 }
 
-export const OrderPaymentSection = ({ 
-  orderData, 
-  paymentMethods, 
+export const OrderPaymentSection = ({
+  orderData,
+  paymentMethods,
   maxDiscountPossible,
   calculatePointsForValue,
-  onUpdate, 
-  onApplyCoupon, 
-  onApplyLoyalty, 
-  onRemoveLoyalty, 
-  isCouponPending, 
+  onUpdate,
+  onApplyCoupon,
+  onApplyLoyalty,
+  onRemoveLoyalty,
+  isCouponPending,
   isLoyaltyPending,
   getImageUrl
 }: Props) => {
@@ -85,7 +85,7 @@ export const OrderPaymentSection = ({
             <CreditCard size={14} className="text-slate-400" />
             <h3 className="text-[11px] font-black uppercase text-slate-500 tracking-widest">Pagamento</h3>
           </div>
-          
+
           {orderData.paymentStatus && (
             <div className={cn("px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest", getStatusStyle(orderData.paymentStatus))}>
               {orderData.paymentStatus}
@@ -97,8 +97,8 @@ export const OrderPaymentSection = ({
           {paymentMethods.map((m) => {
             // ✅ Double Check: Compara tanto por ID quanto por Nome (Essencial para edição/carregamento)
             const rawPayment = String(orderData.paymentMethod || "").toLowerCase().trim();
-            const isSelected = 
-              rawPayment === String(m.id).toLowerCase() || 
+            const isSelected =
+              rawPayment === String(m.id).toLowerCase() ||
               rawPayment === String(m.name).toLowerCase().trim();
 
             return (
@@ -131,31 +131,31 @@ export const OrderPaymentSection = ({
       {/* SEÇÃO DE DESCONTOS */}
       <section className="bg-white rounded-4xl border border-slate-100 shadow-sm p-6 space-y-4 text-left">
         <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-          <Ticket size={14} /> Descontos PDV
+          <Ticket size={14} /> Descontos Venda Manual
         </h3>
-        
+
         <div className="flex gap-2 relative">
-          <Input 
-            id="couponInputPDV" 
+          <Input
+            id="couponInputPDV"
             placeholder={orderData.couponCode ? `CUPOM: ${orderData.couponCode}` : "CUPOM"}
-            className={cn("rounded-xl uppercase font-black text-xs h-12", orderData.couponCode && "bg-emerald-50 border-emerald-200")} 
+            className={cn("rounded-xl uppercase font-black text-xs h-12", orderData.couponCode && "bg-emerald-50 border-emerald-200")}
           />
           {orderData.couponCode ? (
-            <button 
+            <button
               type="button"
-              onClick={() => onUpdate({ couponCode: null })} 
+              onClick={() => onUpdate({ couponCode: null })}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700 transition-colors"
             >
               <X size={16} strokeWidth={3} />
             </button>
           ) : (
-            <Button 
+            <Button
               onClick={() => {
                 const el = document.getElementById("couponInputPDV") as HTMLInputElement;
                 if (el?.value) onApplyCoupon(el.value);
-              }} 
-              disabled={isCouponPending} 
-              variant="outline" 
+              }}
+              disabled={isCouponPending}
+              variant="outline"
               className="h-12 rounded-xl border-dashed"
             >
               {isCouponPending ? <Loader2 className="animate-spin" size={14} /> : "Aplicar"}
@@ -168,7 +168,7 @@ export const OrderPaymentSection = ({
             <div className="flex gap-2 relative">
               <div className="relative flex-1">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">R$</span>
-                <Input 
+                <Input
                   placeholder="VALOR EM PONTOS"
                   value={loyaltyInput}
                   onChange={(e) => setLoyaltyInput(e.target.value)}
@@ -176,16 +176,16 @@ export const OrderPaymentSection = ({
                   className="rounded-xl pl-8 h-12 font-black text-xs"
                 />
               </div>
-              
+
               {orderData.loyaltyValue > 0 ? (
-                <Button 
+                <Button
                   onClick={onRemoveLoyalty}
                   className="h-12 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl px-4 transition-all"
                 >
                   <X size={16} strokeWidth={3} />
                 </Button>
               ) : (
-                <Button 
+                <Button
                   onClick={handleApplyLoyaltyManual}
                   disabled={isLoyaltyPending || !loyaltyInput}
                   className="h-12 bg-amber-500 hover:bg-amber-600 text-white rounded-xl px-4 font-black text-[10px] uppercase gap-2"

@@ -1,5 +1,5 @@
 // server/routers/admin/orders/AdminOrderDraftService.ts
-import { eq, and, sql, like } from "drizzle-orm";
+import { eq, and, sql, like, desc } from "drizzle-orm";
 import { getDb } from "../../../db.js";
 import { v4 as uuidv4 } from "uuid";
 import * as schema from "../../../../drizzle/schema/index.js";
@@ -53,6 +53,40 @@ type DraftMetadata = Record<string, unknown> & {
   address?: Record<string, unknown>;
 };
 
+async function hydrateDraft(draft: typeof schema.adminOrderDrafts.$inferSelect) {
+  const db = await getDb();
+  const items = await db.select().from(schema.adminOrderDraftItems).where(eq(schema.adminOrderDraftItems.draftId, draft.id));
+
+  const meta = safeJsonParse<DraftMetadata>(draft.metadataJson, {});
+
+  if (meta.customer) {
+    (meta.customer as Record<string, unknown>).name = unseal((meta.customer as Record<string, unknown>).name || "");
+    (meta.customer as Record<string, unknown>).phone = unseal((meta.customer as Record<string, unknown>).phone || "");
+  }
+
+  if (meta.address) {
+    meta.address = {
+      shipping_address: unseal((meta.address as Record<string, unknown>).shipping_address || ""),
+      shipping_address_number: unseal((meta.address as Record<string, unknown>).shipping_address_number || ""),
+      shipping_neighborhood: unseal((meta.address as Record<string, unknown>).shipping_neighborhood || ""),
+      shipping_address_complement: unseal((meta.address as Record<string, unknown>).shipping_address_complement || ""),
+      zipCode: unseal(meta.address.zipCode || meta.address.shipping_zip_code || ""),
+      shipping_city: unseal((meta.address as Record<string, unknown>).shipping_city || ""),
+      shipping_state: unseal((meta.address as Record<string, unknown>).shipping_state || ""),
+    };
+  }
+
+  return {
+    ...draft,
+    metadataJson: JSON.stringify({
+      ...meta,
+      discountValue: safeNumber(draft.discountValue),
+      shippingValue: safeNumber(draft.shippingValue)
+    }),
+    items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
+  };
+}
+
 export const AdminOrderDraftService = {
   async init(adminId: string) {
     const db = await getDb();
@@ -104,37 +138,40 @@ export const AdminOrderDraftService = {
 
     if (!draft) return null;
 
-    const items = await db.select().from(schema.adminOrderDraftItems).where(eq(schema.adminOrderDraftItems.draftId, draft.id));
+    return hydrateDraft(draft);
+  },
 
-    const meta = safeJsonParse<DraftMetadata>(draft.metadataJson, {});
+  async getDraftById(draftId: string) {
+    const db = await getDb();
+    const [draft] = await db.select().from(schema.adminOrderDrafts)
+      .where(and(eq(schema.adminOrderDrafts.id, draftId), eq(schema.adminOrderDrafts.status, "active")))
+      .limit(1);
 
-    if (meta.customer) {
-      (meta.customer as Record<string, unknown>).name = unseal((meta.customer as Record<string, unknown>).name || "");
-      (meta.customer as Record<string, unknown>).phone = unseal((meta.customer as Record<string, unknown>).phone || "");
-    }
+    if (!draft) return null;
 
-    if (meta.address) {
-      const address = meta.address as Record<string, unknown>;
-      meta.address = {
-        shipping_address: unseal((meta.address as Record<string, unknown>).shipping_address || ""),
-        shipping_address_number: unseal((meta.address as Record<string, unknown>).shipping_address_number || ""),
-        shipping_neighborhood: unseal((meta.address as Record<string, unknown>).shipping_neighborhood || ""),
-        shipping_address_complement: unseal((meta.address as Record<string, unknown>).shipping_address_complement || ""),
-        zipCode: unseal(meta.address.zipCode || meta.address.shipping_zip_code || ""),
-        shipping_city: unseal((meta.address as Record<string, unknown>).shipping_city || ""),
-        shipping_state: unseal((meta.address as Record<string, unknown>).shipping_state || ""),
+    return hydrateDraft(draft);
+  },
+
+  async listActiveDrafts(adminId: string) {
+    const db = await getDb();
+    const drafts = await db.select().from(schema.adminOrderDrafts)
+      .where(and(eq(schema.adminOrderDrafts.adminId, adminId), eq(schema.adminOrderDrafts.status, "active")))
+      .orderBy(desc(schema.adminOrderDrafts.updatedAt))
+      .limit(20);
+
+    return Promise.all(drafts.map(async draft => {
+      const items = await db.select().from(schema.adminOrderDraftItems).where(eq(schema.adminOrderDraftItems.draftId, draft.id));
+      const meta = safeJsonParse<DraftMetadata>(draft.metadataJson, {});
+      const customerName = meta.customer?.name ? unseal(meta.customer.name) : null;
+      const subtotal = items.reduce((sum, item) => sum + safeNumber(item.unitPrice) * safeNumber(item.quantity, 1), 0);
+
+      return {
+        id: draft.id,
+        customerName,
+        updatedAt: draft.updatedAt,
+        subtotal,
       };
-    }
-
-    return {
-      ...draft,
-      metadataJson: JSON.stringify({
-        ...meta,
-        discountValue: safeNumber(draft.discountValue),
-        shippingValue: safeNumber(draft.shippingValue)
-      }),
-      items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
-    };
+    }));
   },
 
   async updateItem(itemId: string, data: { quantity?: number; unitPrice?: number }) {
@@ -405,7 +442,7 @@ export const AdminOrderDraftService = {
       };
 
       await tx.execute(
-        sql`INSERT INTO order_admin_logs (id, order_id, admin_id, action_type, description, changes_payload) 
+        sql`INSERT INTO order_admin_logs (id, order_id, admin_id, action_type, description, changes_payload)
         VALUES (${nanoid()}, ${input.orderId}, ${input.adminId}, 'ADMIN_RESTRUCTURING', ${input.justification}, ${JSON.stringify(logPayload)})`
       );
 

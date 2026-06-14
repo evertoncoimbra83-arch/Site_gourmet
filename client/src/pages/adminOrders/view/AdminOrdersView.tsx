@@ -5,6 +5,7 @@ import {
   isFinalizedOrderStatus,
 } from "../logic/orderStatusGuards";
 import OrderDetailsDrawer from "../components/OrderDetailsDrawer";
+import { AdminOrdersMobileList } from "./AdminOrdersMobileList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -33,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { appToast as toast } from "@/lib/app-toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
 import { requestStrongConfirmation } from "@/lib/strong-confirmation";
 import {
@@ -87,6 +89,7 @@ export function AdminOrdersView() {
 
   // --- ESTADO DE SELEÇÃO ---
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editOrderIdToConfirm, setEditOrderIdToConfirm] = useState<string | null>(null);
 
   // --- ZEBRA BATCH PRINTING ENGINE & TEMPLATES ---
   const zebra = useZebraTransport();
@@ -225,7 +228,8 @@ export function AdminOrdersView() {
 
   const editOrderPDV = trpc.admin.ordersAdmin.editOrder.useMutation({
     onSuccess: (data) => {
-      toast.success("Pedido carregado no PDV!");
+      toast.success("Pedido carregado na Venda Manual!");
+      setEditOrderIdToConfirm(null);
       navigate(`/admin/orders/create?draftId=${data.newDraftId}`);
     },
     onError: (err: { message: string }) => toast.error("Erro ao carregar pedido: " + err.message),
@@ -266,9 +270,7 @@ export function AdminOrdersView() {
       toast.error(FINALIZED_ORDER_MESSAGE);
       return;
     }
-    if (window.confirm("Deseja abrir este pedido no PDV para edição?")) {
-      editOrderPDV.mutate({ orderId });
-    }
+    setEditOrderIdToConfirm(orderId);
   };
 
   const handleDelete = (order: Order) => {
@@ -296,6 +298,19 @@ export function AdminOrdersView() {
 
   return (
     <div className="space-y-6 md:space-y-10 animate-in fade-in duration-700 pb-20 px-4 md:px-0 text-left relative">
+      <ConfirmDialog
+        open={!!editOrderIdToConfirm}
+        title="Abrir pedido na Venda Manual?"
+        description="O pedido sera carregado como rascunho editavel para revisao administrativa."
+        confirmLabel="Abrir pedido"
+        cancelLabel="Manter na lista"
+        loading={editOrderPDV.isPending}
+        onCancel={() => setEditOrderIdToConfirm(null)}
+        onConfirm={() => {
+          if (!editOrderIdToConfirm) return;
+          editOrderPDV.mutate({ orderId: editOrderIdToConfirm });
+        }}
+      />
 
       {/* 🚀 FLOATING ACTION BAR PARA SELEÇÃO EM MASSA */}
       {selectedIds.length > 0 && (
@@ -378,7 +393,7 @@ export function AdminOrdersView() {
         >
           <div className="flex flex-col items-start leading-tight">
             <span className="text-[8px] font-black text-emerald-400 uppercase">Nova Venda</span>
-            <span className="text-[10px] font-black uppercase">Abrir PDV Express</span>
+            <span className="text-[10px] font-black uppercase">Abrir Venda Manual</span>
           </div>
           <Plus size={20} />
         </Button>
@@ -430,15 +445,41 @@ export function AdminOrdersView() {
 
       {/* LISTAGEM */}
       <div>
-        {state.isFetching ? (
+        {state.isError ? (
+          <div className="rounded-4xl border border-red-100 bg-red-50 p-8 text-center">
+            <p className="text-sm font-black uppercase text-red-600">
+              Nao foi possivel carregar os pedidos.
+            </p>
+            <p className="mt-2 text-xs font-bold text-red-400">
+              {state.error?.message || "Erro desconhecido na listagem."}
+            </p>
+            <Button
+              onClick={() => actions.refetch()}
+              className="mt-5 h-11 rounded-2xl bg-red-600 px-6 text-[10px] font-black uppercase text-white hover:bg-red-700"
+            >
+              Tentar novamente
+            </Button>
+          </div>
+        ) : state.isFetching ? (
           <div className="py-40 flex justify-center"><Loader2 className="animate-spin text-emerald-600" size={40} /></div>
         ) : orders.length === 0 ? (
           <div className="py-40 text-center bg-white rounded-4xl border border-dashed border-slate-200">
             <p className="text-slate-400 font-bold text-sm uppercase">Nenhum pedido encontrado</p>
           </div>
         ) : (
-          <div className="hidden md:block bg-white rounded-4xl shadow-xl border border-slate-100 overflow-hidden">
-            <table className="w-full border-collapse">
+          <>
+            <AdminOrdersMobileList
+              orders={orders}
+              selectedIds={selectedIds}
+              isEditing={editOrderPDV.isPending}
+              isDeleting={deleteOrderMutation.isPending}
+              onToggleSelect={toggleSelect}
+              onOpenOrder={actions.setSelectedOrderId}
+              onEditOrder={handleEditInPDV}
+              onDeleteOrder={handleDelete}
+            />
+            <div className="hidden md:block bg-white rounded-4xl shadow-xl border border-slate-100 overflow-hidden">
+              <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-100 text-left">
                   <th className="p-6 w-10 text-center">
@@ -519,7 +560,7 @@ export function AdminOrdersView() {
                       <td className="p-6 text-right">
                         <div className="flex justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
                           <Button size="icon" variant="ghost" title="Imprimir" className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700" onClick={() => navigate(`/admin/orders/${idStr}/print`)}><Printer size={16} /></Button>
-                          <Button size="icon" variant="ghost" title={isFinalized ? FINALIZED_ORDER_MESSAGE : "Editar no PDV"} className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-500 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-500 disabled:hover:border-slate-200" onClick={() => handleEditInPDV(idStr, order.status)} disabled={editOrderPDV.isPending || isFinalized}>
+                          <Button size="icon" variant="ghost" title={isFinalized ? FINALIZED_ORDER_MESSAGE : "Editar Venda Manual"} className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-500 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-500 disabled:hover:border-slate-200" onClick={() => handleEditInPDV(idStr, order.status)} disabled={editOrderPDV.isPending || isFinalized}>
                             {editOrderPDV.isPending ? <Loader2 size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
                           </Button>
                           <Button size="icon" title="Ver Detalhes" className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-900 hover:text-white" onClick={() => actions.setSelectedOrderId(idStr)}><Edit3 size={16} /></Button>
@@ -532,8 +573,9 @@ export function AdminOrdersView() {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

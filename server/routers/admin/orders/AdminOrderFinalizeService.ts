@@ -3,23 +3,23 @@ import { getDb } from "../../../db.js";
 import { TRPCError } from "@trpc/server";
 import { encrypt } from "../../../encryption.js";
 import * as schema from "../../../../drizzle/schema/index.js";
-import { unseal, generateFriendlyOrderId } from "./AdminOrderHelpers.js";
+import { unseal, generateFriendlyOrderId, getNumericOrderId } from "./AdminOrderHelpers.js";
 import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
 
 export const AdminOrderFinalizeService = {
   async finalize(draftId: string) {
     const db = await getDb();
-    
+
     // 1. Busca o Rascunho e Itens
     const [draft] = await db.select()
       .from(schema.adminOrderDrafts)
       .where(eq(schema.adminOrderDrafts.id, draftId))
       .limit(1);
-      
+
     const items = await db.select()
       .from(schema.adminOrderDraftItems)
       .where(eq(schema.adminOrderDraftItems.draftId, draftId));
-    
+
     if (!draft || !items.length) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Carrinho vazio ou não encontrado." });
     }
@@ -35,33 +35,38 @@ export const AdminOrderFinalizeService = {
       typeof meta.orderDate === "string" || typeof meta.orderDate === "number"
         ? meta.orderDate
         : null;
-    
+
     const subtotal = items.reduce((acc, it) => acc + (safeNumber(it.unitPrice) * (it.quantity || 1)), 0);
     const orderId = generateFriendlyOrderId();
 
     await db.transaction(async (tx) => {
-      
-      // 2. TRATAMENTO DE EDIÇÃO (Cancela o pedido anterior)
+
+      // 2. TRATAMENTO DE EDIÇÃO (Cancela o pedido anterior e limpa fatos BI)
       if (editingOrderId) {
         await tx.update(schema.orders)
-          .set({ 
-            status: "cancelled", 
+          .set({
+            status: "cancelled",
             notes: sql`CONCAT(COALESCE(${schema.orders.notes}, ''), ' | Substituído pelo: ', ${orderId})`,
             updatedAt: new Date()
           })
           .where(eq(schema.orders.id, editingOrderId));
+
+        const cleanOldId = editingOrderId.replace('#', '');
+        const numericId = getNumericOrderId(cleanOldId);
+        await tx.delete(schema.biSalesFacts).where(eq(schema.biSalesFacts.orderId, numericId));
+        await tx.delete(schema.biFinancialFacts).where(eq(schema.biFinancialFacts.orderId, numericId));
       }
 
       // 3. Inserir Novo Pedido
       const newOrder: typeof schema.orders.$inferInsert = {
-        id: orderId, 
-        userId: draft.userId || "admin_system", 
-        status: paymentStatus === 'paid' ? "preparing" : "pending", 
+        id: orderId,
+        userId: draft.userId || "admin_system",
+        status: paymentStatus === 'paid' ? "preparing" : "pending",
         // ✅ REMOVIDO: 'origin' (não existe no schema)
         paymentMethod: String(meta.paymentMethod || snap.paymentMethodName || "Presencial"),
         paymentStatus,
         notes,
-        subtotal: subtotal.toFixed(2), 
+        subtotal: subtotal.toFixed(2),
         total: (subtotal + safeNumber(draft.shippingValue) - safeNumber(draft.discountValue)).toFixed(2),
         shippingCost: safeNumber(draft.shippingValue).toFixed(2),
         totalDiscount: safeNumber(draft.discountValue).toFixed(2),
@@ -75,11 +80,37 @@ export const AdminOrderFinalizeService = {
         shippingState: unseal((addr as Record<string, unknown>).shipping_state || ""),
         shippingZipCode: unseal((addr as Record<string, unknown>).zipCode || (addr as Record<string, unknown>).shipping_zip_code || ""),
         discountsSnapshot: draft.discountsSnapshot,
-        createdAt: orderDate ? new Date(orderDate) : new Date(), 
+        createdAt: orderDate ? new Date(orderDate) : new Date(),
         updatedAt: new Date()
       };
 
       await tx.insert(schema.orders).values(newOrder);
+
+      // 3.1. Inserir Uso de Cupom (se aplicável)
+      const couponCode = String(meta.couponCode || snap.couponCode || "").trim().toUpperCase();
+      if (couponCode) {
+        const [matchedCoupon] = await tx
+          .select({ id: schema.coupons.id })
+          .from(schema.coupons)
+          .where(eq(schema.coupons.code, couponCode))
+          .limit(1);
+
+        if (matchedCoupon) {
+          try {
+            await tx.insert(schema.couponUsage).values({
+              couponId: matchedCoupon.id,
+              userId: draft.userId || "admin_system",
+              orderId: orderId,
+              usedAt: new Date(),
+            } as any);
+          } catch (err) {
+            console.warn(
+              `[Admin CouponUsage Idempotency] Ignored duplicate coupon usage insertion for couponId ${matchedCoupon.id} and orderId ${orderId}:`,
+              err,
+            );
+          }
+        }
+      }
 
       // 4. Inserir Itens do Pedido
       for (const it of items) {
@@ -105,7 +136,7 @@ export const AdminOrderFinalizeService = {
         const pointsEarned = Math.floor(subtotal);
 
         await tx.execute(sql`
-          UPDATE users 
+          UPDATE users
           SET loyalty_balance = GREATEST(COALESCE(loyalty_balance, 0) - ${pointsUsed} + ${pointsEarned}, 0)
           WHERE id = ${draft.userId}
         `);

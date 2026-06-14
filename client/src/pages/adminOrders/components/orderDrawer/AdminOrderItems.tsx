@@ -40,6 +40,8 @@ interface OrderOptions {
   packageName?: string;
   dishId?: string | number;
   selectedSizeName?: string;
+  hasNoAvailableAccompaniments?: boolean;
+  noAccompanimentsMessage?: string;
   meals?: Meal[];
   selectedAccs?: Accompaniment[];
   selectedAccompaniments?: Accompaniment[];
@@ -154,6 +156,10 @@ export function AdminOrderItems({
           const singleAccs = normalizeAccList(
             options.selectedAccompaniments || options.selectedAccs || [],
           );
+          const noAccompanimentsMessage =
+            typeof options.noAccompanimentsMessage === "string"
+              ? options.noAccompanimentsMessage.trim()
+              : "";
 
           return (
             <div
@@ -321,6 +327,10 @@ export function AdminOrderItems({
                             {acc.weight ? ` (${acc.weight}g)` : ""}
                           </span>
                         ))
+                      ) : noAccompanimentsMessage ? (
+                        <span className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                          {noAccompanimentsMessage}
+                        </span>
                       ) : (
                         <span className="text-[10px] font-bold uppercase italic text-slate-500">
                           Nenhum acompanhamento selecionado.

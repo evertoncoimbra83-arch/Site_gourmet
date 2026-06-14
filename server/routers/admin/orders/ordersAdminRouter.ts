@@ -6,15 +6,15 @@ import { AdminOrderDraftService } from "./AdminOrderDraftService.js";
 import { AdminOrderFinalizeService } from "./AdminOrderFinalizeService.js";
 import { OrderManagerService } from "./OrderManagerService.js";
 import { PagSeguroService } from "./services/PagSeguroService.js";
-import { decrypt, unseal } from "../../../encryption.js"; 
+import { decrypt, unseal } from "../../../encryption.js";
 import { getDb } from "../../../db.js";
-import { 
+import {
     adminOrderDraftItems,
     carts,
     cartItems,
     orders,
     orderItems,
-    users 
+    users
 } from "../../../../drizzle/schema/index.js";
 import { eq, sql, desc, and, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -39,26 +39,90 @@ interface DiscountSnapshot {
 type OrderStatus = "pending" | "preparing" | "shipped" | "delivered" | "cancelled" | "completed";
 
 export const ordersAdminRouter = router({
-  
+    /**
+     * Inicia ou reutiliza uma sessão ativa de Venda Manual para o operador atual.
+     */
+    init: adminProcedure
+        .mutation(async ({ ctx }) => {
+            const session = await AdminOrderDraftService.init(ctx.user.id);
+            return { ...session, draftId: session.id };
+        }),
+
+    /**
+     * Recupera o rascunho ativo. O draftId preserva compatibilidade com links
+     * existentes de edição; adminId fica como fallback legado.
+     */
+    getDraft: adminProcedure
+        .input(z.object({
+            draftId: z.string().optional(),
+            adminId: z.string().optional(),
+        }).optional())
+        .query(async ({ input, ctx }) => {
+            if (input?.draftId) {
+                return AdminOrderDraftService.getDraftById(input.draftId);
+            }
+
+            const byCurrentUser = await AdminOrderDraftService.getDraft(ctx.user.id);
+            if (byCurrentUser) return byCurrentUser;
+
+            if (input?.adminId && input.adminId !== ctx.user.id) {
+                return AdminOrderDraftService.getDraft(input.adminId);
+            }
+
+            return null;
+        }),
+
+    updateSession: adminProcedure
+        .input(z.object({
+            draftId: z.string(),
+            userId: z.string().nullish(),
+            shippingValue: z.union([z.string(), z.number()]).optional(),
+            discountValue: z.union([z.string(), z.number()]).optional(),
+            metadataJson: z.string().optional(),
+        }))
+        .mutation(({ input }) => AdminOrderDraftService.update({
+            draftId: input.draftId,
+            userId: input.userId ?? undefined,
+            shippingValue: input.shippingValue,
+            metadataJson: input.metadataJson,
+        })),
+
+    listActiveDrafts: adminProcedure
+        .query(({ ctx }) => AdminOrderDraftService.listActiveDrafts(ctx.user.id)),
+
+    recoverDraft: adminProcedure
+        .input(z.object({
+            draftId: z.string(),
+            adminId: z.string().optional(),
+        }))
+        .mutation(async ({ input }) => {
+            const draft = await AdminOrderDraftService.getDraftById(input.draftId);
+            if (!draft) {
+                throw new TRPCError({ code: "NOT_FOUND", message: "Rascunho não encontrado." });
+            }
+
+            return { success: true, newDraftId: input.draftId };
+        }),
+
     /**
      * 📋 LISTAGEM DE PEDIDOS
      */
     list: operatorProcedure
-        .input(z.object({ 
-            search: z.string().optional(), 
-            status: z.string().optional(), 
-            page: z.number().default(1), 
-            perPage: z.number().default(10) 
+        .input(z.object({
+            search: z.string().optional(),
+            status: z.string().optional(),
+            page: z.number().default(1),
+            perPage: z.number().default(10)
         }))
         .query(async ({ input }) => {
             const result = await OrderManagerService.listOrders(input);
-            return { 
-                orders: result.data, 
-                meta: { 
-                    totalItems: result.total, 
-                    totalPages: Math.ceil(result.total / input.perPage), 
-                    currentPage: input.page 
-                } 
+            return {
+                orders: result.data,
+                meta: {
+                    totalItems: result.total,
+                    totalPages: Math.ceil(result.total / input.perPage),
+                    currentPage: input.page
+                }
             };
         }),
 
@@ -71,12 +135,12 @@ export const ordersAdminRouter = router({
             const db = await getDb();
             const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
             if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
-            
+
             const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
-            
-            return { 
-                ...order, 
-                items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) })) 
+
+            return {
+                ...order,
+                items: items.map(it => ({ ...it, unitPrice: safeNumber(it.unitPrice) }))
             };
         }),
 
@@ -84,15 +148,15 @@ export const ordersAdminRouter = router({
      * 🔄 ATUALIZAR STATUS
      */
     updateStatus: operatorProcedure
-        .input(z.object({ 
-            id: z.string(), 
-            status: z.string() 
+        .input(z.object({
+            id: z.string(),
+            status: z.string()
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             const [oldOrder] = await db.select().from(orders).where(eq(orders.id, input.id)).limit(1);
 
-            await OrderManagerService.updateStatus(input.id, input.status as OrderStatus);
+            await OrderManagerService.updateStatus(input.id, input.status as OrderStatus, (ctx.req as any)?.requestId);
 
             if (oldOrder) {
                 const actor = {
@@ -121,9 +185,9 @@ export const ordersAdminRouter = router({
      * 🛒 CARRINHOS ABANDONADOS
      */
     getAbandonedCarts: operatorProcedure
-        .input(z.object({ 
-            page: z.number().default(1), 
-            perPage: z.number().default(10) 
+        .input(z.object({
+            page: z.number().default(1),
+            perPage: z.number().default(10)
         }).optional())
         .query(async ({ input }) => {
             const db = await getDb();
@@ -162,11 +226,11 @@ export const ordersAdminRouter = router({
      * 📝 EDITAR PEDIDO
      */
     editOrder: adminProcedure
-        .input(z.object({ orderId: z.string() })) 
+        .input(z.object({ orderId: z.string() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             const adminId = ctx.user.id;
-            
+
             const [orderResult] = await db
                 .select({ order: orders, customerName: users.name })
                 .from(orders)
@@ -175,7 +239,7 @@ export const ordersAdminRouter = router({
                 .limit(1);
 
             if (!orderResult) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
-            
+
             const { order, customerName } = orderResult;
             const customerCleanName = customerName ? (decrypt(customerName) || "Cliente") : "Cliente";
 
@@ -192,7 +256,7 @@ export const ordersAdminRouter = router({
             const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
             const session = await AdminOrderDraftService.init(adminId);
             const pdvDraftId = session.id;
-            
+
             await db.delete(adminOrderDraftItems).where(eq(adminOrderDraftItems.draftId, pdvDraftId));
 
             const snapTotals = (snap.totals as Record<string, string | number>) || {};
@@ -262,25 +326,74 @@ export const ordersAdminRouter = router({
      * ➕ ADICIONAR ITEM AO RASCUNHO
      */
     addItem: adminProcedure
-        .input(z.object({ 
-            draftId: z.string(), 
-            dishId: z.coerce.number().nullish(), 
-            packageId: z.coerce.number().nullish(), 
-            name: z.string(), 
-            unitPrice: z.number(), 
-            quantity: z.number().default(1), 
-            options: z.string().optional(), 
-            applied_nutrition: z.string().optional() 
+        .input(z.object({
+            draftId: z.string(),
+            dishId: z.coerce.number().nullish(),
+            packageId: z.coerce.number().nullish(),
+            name: z.string(),
+            unitPrice: z.number(),
+            quantity: z.number().default(1),
+            options: z.string().optional(),
+            applied_nutrition: z.string().optional()
         }))
         .mutation(({ input }) => AdminOrderDraftService.addItem({
             ...input,
-            dishId: input.dishId ?? undefined, 
+            dishId: input.dishId ?? undefined,
             packageId: input.packageId ?? undefined
         })),
 
     /**
      * 🏁 FINALIZAR PEDIDO MANUAL
      */
+    updateItem: adminProcedure
+        .input(z.object({
+            itemId: z.string(),
+            quantity: z.number().optional(),
+            unitPrice: z.number().optional(),
+        }))
+        .mutation(({ input }) => AdminOrderDraftService.updateItem(input.itemId, {
+            quantity: input.quantity,
+            unitPrice: input.unitPrice,
+        })),
+
+    removeItem: adminProcedure
+        .input(z.string())
+        .mutation(({ input }) => AdminOrderDraftService.removeItem(input)),
+
+    applyLoyalty: adminProcedure
+        .input(z.object({
+            draftId: z.string(),
+            pointsInput: z.string(),
+        }))
+        .mutation(({ input }) => AdminOrderDraftService.applyLoyalty(input.draftId, input.pointsInput)),
+
+    removeLoyalty: adminProcedure
+        .input(z.object({ draftId: z.string() }))
+        .mutation(({ input }) => AdminOrderDraftService.removeLoyalty(input.draftId)),
+
+    applyCoupon: adminProcedure
+        .input(z.object({
+            draftId: z.string(),
+            code: z.string(),
+        }))
+        .mutation(({ input }) => AdminOrderDraftService.applyCoupon(input.draftId, input.code)),
+
+    cancelSession: adminProcedure
+        .input(z.object({ draftId: z.string() }))
+        .mutation(({ input }) => AdminOrderDraftService.cancelSession(input.draftId)),
+
+    listPackages: adminProcedure
+        .input(z.object({
+            page: z.number().default(1),
+            perPage: z.number().default(20),
+            search: z.string().nullish(),
+        }))
+        .query(({ input }) => AdminOrderDraftService.listPackages({
+            page: input.page,
+            perPage: input.perPage,
+            search: input.search || undefined,
+        })),
+
     placeOrder: adminProcedure
         .input(z.object({ draftId: z.string() }))
         .mutation(({ input }) => AdminOrderFinalizeService.finalize(input.draftId)),
@@ -294,7 +407,7 @@ export const ordersAdminRouter = router({
             const db = await getDb();
             const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
             if (!order) throw new TRPCError({ code: "NOT_FOUND" });
-            
+
             const orderForPayment = {
                 ...order,
                 customerName: order.customerName || "Cliente"
@@ -303,7 +416,7 @@ export const ordersAdminRouter = router({
             const link = await PagSeguroService.createPaymentLink(
                 (orderForPayment as unknown) as Parameters<typeof PagSeguroService.createPaymentLink>[0]
             );
-            
+
             if (!link) throw new TRPCError({ code: "BAD_GATEWAY", message: "Erro ao gerar link de pagamento." });
             return { link };
         }),
@@ -404,7 +517,7 @@ export const ordersAdminRouter = router({
 
             await OrderManagerService.assertOrdersAreMutable(input.ids);
             for (const id of input.ids) {
-                await OrderManagerService.updateStatus(id, input.status as OrderStatus);
+                await OrderManagerService.updateStatus(id, input.status as OrderStatus, (ctx.req as any)?.requestId);
             }
 
             const actor = {

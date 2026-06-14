@@ -20,8 +20,8 @@ export const OrderHeader = ({ orderDate, onDateChange, total, isCancelling, onCa
       </div>
       <div className="text-left">
         <h1 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
-          PDV <span className={isEditing ? "text-amber-500" : "text-emerald-500"}>
-            {isEditing ? "Edição" : "Express"}
+          Venda <span className={isEditing ? "text-amber-500" : "text-emerald-500"}>
+            Manual
           </span>
         </h1>
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
@@ -35,8 +35,8 @@ export const OrderHeader = ({ orderDate, onDateChange, total, isCancelling, onCa
         <label className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-1">
           <Calendar size={10} /> Data da Venda
         </label>
-        <input 
-          type="date" 
+        <input
+          type="date"
           value={orderDate}
           onChange={onDateChange}
           className="bg-slate-50 border-none rounded-xl px-3 py-2 text-xs font-black uppercase text-slate-600 outline-none focus:ring-2 ring-emerald-500"
@@ -50,9 +50,9 @@ export const OrderHeader = ({ orderDate, onDateChange, total, isCancelling, onCa
           R$ {(total || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
         </p>
       </div>
-      <Button 
-        variant="ghost" 
-        size="icon" 
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={onCancel}
         disabled={isCancelling}
         className="h-12 w-12 rounded-2xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white"

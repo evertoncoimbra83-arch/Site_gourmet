@@ -20,7 +20,7 @@ interface OrderFilters {
 
 interface OrderListResponse {
   // ✅ FIX: Uso de 'unknown' em vez de 'any' para satisfazer o ESLint
-  orders: unknown[]; 
+  orders: unknown[];
   meta: {
     totalItems: number;
     totalPages: number;
@@ -30,7 +30,7 @@ interface OrderListResponse {
 
 export function useAdminOrders() {
   const utils = trpc.useUtils();
-  
+
   // Caminho correto conforme seu backend
   const ordersApi = trpc.admin.ordersAdmin;
 
@@ -51,14 +51,14 @@ export function useAdminOrders() {
     },
     {
       placeholderData: keepPreviousData,
-      refetchInterval: 30000, 
+      refetchInterval: 30000,
     }
   );
 
   // 2. 🔍 QUERY DE DETALHES
   const orderDetailsQuery = ordersApi.getById.useQuery(
     { orderId: selectedOrderId as string },
-    { 
+    {
       enabled: !!selectedOrderId,
       staleTime: 1000 * 60 * 5,
     }
@@ -101,7 +101,7 @@ export function useAdminOrders() {
    */
   const handleSetSearch = useCallback((val: string) => {
     setSearch(val);
-    setPage(1); 
+    setPage(1);
   }, []);
 
   const handleSetFilters = useCallback((newFilters: OrderFilters) => {
@@ -114,12 +114,14 @@ export function useAdminOrders() {
   return {
     orders: queryData?.orders || [],
     meta: queryData?.meta || { totalItems: 0, totalPages: 0, currentPage: 1 },
-    selectedOrder: orderDetailsQuery.data, 
+    selectedOrder: orderDetailsQuery.data,
 
     state: {
       isLoading: ordersQuery.isLoading,
       isDetailsLoading: orderDetailsQuery.isLoading,
       isFetching: ordersQuery.isFetching,
+      isError: ordersQuery.isError,
+      error: ordersQuery.error,
       search,
       page,
       filters,

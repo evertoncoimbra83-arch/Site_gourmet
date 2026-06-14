@@ -1,9 +1,9 @@
 // server/routers/admin/orders/OrderManagerService.ts
 
-import { eq, and, sql, isNull, lt, desc, inArray } from "drizzle-orm";
+import { eq, and, sql, isNull, lt, desc, inArray, like } from "drizzle-orm";
 import { getDb } from "../../../db";
 import * as schema from "../../../../drizzle/schema/index";
-import { unseal } from "./AdminOrderHelpers";
+import { unseal, getNumericOrderId } from "./AdminOrderHelpers.js";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 
@@ -16,6 +16,8 @@ import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
 interface PaginationParams {
   page: number;
   perPage: number;
+  search?: string;
+  status?: string;
 }
 
 interface AccompanimentItem {
@@ -29,17 +31,7 @@ interface OrderOptionsJson {
   [key: string]: unknown;
 }
 
-function getNumericOrderId(orderId: string): number {
-  const onlyNumbers = orderId.replace(/\D/g, "");
-  if (onlyNumbers.length > 0 && onlyNumbers.length < 10) return safeNumber(onlyNumbers);
 
-  let hash = 0;
-  for (let i = 0; i < orderId.length; i++) {
-    hash = (hash << 5) - hash + orderId.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
 
 export const FINALIZED_ORDER_STATUSES = ["completed", "cancelled", "delivered"] as const;
 
@@ -74,30 +66,41 @@ export const OrderManagerService = {
       });
     }
   },
-  
+
   /**
    * 📋 LISTAGEM DE PEDIDOS COM DESCRIPTOGRAFIA
    */
   async listOrders(input: PaginationParams) {
     const db = await getDb();
     const offset = (input.page - 1) * input.perPage;
-    
+
+    const filters = [];
+    if (input.status) {
+      filters.push(eq(schema.orders.status, input.status as any));
+    }
+    if (input.search) {
+      filters.push(like(schema.orders.id, `%${input.search.replace("#", "")}%`));
+    }
+    const whereClause = filters.length > 0 ? and(...filters) : undefined;
+
     const data = await db.select().from(schema.orders)
+      .where(whereClause)
       .limit(input.perPage)
       .offset(offset)
       .orderBy(desc(schema.orders.createdAt));
-    
-    const [totalRes] = await db.select({ 
-      count: sql<number>`count(*)` 
-    }).from(schema.orders);
-    
-    return { 
+
+    const [totalRes] = await db.select({
+      count: sql<number>`count(*)`
+    }).from(schema.orders)
+      .where(whereClause);
+
+    return {
       data: data.map(order => ({
         ...order,
         customerName: unseal(order.customerName),
         customerPhone: unseal(order.customerPhone)
-      })), 
-      total: safeNumber(totalRes?.count) 
+      })),
+      total: safeNumber(totalRes?.count)
     };
   },
 
@@ -106,7 +109,7 @@ export const OrderManagerService = {
    */
   async getById(id: string) {
     const db = await getDb();
-    
+
     const [order] = await db.select().from(schema.orders).where(eq(schema.orders.id, id)).limit(1);
     if (!order) return null;
 
@@ -115,7 +118,7 @@ export const OrderManagerService = {
         id: schema.orderItems.id,
         orderId: schema.orderItems.orderId,
         dishId: schema.orderItems.dishId,
-        name: schema.orderItems.dishName, 
+        name: schema.orderItems.dishName,
         quantity: schema.orderItems.quantity,
         unitPrice: schema.orderItems.unitPrice,
         options: schema.orderItems.options,
@@ -128,13 +131,13 @@ export const OrderManagerService = {
     const accompanimentIds = new Set<number>();
     itemsData.forEach(item => {
       try {
-        const opts = typeof item.options === 'string' 
-          ? safeJsonParse<OrderOptionsJson>(item.options, {}) 
+        const opts = typeof item.options === 'string'
+          ? safeJsonParse<OrderOptionsJson>(item.options, {})
           : safeJsonParse<OrderOptionsJson>(item.options, {});
 
         if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
-          opts.accompaniments.forEach((acc: AccompanimentItem) => { 
-            if (acc.id) accompanimentIds.add(safeNumber(acc.id)); 
+          opts.accompaniments.forEach((acc: AccompanimentItem) => {
+            if (acc.id) accompanimentIds.add(safeNumber(acc.id));
           });
         }
       } catch { /* parse fail safe */ }
@@ -150,22 +153,22 @@ export const OrderManagerService = {
         })
         .from(schema.accompanimentOptions)
         .where(inArray(schema.accompanimentOptions.id, Array.from(accompanimentIds)));
-      
+
       accompData.forEach(acc => {
         const text = acc.ingredients ? `${acc.name} (${acc.ingredients})` : acc.name;
         accompMap.set(acc.id, text);
       });
     }
 
-    return { 
-      ...order, 
-      customerName: unseal(order.customerName), 
+    return {
+      ...order,
+      customerName: unseal(order.customerName),
       customerPhone: unseal(order.customerPhone),
       items: itemsData.map(item => {
         let accompText = "";
         try {
-          const opts = typeof item.options === 'string' 
-            ? safeJsonParse<OrderOptionsJson>(item.options, {}) 
+          const opts = typeof item.options === 'string'
+            ? safeJsonParse<OrderOptionsJson>(item.options, {})
             : safeJsonParse<OrderOptionsJson>(item.options, {});
 
           if (opts?.accompaniments && Array.isArray(opts.accompaniments)) {
@@ -179,7 +182,7 @@ export const OrderManagerService = {
         return {
           ...item,
           ingredients: item.mainDishIngredients || "",
-          accompaniments_ingredients: accompText || "", 
+          accompaniments_ingredients: accompText || "",
           applied_nutrition: item.appliedNutrition
         };
       })
@@ -189,21 +192,22 @@ export const OrderManagerService = {
   /**
    * 🔄 ATUALIZAR STATUS E DISPARAR ANALYTICS
    */
-  async updateStatus(id: string, status: string) {
+  async updateStatus(id: string, status: string, requestId?: string) {
     const db = await getDb();
     await this.assertOrdersAreMutable([id]);
-    
+
     const result = await db.update(schema.orders)
       .set({ status, updatedAt: new Date() } as typeof schema.orders.$inferInsert)
       .where(eq(schema.orders.id, id));
 
-    if (status === "completed" || status === "concluded") {
+    const statusForBI = ["completed", "concluded", "shipped", "delivered"];
+    if (statusForBI.includes(status)) {
       try {
         await enqueueBIAnalyticsJob(id, {
           removeOnComplete: true,
           attempts: 3,
           backoff: 5000,
-        });
+        }, requestId);
       } catch (err) {
         console.error("[BI-ANALYTICS] Erro ao disparar fila:", err);
       }
@@ -271,7 +275,7 @@ export const OrderManagerService = {
    */
   async getAbandonedCarts() {
     const db = await getDb();
-    
+
     const result = await db.select({
         id: schema.carts.id,
         customerName: schema.users.name,
@@ -288,11 +292,11 @@ export const OrderManagerService = {
       .orderBy(desc(schema.carts.updatedAt))
       .limit(50);
 
-    return result.map(cart => ({ 
-      ...cart, 
-      customerName: unseal(cart.customerName) || "Visitante Anônimo", 
-      customerPhone: unseal(cart.customerPhone), 
-      total: safeNumber(cart.subtotal) 
+    return result.map(cart => ({
+      ...cart,
+      customerName: unseal(cart.customerName) || "Visitante Anônimo",
+      customerPhone: unseal(cart.customerPhone),
+      total: safeNumber(cart.subtotal)
     }));
   },
 
@@ -302,14 +306,14 @@ export const OrderManagerService = {
    */
   async getEmptyOldCarts() {
     const db = await getDb();
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000); 
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     return db.select({ id: schema.carts.id })
       .from(schema.carts)
       .leftJoin(schema.cartItems, eq(schema.cartItems.cartId, schema.carts.id))
       .where(and(
-        isNull(schema.cartItems.id), 
-        eq(schema.carts.status, "active"), 
+        isNull(schema.cartItems.id),
+        eq(schema.carts.status, "active"),
         lt(schema.carts.updatedAt, oneDayAgo)
       ))
       .groupBy(schema.carts.id)
@@ -322,7 +326,7 @@ export const OrderManagerService = {
    */
   async clearEmptyOldCarts() {
     const db = await getDb();
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000); 
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     await db.delete(schema.carts).where(
       and(
@@ -344,4 +348,4 @@ export const OrderManagerService = {
     await db.delete(schema.carts).where(inArray(schema.carts.id, ids));
     return { success: true, count: ids.length };
   },
-};    
+};

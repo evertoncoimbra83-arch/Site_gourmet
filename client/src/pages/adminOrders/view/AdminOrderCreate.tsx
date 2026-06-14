@@ -1,8 +1,9 @@
 // client/src/pages/adminOrders/view/AdminOrderCreate.tsx
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAdminOrderWizard } from "../logic/useAdminOrderWizard.ts";
+import { getManualSaleStartupState } from "../logic/manualSaleState";
 import { trpc } from "@/_core/trpc";
 
 // Componentes de Passo
@@ -12,7 +13,7 @@ import StepItems from "./steps/StepItems";
 
 // Novos Componentes Refatorados
 import { OrderHeader } from "./steps/orderCreate/OrderHeader";
-import { OrderPaymentSection } from "./steps/OrderPaymentSection"; 
+import { OrderPaymentSection } from "./steps/OrderPaymentSection";
 import { OrderTotalsSidebar } from "./steps/orderCreate/OrderTotalsSidebar";
 
 // Componente do Rascunho
@@ -22,6 +23,7 @@ import { RecoverCartSheet } from "../view/RecoverCartSheet";
 import { Loader2, ShoppingCart, History, AlertCircle, StickyNote } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // --- INTERFACES DE DADOS ---
 
@@ -40,7 +42,7 @@ interface CouponResult {
 
 interface CustomerData {
   id: string;
-  name: string; 
+  name: string;
   availablePoints?: number;
   email?: string;
   phone?: string;
@@ -85,6 +87,7 @@ interface PaymentMethodData {
 
 // ✅ Tipagem do Roteador Atualizada sem 'any'
 interface OrdersAdminApi {
+  init: { useMutation: (opts: Record<string, unknown>) => { mutate: () => void, isPending: boolean, isError: boolean, error: unknown } };
   recoverDraft: { useMutation: (opts: Record<string, unknown>) => { mutate: (data: Record<string, unknown>) => void } };
   applyLoyalty: { useMutation: (opts: Record<string, unknown>) => { mutate: (data: Record<string, unknown>) => void, isPending: boolean } };
   removeLoyalty: { useMutation: (opts: Record<string, unknown>) => { mutate: (data: Record<string, unknown>) => void } };
@@ -102,23 +105,52 @@ export default function AdminOrderCreate() {
   const draftId = searchParams.get("draftId");
 
   const [isRecoverOpen, setIsRecoverOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "saveEdit" | null>(null);
+  const hasRequestedInitialDraft = useRef(false);
 
   const wizard = useAdminOrderWizard(draftId);
-  
+
   const orderData = wizard.orderData as unknown as OrderDataState;
   const updateData = wizard.updateData as (data: Partial<OrderDataState>) => void;
   const totals = wizard.totals as { subtotal: number; total: number; itemCount: number };
   const wizardLoading = wizard.isLoading;
 
-  const { data: rawPaymentMethods = [] } = trpc.public.paymentMethods.list.useQuery(undefined, {
+  const {
+    data: rawPaymentMethods = [],
+    isError: paymentMethodsError,
+  } = trpc.public.paymentMethods.list.useQuery(undefined, {
     staleTime: 1000 * 60 * 5,
+    retry: 1,
   });
-  
+
   const paymentMethods = rawPaymentMethods as unknown as PaymentMethodData[];
-  
+
   const ordersAdmin = (trpc.admin.ordersAdmin as unknown as OrdersAdminApi);
 
   // --- MUTATIONS ---
+  const initManualSaleMutation = ordersAdmin.init.useMutation({
+    onSuccess: (data: unknown) => {
+      const typedData = data as { draftId?: string; id?: string };
+      const nextDraftId = typedData.draftId || typedData.id;
+      if (!nextDraftId) {
+        toast.error("Não foi possível iniciar a Venda Manual.");
+        return;
+      }
+
+      navigate(`/admin/orders/create?draftId=${nextDraftId}`, { replace: true });
+    },
+    onError: (err: unknown) => {
+      toast.error("Erro ao iniciar Venda Manual: " + ((err as { message?: string }).message || "tente novamente."));
+    },
+  });
+
+  useEffect(() => {
+    if (!draftId && !hasRequestedInitialDraft.current) {
+      hasRequestedInitialDraft.current = true;
+      initManualSaleMutation.mutate();
+    }
+  }, [draftId, initManualSaleMutation]);
+
   const recoverDraftMutation = ordersAdmin.recoverDraft.useMutation({
     onSuccess: (data: unknown, variables: unknown) => {
       const typedData = data as { newDraftId?: string };
@@ -159,8 +191,8 @@ export default function AdminOrderCreate() {
   const applyCouponMutation = ordersAdmin.applyCoupon.useMutation({
     onSuccess: (data: unknown) => {
       const typedData = data as CouponResult;
-      const calculatedDiscount = typedData.coupon.type === 'percentage' 
-        ? (totals.subtotal * typedData.coupon.value) / 100 
+      const calculatedDiscount = typedData.coupon.type === 'percentage'
+        ? (totals.subtotal * typedData.coupon.value) / 100
         : typedData.coupon.value;
       updateData({ couponCode: typedData.coupon.code, couponValue: calculatedDiscount });
       ordersAdmin.getDraft.invalidate();
@@ -173,7 +205,7 @@ export default function AdminOrderCreate() {
     onSuccess: (res: unknown) => {
       const typedRes = res as { orderId: string };
       ordersAdmin.list.invalidate();
-      
+
       if (orderData.editingOrderId) {
         toast.success("Pedido atualizado com sucesso!");
         navigate("/admin/orders", { replace: true });
@@ -193,20 +225,80 @@ export default function AdminOrderCreate() {
     onError: (err: unknown) => toast.error((err as { message: string }).message),
   });
 
-  if (!draftId || wizardLoading) {
+  const startupState = getManualSaleStartupState({
+    draftId,
+    wizardLoading,
+    initPending: initManualSaleMutation.isPending,
+    initError: initManualSaleMutation.isError,
+    wizardError: Boolean((wizard as { isError?: boolean }).isError),
+  });
+
+  if (startupState === "error") {
+    const error = initManualSaleMutation.error || (wizard as { error?: unknown }).error;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center">
+        <AlertCircle className="text-red-500" size={40} />
+        <div className="max-w-md space-y-2">
+          <p className="font-black uppercase text-sm text-slate-900">Venda Manual indisponível</p>
+          <p className="text-xs font-bold text-slate-500">
+            {(error as { message?: string })?.message || "Não foi possível carregar a sessão. Tente novamente."}
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            if (draftId) {
+              window.location.reload();
+              return;
+            }
+            initManualSaleMutation.mutate();
+          }}
+          className="rounded-2xl bg-slate-900 px-6 font-black uppercase text-[10px]"
+        >
+          Tentar novamente
+        </Button>
+      </div>
+    );
+  }
+
+  if (startupState !== "ready") {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-slate-50">
         <Loader2 className="animate-spin text-emerald-600" size={40} />
-        <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">Processando Sessão...</p>
+        <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">Abrindo Venda Manual...</p>
       </div>
     );
   }
 
   const paymentDiscountOnly = Math.max(0, orderData.discountValue - (orderData.couponCode ? orderData.couponValue : 0) - (orderData.loyaltyValue || 0));
+  const activeDraftId = draftId;
+  if (!activeDraftId) return null;
 
   return (
     <div className="max-w-400 mx-auto p-4 lg:p-8 animate-in fade-in duration-500 font-sans text-left">
-      
+      <ConfirmDialog
+        open={confirmAction === "cancel"}
+        title="Cancelar venda manual?"
+        description="O rascunho atual sera descartado e nao podera ser recuperado."
+        confirmLabel="Cancelar venda"
+        cancelLabel="Continuar editando"
+        destructive
+        loading={cancelSessionMutation.isPending}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => cancelSessionMutation.mutate({ draftId: activeDraftId })}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === "saveEdit"}
+        title="Salvar alteracoes no pedido?"
+        description="As alteracoes serao aplicadas ao pedido original."
+        confirmLabel="Salvar alteracoes"
+        cancelLabel="Revisar antes"
+        loading={placeOrderMutation.isPending}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => placeOrderMutation.mutate({ draftId: activeDraftId })}
+      />
+
+
       {orderData.editingOrderId && (
         <div className="mb-6 bg-amber-50 border-2 border-amber-200 p-4 rounded-3xl flex items-center gap-4 shadow-sm">
           <div className="bg-amber-500 text-white p-2 rounded-xl">
@@ -220,16 +312,16 @@ export default function AdminOrderCreate() {
       )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <OrderHeader 
-          orderDate={orderData.orderDate || new Date().toISOString().split('T')[0]} 
+        <OrderHeader
+          orderDate={orderData.orderDate || new Date().toISOString().split('T')[0]}
           onDateChange={(e: React.ChangeEvent<HTMLInputElement>) => updateData({ orderDate: e.target.value })}
           total={totals.total}
           isCancelling={cancelSessionMutation.isPending}
-          onCancel={() => confirm("Deseja cancelar?") && cancelSessionMutation.mutate({ draftId })}
+          onCancel={() => setConfirmAction("cancel")}
           isEditing={!!orderData.editingOrderId}
         />
-        
-        <Button 
+
+        <Button
           variant="outline"
           onClick={() => setIsRecoverOpen(true)}
           className="rounded-2xl border-slate-200 bg-white hover:bg-emerald-50 hover:text-emerald-600 text-slate-500 font-black text-[10px] uppercase tracking-[0.2em] h-12 px-6 transition-all shadow-sm flex gap-2"
@@ -243,10 +335,10 @@ export default function AdminOrderCreate() {
         <div className="lg:col-span-8 space-y-6 pb-20">
           <section className="bg-white rounded-4xl border border-slate-100 shadow-sm p-2">
             {/* ✅ CORREÇÃO: Usando unknown casted de forma segura */}
-            <StepCustomer 
-              selected={(orderData.customer as unknown) as never} 
-              onSelect={(selection) => updateData({ customer: (selection as unknown) as CustomerData })} 
-              isSinglePageView 
+            <StepCustomer
+              selected={(orderData.customer as unknown) as never}
+              onSelect={(selection) => updateData({ customer: (selection as unknown) as CustomerData })}
+              isSinglePageView
             />
           </section>
 
@@ -255,31 +347,31 @@ export default function AdminOrderCreate() {
               <ShoppingCart size={14} className="text-slate-400" />
               <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Carrinho</h3>
             </div>
-            <StepItems draftId={draftId} />
+            <StepItems draftId={activeDraftId} />
           </section>
 
           <section className="bg-white rounded-4xl border border-slate-100 shadow-sm p-2">
-            <StepDelivery 
-              data={({ 
-                deliveryMode: orderData.deliveryMode, 
-                address: orderData.address || null, 
+            <StepDelivery
+              data={({
+                deliveryMode: orderData.deliveryMode,
+                address: orderData.address || null,
                 deliveryFee: orderData.deliveryFee
-              } as unknown) as never} 
-              onUpdate={(payload) => updateData((payload as unknown) as Partial<OrderDataState>)} 
+              } as unknown) as never}
+              onUpdate={(payload) => updateData((payload as unknown) as Partial<OrderDataState>)}
             />
           </section>
         </div>
 
         <aside className="lg:col-span-4 space-y-6 lg:sticky lg:top-8">
-          <OrderPaymentSection 
-            orderData={(orderData as unknown) as never} 
-            paymentMethods={(paymentMethods as unknown) as never}
-            maxDiscountPossible={0} 
-            calculatePointsForValue={(v: number) => v} 
+          <OrderPaymentSection
+            orderData={(orderData as unknown) as never}
+            paymentMethods={((paymentMethodsError ? [] : paymentMethods) as unknown) as never}
+            maxDiscountPossible={0}
+            calculatePointsForValue={(v: number) => v}
             onUpdate={(payload) => updateData((payload as unknown) as Partial<OrderDataState>)}
-            onApplyCoupon={(code: string) => applyCouponMutation.mutate({ draftId: draftId!, code })}
-            onApplyLoyalty={(pts: string) => applyLoyaltyMutation.mutate({ draftId: draftId!, pointsInput: pts })}
-            onRemoveLoyalty={() => removeLoyaltyMutation.mutate({ draftId: draftId! })}
+            onApplyCoupon={(code: string) => applyCouponMutation.mutate({ draftId: activeDraftId, code })}
+            onApplyLoyalty={(pts: string) => applyLoyaltyMutation.mutate({ draftId: activeDraftId, pointsInput: pts })}
+            onRemoveLoyalty={() => removeLoyaltyMutation.mutate({ draftId: activeDraftId })}
             isCouponPending={applyCouponMutation.isPending}
             isLoyaltyPending={applyLoyaltyMutation.isPending}
           />
@@ -289,7 +381,7 @@ export default function AdminOrderCreate() {
               <StickyNote size={14} className="text-slate-400" />
               <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Observações Internas</h4>
             </div>
-            <textarea 
+            <textarea
               value={orderData.notes || ""}
               onChange={(e) => updateData({ notes: e.target.value })}
               placeholder="Ex: Retirar cebola..."
@@ -297,18 +389,15 @@ export default function AdminOrderCreate() {
             />
           </section>
 
-          <OrderTotalsSidebar 
+          <OrderTotalsSidebar
             totals={totals}
-            orderData={(orderData as unknown) as never} 
+            orderData={(orderData as unknown) as never}
             paymentDiscountOnly={paymentDiscountOnly}
             onFinalize={() => {
-              if(!draftId) return;
               if(orderData.editingOrderId) {
-                if(confirm("Confirmar alterações no pedido original?")) {
-                  placeOrderMutation.mutate({ draftId });
-                }
+                setConfirmAction("saveEdit");
               } else {
-                placeOrderMutation.mutate({ draftId });
+                placeOrderMutation.mutate({ draftId: activeDraftId });
               }
             }}
             isPending={placeOrderMutation.isPending}
@@ -316,7 +405,7 @@ export default function AdminOrderCreate() {
         </aside>
       </div>
 
-      <RecoverCartSheet 
+      <RecoverCartSheet
         isOpen={isRecoverOpen}
         onClose={() => setIsRecoverOpen(false)}
         onSelect={(id) => {
