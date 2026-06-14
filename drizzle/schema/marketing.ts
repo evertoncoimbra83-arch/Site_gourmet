@@ -7,7 +7,9 @@ import {
   boolean,
   int,
   timestamp,
-  mysqlEnum
+  mysqlEnum,
+  index,
+  uniqueIndex
 } from "drizzle-orm/mysql-core";
 
 import { users } from "./users";
@@ -89,4 +91,50 @@ export const couponUsageRelations = relations(couponUsage, ({ one }) => ({
   coupon: one(coupons, { fields: [couponUsage.couponId], references: [coupons.id] }),
   user: one(users, { fields: [couponUsage.userId], references: [users.id] }),
   order: one(orders, { fields: [couponUsage.orderId], references: [orders.id] }),
+}));
+export const announcements = mysqlTable("announcements", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  type: mysqlEnum("type", ["INFO", "PROMO", "NEWS", "DELIVERY", "SYSTEM"]).default("INFO").notNull(),
+  iconEmoji: varchar("icon_emoji", { length: 16 }),
+  visibilityScope: mysqlEnum("visibility_scope", ["all", "authenticated", "specific_users"]).default("all").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
+});
+
+export const announcementTargets = mysqlTable("announcement_targets", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  announcementId: varchar("announcement_id", { length: 255 })
+    .notNull()
+    .references(() => announcements.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 })
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  announcementIdx: index("announcement_targets_announcement_id_idx").on(table.announcementId),
+  userIdx: index("announcement_targets_user_id_idx").on(table.userId),
+  announcementUserIdx: uniqueIndex("announcement_targets_announcement_user_idx").on(
+    table.announcementId,
+    table.userId,
+  ),
+}));
+
+export const announcementRelations = relations(announcements, ({ many }) => ({
+  targets: many(announcementTargets),
+}));
+
+export const announcementTargetRelations = relations(announcementTargets, ({ one }) => ({
+  announcement: one(announcements, {
+    fields: [announcementTargets.announcementId],
+    references: [announcements.id],
+  }),
+  user: one(users, {
+    fields: [announcementTargets.userId],
+    references: [users.id],
+  }),
 }));

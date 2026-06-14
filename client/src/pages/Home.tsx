@@ -16,6 +16,7 @@ import PackageDrawer from "./packages/view/PackageDrawer";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { ActiveDietBanner } from "@/components/ActiveDietBanner";
 import { ProductCard } from "@/components/ProductCard";
+import { HomeAnnouncementBanner } from "./home/components/HomeAnnouncementBanner";
 import {
   Accordion,
   AccordionContent,
@@ -180,6 +181,7 @@ export default function Home() {
   const { data: storeSettings } = trpc.store.public.getPublicSettings.useQuery();
   const { data: packages, isLoading: isPackagesLoading } = trpc.store.packages.list.useQuery();
   const { data: categoriesData } = trpc.public.dishes.categories.useQuery(undefined, { staleTime: 1000 * 60 * 30 });
+  const { data: featuredAnnouncement } = trpc.announcements.getFeatured.useQuery();
 
   const isEmergency = !!storeSettings?.emergencyMode;
 
@@ -350,6 +352,10 @@ export default function Home() {
         path="/"
         schemaMarkup={schemas}
       />
+
+      {featuredAnnouncement && (
+        <HomeAnnouncementBanner announcement={featuredAnnouncement} />
+      )}
 
       {/* ================= HERO (LIMPO SEM IMAGEM) ================= */}
       <section className="relative overflow-hidden pt-12 pb-20 lg:pt-24 lg:pb-32">

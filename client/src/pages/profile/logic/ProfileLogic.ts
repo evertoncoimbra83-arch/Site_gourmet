@@ -52,7 +52,7 @@ export function useProfileLogic(subroute?: string) {
   
   const utils = trpc.useUtils();
 
-  const validTabs = ["home", "dados", "pedidos", "enderecos", "fidelidade", "seguranca"];
+  const validTabs = ["home", "dados", "pedidos", "enderecos", "fidelidade", "seguranca", "avisos"];
   
   const initialTab = useMemo(() => {
     if (!subroute) return "home";
@@ -110,6 +110,16 @@ export function useProfileLogic(subroute?: string) {
   const recentAuthQuery = trpc.auth.recentAuthActivity.useQuery(undefined, {
     enabled: !!authUser && activeTab === "seguranca",
   });
+
+  const announcementsQuery = trpc.announcements.listActive.useQuery(undefined, {
+    enabled: !!authUser
+  });
+
+  useEffect(() => {
+    if (authUser) {
+      announcementsQuery.refetch();
+    }
+  }, [authUser?.id]);
 
   // --- MUTATIONS DE SEGURANÇA ---
 
@@ -224,6 +234,9 @@ export function useProfileLogic(subroute?: string) {
       diet: dietQuery.data || [],
       isLoadingDiet: dietQuery.isLoading,
 
+      announcements: announcementsQuery.data || [],
+      isLoadingAnnouncements: announcementsQuery.isLoading,
+
       sessions: sessionsQuery.data || [],
       isLoadingSessions: sessionsQuery.isLoading,
       recentAuthActivity: recentAuthQuery.data || [],
@@ -257,6 +270,7 @@ export function useProfileLogic(subroute?: string) {
         utils.nutri.getDashboard.invalidate();
         utils.auth.listSessions.invalidate();
         utils.auth.recentAuthActivity.invalidate();
+        utils.announcements.listActive.invalidate();
       }
     }),
     [
@@ -269,7 +283,8 @@ export function useProfileLogic(subroute?: string) {
       updateAddressMutation, sessionsQuery.data, sessionsQuery.isLoading,
       recentAuthQuery.data, recentAuthQuery.isLoading, logoutOtherSessionsMutation.isPending,
       logoutAllSessionsMutation.isPending, logoutSessionMutation.isPending,
-      logoutOtherSessionsMutation, logoutAllSessionsMutation, logoutSessionMutation, utils
+      logoutOtherSessionsMutation, logoutAllSessionsMutation, logoutSessionMutation, utils,
+      announcementsQuery.data, announcementsQuery.isLoading
     ]
   );
 }

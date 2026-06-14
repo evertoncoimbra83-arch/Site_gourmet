@@ -130,6 +130,7 @@ export const adminRoutes: RouteConfig[] = [
   { path: "offers", element: lazy(() => import("../../pages/AdminDiscountRules")), role: ["super_admin", "admin"] },
   { path: "loyalty", element: lazy(() => import("../../pages/AdminLoyalty")), role: ["super_admin", "admin"] },
   { path: "mail", element: lazy(() => import("../../pages/AdminMail")), role: ["super_admin", "admin"] },
+  { path: "announcements", element: lazy(() => import("../../pages/AdminAnnouncements")), role: ["super_admin", "admin"] },
 
   // Catálogo
   { path: "dishes", element: lazy(() => import("../../pages/AdminDishes")), role: ["super_admin", "admin"] },

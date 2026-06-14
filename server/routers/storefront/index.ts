@@ -18,6 +18,7 @@ import { sizesRouter } from "./sizes.js";
 import { couponsRouter } from "./coupons.js";
 import { discountsRouter } from "./discounts.js";
 import { loyaltyRouter } from "./loyalty.js";
+import { storefrontAnnouncementsRouter } from "./announcements.js";
 
 import { publicRouter } from "./public.js";
 
@@ -78,6 +79,7 @@ export const storefrontRouter = router({
   coupons: couponsRouter,
   discounts: discountsRouter,
   loyalty: loyaltyRouter,
+  announcements: storefrontAnnouncementsRouter,
 
   // 🤖 SERVIÇOS ADICIONAIS
   nutri: nutriRouter, 

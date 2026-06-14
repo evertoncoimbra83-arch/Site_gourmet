@@ -10,6 +10,7 @@ import { securityRouter } from "./security.js";
 import { adminNutriRouter } from "./nutri/nutri.js"; 
 import { adminMediaRouter } from "./media.js"; 
 import { adminMarketingRouter } from "./marketing.js"; 
+import { adminAnnouncementsRouter } from "./announcements.js";
 import { adminLoyaltySettingsRouter } from "./loyalty.js";
 import { adminCouponsRouter } from "./coupons.js";
 import { adminDiscountRulesRouter } from "./discount-rules.js";
@@ -75,6 +76,7 @@ export const adminRouter = router({
   nutris: adminNutriRouter, 
   referral: adminReferralRouter,
   marketing: adminMarketingRouter, 
+  announcements: adminAnnouncementsRouter,
   media: adminMediaRouter,
   mail: mailAdminRouter, 
   
