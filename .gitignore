@@ -17,3 +17,6 @@ node_modules/
 .env
 .env
 .env
+
+# Testes e relatórios locais
+test_results.txt
