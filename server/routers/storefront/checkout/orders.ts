@@ -192,6 +192,13 @@ export async function createOrderWithItems(params: {
         (typeof opts.packageName === "string" && opts.packageName) ||
         cItem.name ||
         "Item";
+      const sizeName =
+        (typeof opts.sizeName === "string" && opts.sizeName) ||
+        (typeof opts.selectedSizeName === "string" && opts.selectedSizeName) ||
+        null;
+      Object.assign(opts, {
+        sizeName,
+      });
 
       return {
         id: `ITM-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,

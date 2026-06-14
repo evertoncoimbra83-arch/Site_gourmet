@@ -9,9 +9,19 @@ import {
 import { z } from "zod";
 import { and, eq, isNull, ne, desc } from "drizzle-orm";
 import { getDb } from "../../../db.js";
-import { users, sessions, auditLogs, userOauthAccounts } from "../../../../drizzle/schema/index.js";
-import { decrypt } from "../../../encryption.js";
-import { lucia } from "../../../auth.js";
+import {
+  users,
+  sessions,
+  auditLogs,
+  userOauthAccounts,
+  guests,
+  nutriProfiles,
+  professionalClients,
+} from "../../../../drizzle/schema/index.js";
+import { decrypt, encrypt, piiHash } from "../../../encryption.js";
+import { lucia, promoteCart } from "../../../auth.js";
+import { signLinkingToken, verifyLinkingToken } from "../../../auth/oauth/linkingToken.js";
+import { generateGoogleAuthUrl } from "../../../auth/oauth/google.js";
 import { AuditLogService } from "../../../services/AuditLogService.js";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
@@ -213,6 +223,127 @@ export const authRouter = router({
   /**
    * 🔒 LISTA AS SESSÕES ATIVAS
    */
+  linkReferral: protectedProcedure
+    .input(
+      z.object({
+        referralCode: z.string().trim().min(2, "Codigo de convite obrigatorio."),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      const [nutri] = await db
+        .select({
+          id: nutriProfiles.id,
+          userId: nutriProfiles.userId,
+          referralCode: nutriProfiles.referralCode,
+          isActive: nutriProfiles.isActive,
+        })
+        .from(nutriProfiles)
+        .where(eq(nutriProfiles.referralCode, input.referralCode))
+        .limit(1);
+
+      if (!nutri || nutri.isActive === false) {
+        void AuditLogService.record({
+          actor: {
+            userId: ctx.user.id,
+            ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+            userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "REFERRAL_LINK_DENIED",
+          severity: "warning",
+          entityType: "professional_client",
+          newValues: { reason: "invalid_referral_code" },
+        });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Codigo de convite invalido ou inativo.",
+        });
+      }
+
+      if (nutri.userId === ctx.user.id) {
+        void AuditLogService.record({
+          actor: {
+            userId: ctx.user.id,
+            ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+            userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "REFERRAL_LINK_DENIED",
+          severity: "warning",
+          entityType: "professional_client",
+          entityId: nutri.id,
+          newValues: { reason: "self_link" },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "O nutricionista nao pode aceitar o proprio convite.",
+        });
+      }
+
+      const [currentUser = { referralCode: null }] = await db
+        .select({ referralCode: users.referralCode })
+        .from(users)
+        .where(eq(users.id, ctx.user.id))
+        .limit(1);
+
+      const existingRelationship = await db.query.professionalClients.findFirst({
+        where: and(
+          eq(professionalClients.professionalId, nutri.id),
+          eq(professionalClients.clientId, ctx.user.id),
+        ),
+      });
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({ referralCode: input.referralCode })
+          .where(eq(users.id, ctx.user.id));
+
+        if (!existingRelationship) {
+          await tx.insert(professionalClients).values({
+            id: crypto.randomUUID(),
+            professionalId: nutri.id,
+            clientId: ctx.user.id,
+            status: "active",
+          });
+        } else if (existingRelationship.status !== "active") {
+          await tx
+            .update(professionalClients)
+            .set({ status: "active", updatedAt: new Date() })
+            .where(eq(professionalClients.id, existingRelationship.id));
+        }
+      });
+
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+        },
+        module: "auth",
+        action: "REFERRAL_LINKED",
+        severity: "info",
+        entityType: "professional_client",
+        entityId: nutri.id,
+        newValues: {
+          professionalId: nutri.id,
+          clientId: ctx.user.id,
+          hadReferral: Boolean(currentUser.referralCode),
+          status: existingRelationship ? "ALREADY_LINKED" : "LINKED",
+        },
+      });
+
+      return {
+        success: true,
+        status: existingRelationship ? "ALREADY_LINKED" : "LINKED",
+        professionalId: nutri.id,
+      };
+    }),
+
   listSessions: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     const userSessions = await db
