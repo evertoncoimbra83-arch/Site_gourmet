@@ -46,7 +46,7 @@ export function FinanceTab({ stats }: { stats: AnalyticsData }) {
             <CreditCard size={18} />
           </div>
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Métodos Ativos</p>
-          <p className="text-2xl font-black italic tracking-tighter text-slate-900">{data.length}</p>
+          <p className="text-2xl font-black italic tracking-tighter text-slate-900">{formatters.num(data.length)}</p>
         </div>
       </div>
 
@@ -98,7 +98,7 @@ export function FinanceTab({ stats }: { stats: AnalyticsData }) {
                   <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${pct}%`, background: item.color }} />
                   </div>
-                  <span className="text-[10px] font-black text-slate-500 w-10 text-right">{pct.toFixed(0)}%</span>
+                  <span className="text-[10px] font-black text-slate-500 w-12 text-right">{formatters.percent(pct)}</span>
                   <span className="text-[12px] font-black text-slate-900 w-24 text-right">{formatters.money(item.value)}</span>
                 </div>
               </div>

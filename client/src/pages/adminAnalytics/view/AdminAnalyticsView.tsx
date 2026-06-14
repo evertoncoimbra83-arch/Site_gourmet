@@ -11,24 +11,18 @@ import { MarketingTab } from "./tab/MarketingTab";
 import { FinanceTab } from "./tab/FinanceTab";
 import { HealthTab } from "./tab/HealthTab";
 import { EmptyState } from "../components/EmptyState";
+import { VipTab } from "./tab/VipTab";
+import { CampaignsTab } from "./tab/CampaignsTab";
+import { BirthdaysTab } from "./tab/BirthdaysTab";
 
 // ── Tipos exportados para os tabs usarem ──────────────────────
 export type MetricKey = "revenue" | "orders" | "ticket" | "customers" | "discounts";
 
 export interface AnalyticsFilters {
-  periodIndex: number;
+  period: any;
   metric: MetricKey;
   compare: boolean;
 }
-
-// ── Config dos períodos ───────────────────────────────────────
-const PERIODS = [
-  { label: "Hoje",  short: "1D" },
-  { label: "7 dias", short: "7D" },
-  { label: "30 dias", short: "30D" },
-  { label: "90 dias", short: "90D" },
-  { label: "12 meses", short: "12M" },
-];
 
 // ── Config das métricas ───────────────────────────────────────
 const METRICS: { key: MetricKey; label: string; icon: React.ReactNode }[] = [
@@ -39,11 +33,11 @@ const METRICS: { key: MetricKey; label: string; icon: React.ReactNode }[] = [
 ];
 
 // ── Tabs principais ───────────────────────────────────────────
-const TABS = ["Geral", "Produtos", "Marketing", "Financeiro", "Infraestrutura"];
+const TABS = ["Geral", "Financeiro", "Produtos", "VIP", "Campanhas", "Aniversários"];
 
 export default function AdminAnalyticsView() {
   const {
-    stats, isLoading, periodIndex, setPeriodIndex,
+    stats, isLoading, period, setPeriod,
     syncHistory, isSyncing,
   } = useAdminAnalytics();
 
@@ -56,7 +50,16 @@ export default function AdminAnalyticsView() {
   });
   const isSystemCritical = health?.status === "critical";
 
-  const filters: AnalyticsFilters = { periodIndex, metric, compare };
+  const filters: AnalyticsFilters = { period, metric, compare };
+
+  const presets = [
+    { key: "today", label: "Hoje" },
+    { key: "7d", label: "7 dias" },
+    { key: "30d", label: "30 dias" },
+    { key: "90d", label: "90 dias" },
+    { key: "current_month", label: "Mês Atual" },
+    { key: "custom", label: "Personalizado" },
+  ];
 
   if (isLoading && !stats) {
     return (
@@ -112,9 +115,6 @@ export default function AdminAnalyticsView() {
               )}
             >
               {tab}
-              {i === 4 && isSystemCritical && (
-                <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
-              )}
               {activeTab === i && (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
               )}
@@ -123,74 +123,93 @@ export default function AdminAnalyticsView() {
         </div>
       </div>
 
-      {/* ── BARRA DE FILTROS (só quando não é infra) ─────── */}
-      {activeTab !== 4 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 py-5 border-b border-slate-50 mb-8">
+      {/* ── BARRA DE FILTROS ─────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 py-5 border-b border-slate-50 mb-8">
 
-          {/* Seletor de Período */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Período</span>
-            {PERIODS.map((p, i) => (
+        {/* Seletor de Período */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Período</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {presets.map((p) => (
               <button
-                key={i}
-                onClick={() => setPeriodIndex(i)}
+                key={p.key}
+                onClick={() => setPeriod({ preset: p.key as any, startDate: period.startDate, endDate: period.endDate })}
                 className={cn(
                   "h-8 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
-                  periodIndex === i
+                  period.preset === p.key
                     ? "bg-slate-900 text-white shadow-sm"
                     : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                 )}
               >
-                {p.short}
+                {p.label}
               </button>
             ))}
           </div>
 
-          {/* Seletor de Métrica + Toggle de Comparação */}
-          {activeTab === 0 && (
-            <div className="flex items-center gap-3">
-              {/* Métrica */}
-              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-                {METRICS.map((m) => (
-                  <button
-                    key={m.key}
-                    onClick={() => setMetric(m.key)}
-                    className={cn(
-                      "flex items-center gap-1.5 h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                      metric === m.key
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-400 hover:text-slate-600"
-                    )}
-                  >
-                    {m.icon} {m.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Toggle Comparação */}
-              <button
-                onClick={() => setCompare(!compare)}
-                className={cn(
-                  "h-8 px-4 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all",
-                  compare
-                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-                )}
-              >
-                vs Período Anterior
-              </button>
+          {period.preset === "custom" && (
+            <div className="flex items-center gap-2 sm:ml-4 animate-in fade-in slide-in-from-left-2 duration-300">
+              <input
+                type="date"
+                value={period.startDate || ""}
+                onChange={(e) => setPeriod({ ...period, startDate: e.target.value })}
+                className="h-8 px-2 rounded-xl border border-slate-200 bg-white text-[10px] font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+              />
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">até</span>
+              <input
+                type="date"
+                value={period.endDate || ""}
+                onChange={(e) => setPeriod({ ...period, endDate: e.target.value })}
+                className="h-8 px-2 rounded-xl border border-slate-200 bg-white text-[10px] font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+              />
             </div>
           )}
         </div>
-      )}
+
+        {/* Seletor de Métrica + Toggle de Comparação */}
+        {activeTab === 0 && (
+          <div className="flex items-center gap-3">
+            {/* Métrica */}
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              {METRICS.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMetric(m.key)}
+                  className={cn(
+                    "flex items-center gap-1.5 h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                    metric === m.key
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {m.icon} {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Toggle Comparação */}
+            <button
+              onClick={() => setCompare(!compare)}
+              className={cn(
+                "h-8 px-4 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all",
+                compare
+                  ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              )}
+            >
+              vs Período Anterior
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── CONTEÚDO ─────────────────────────────────────── */}
       <div>
         {activeTab === 0 && (stats ? <OverviewTab stats={stats} filters={filters} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
-        {activeTab === 1 && (stats ? <ProductsTab stats={stats} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
-        {activeTab === 2 && (stats ? <MarketingTab stats={stats} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
-        {activeTab === 3 && (stats ? <FinanceTab stats={stats} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
-        {activeTab === 4 && <HealthTab />}
+        {activeTab === 1 && (stats ? <FinanceTab stats={stats} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
+        {activeTab === 2 && (stats ? <ProductsTab stats={stats} /> : <EmptyState syncHistory={syncHistory} isSyncing={isSyncing} />)}
+        {activeTab === 3 && <VipTab />}
+        {activeTab === 4 && <CampaignsTab />}
+        {activeTab === 5 && <BirthdaysTab />}
       </div>
 
       {/* ── FOOTER ───────────────────────────────────────── */}

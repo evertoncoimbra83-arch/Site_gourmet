@@ -2,9 +2,11 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, gte, like, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
-import { operatorProcedure, router } from "../../_core/trpc.js";
+import { adminProcedure, operatorProcedure, router } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { safeInteger, safeNumber } from "../../lib/safe-parse.js";
+import { syncPdvComandaToBI } from "../../pdv-bi-sync.js";
+import { AuditLogService } from "../../services/AuditLogService.js";
 import {
   pdvClientes,
   pdvComandas,
@@ -489,7 +491,7 @@ export const pdvRouter = router({
           pagamentos: z.array(pagamentoSchema).min(1),
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
 
         await db.transaction(async (tx) => {
@@ -544,12 +546,57 @@ export const pdvRouter = router({
             .where(eq(pdvComandas.id, input.comandaId));
         });
 
+        let biSync:
+          | Awaited<ReturnType<typeof syncPdvComandaToBI>>
+          | { status: "failed"; message: string }
+          | null = null;
+
+        try {
+          biSync = await syncPdvComandaToBI(input.comandaId);
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          biSync = { status: "failed", message: err.message };
+          void AuditLogService.recordError({
+            module: "pdv",
+            source: "backend",
+            error: err,
+            actor: {
+              userId: ctx.user.id,
+              ipAddress:
+                ctx.req?.ip ||
+                (ctx.req?.headers?.["x-forwarded-for"] as string)
+                  ?.split(",")[0]
+                  ?.trim() ||
+                "127.0.0.1",
+              userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+              requestId: (ctx.req as any)?.requestId,
+            },
+            procedure: "admin.pdv.comandas.fechar",
+            metadata: {
+              comandaId: input.comandaId,
+              syncTarget: "bi_facts",
+            },
+            severity: "critical",
+          });
+        }
+
         return {
           success: true,
           message: "Comanda fechada com sucesso.",
+          biSync,
         };
       }),
   }),
+
+  syncComandaToBI: adminProcedure
+    .input(z.object({ comandaId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const result = await syncPdvComandaToBI(input.comandaId);
+      return {
+        success: result.status === "synced",
+        ...result,
+      };
+    }),
 
   relatorios: router({
     resumoDia: operatorProcedure

@@ -1,14 +1,15 @@
 import { and, asc, gte, inArray, lte } from "drizzle-orm";
 import { z } from "zod";
 import { orders } from "../../../drizzle/schema";
-import { adminProcedure, router } from "../../_core/trpc.js";
+import { superAdminProcedure, router } from "../../_core/trpc.js";
 import { getDb } from "../../db";
 import { enqueueBIAnalyticsJob, ensureBIWorkerRunning } from "../../workers/queues/biQueue.js";
 
 export async function syncHistoricalData(
   startDate: string,
   endDate: string,
-  _ids?: string[] | undefined
+  _ids?: string[] | undefined,
+  requestId?: string
 ) {
   const db = await getDb();
 
@@ -48,7 +49,7 @@ export async function syncHistoricalData(
           attempts: 2,
           jobId: `sync-${order.id}`,
           priority: 10,
-        });
+        }, requestId);
 
         if (queued) count += 1;
         else skipped += 1;
@@ -68,7 +69,7 @@ export async function syncHistoricalData(
 }
 
 export const biSyncRouter = router({
-  run: adminProcedure
+  run: superAdminProcedure
     .input(
       z.object({
         ids: z.array(z.string()).optional(),
@@ -76,7 +77,7 @@ export const biSyncRouter = router({
         end: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
-      return syncHistoricalData(input.start, input.end, input.ids);
+    .mutation(async ({ input, ctx }) => {
+      return syncHistoricalData(input.start, input.end, input.ids, (ctx.req as any)?.requestId);
     }),
 });

@@ -120,7 +120,7 @@ function KPI({
             "bg-slate-50 text-slate-400"
           )}>
             {trendUp ? <TrendingUp size={11} /> : trendDown ? <TrendingDown size={11} /> : <Minus size={11} />}
-            {Math.abs(trend).toFixed(1)}%
+            {formatters.percent(Math.abs(trend))}
           </div>
         )}
       </div>
@@ -157,7 +157,21 @@ export function OverviewTab({
   // Calcula total e média do período
   const typedData = chartData as Record<string, string | number>[];
   const total = typedData.reduce((acc, d) => acc + Number(d[cfg.dataKey] || 0), 0);
-  const avg = typedData.length ? total / typedData.length : 0;
+  
+  const calendarDays = useMemo(() => {
+    const metaStart = stats.metadata?.startDate;
+    const metaEnd = stats.metadata?.endDate;
+    if (!metaStart || !metaEnd || metaStart.startsWith("1970")) {
+      return typedData.length || 1;
+    }
+    const start = new Date(`${metaStart}T00:00:00`);
+    const end = new Date(`${metaEnd}T00:00:00`);
+    const diffTime = end.getTime() - start.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays > 0 ? diffDays : (typedData.length || 1);
+  }, [stats.metadata?.startDate, stats.metadata?.endDate, typedData.length]);
+
+  const avg = calendarDays ? total / calendarDays : 0;
   const max = typedData.length ? Math.max(...typedData.map(d => Number(d[cfg.dataKey] || 0))) : 0;
 
   return (
@@ -229,7 +243,7 @@ export function OverviewTab({
             </div>
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Média/dia</p>
-              <p className="text-lg font-black italic text-slate-900">{cfg.formatter(avg)}</p>
+              <p className="text-lg font-black italic text-slate-900">{formatters.avg(avg, filters.metric)}</p>
             </div>
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Pico</p>
@@ -347,7 +361,7 @@ export function OverviewTab({
                 width={100}
               />
               <Tooltip
-                content={<CustomTooltip formatter={(v) => `${v} pedidos`} />}
+                content={<CustomTooltip formatter={formatters.money} />}
                 cursor={{ fill: "#f8fafc" }}
               />
               <Bar dataKey="value" fill="#10b981" radius={[0, 6, 6, 0]} />
@@ -363,7 +377,7 @@ export function OverviewTab({
           </h4>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
-              data={(stats.topProducts || []).slice(0, 5)}
+              data={(stats.topDishes || []).slice(0, 5)}
               layout="vertical"
               margin={{ left: 0, right: 20 }}
               barSize={10}
@@ -381,7 +395,7 @@ export function OverviewTab({
                 content={<CustomTooltip formatter={(v) => `${v} vendidos`} />}
                 cursor={{ fill: "#f8fafc" }}
               />
-              <Bar dataKey="value" fill="#3b82f6" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="count" fill="#3b82f6" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

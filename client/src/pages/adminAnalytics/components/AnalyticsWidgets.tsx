@@ -80,7 +80,7 @@ export const RankingsSection = ({ data }: { data: AnalyticsData }) => (
                 <TableCell className="font-bold text-slate-700">{dish.name}</TableCell>
                 <TableCell className="text-right">
                   <Badge color="emerald" className="rounded-lg font-black border-none px-3 py-1 text-[10px] uppercase tracking-tighter">
-                    {dish.count} un.
+                    {formatters.num(dish.count)} un.
                   </Badge>
                 </TableCell>
               </TableRow>
@@ -109,7 +109,7 @@ export const RankingsSection = ({ data }: { data: AnalyticsData }) => (
             {data.paymentMethods.slice(0, 4).map(p => (
               <div key={p.name} className="p-4 rounded-2xl bg-slate-50/50 border border-slate-100">
                 <Text className="text-[9px] font-black uppercase text-slate-400 truncate tracking-widest leading-none">{p.name}</Text>
-                <p className="text-lg font-black text-slate-900 mt-2">{p.count} <span className="text-xs font-normal text-slate-400">vendas</span></p>
+                <p className="text-lg font-black text-slate-900 mt-2">{formatters.num(p.count)} <span className="text-xs font-normal text-slate-400">vendas</span></p>
               </div>
             ))}
           </Grid>
@@ -158,7 +158,7 @@ export const MarketingSection = ({ data }: { data: AnalyticsData }) => (
             {data.topCoupons.map((c) => (
               <TableRow key={c.coupon}>
                 <TableCell><Badge color="amber" className="uppercase font-black px-3 rounded-lg border-none text-[10px] tracking-wider">{c.coupon}</Badge></TableCell>
-                <TableCell className="text-right font-black text-slate-600 italic tracking-tighter">{c.usage_count}x</TableCell>
+                <TableCell className="text-right font-black text-slate-600 italic tracking-tighter">{formatters.num(c.usage_count)}x</TableCell>
                 <TableCell className="text-right font-black text-slate-900">{formatters.money(c.total_discounted)}</TableCell>
               </TableRow>
             ))}
@@ -203,7 +203,7 @@ export const MenuIntelligenceSection = ({ data }: { data: AnalyticsData }) => (
             {data.topDishesInPackages.map((d) => (
                 <TableRow key={d.dishId}>
                 <TableCell className="font-bold text-slate-700">{d.name}</TableCell>
-                <TableCell className="text-right font-black text-emerald-600">{d.count}x</TableCell>
+                <TableCell className="text-right font-black text-emerald-600">{formatters.num(d.count)}x</TableCell>
                 </TableRow>
             ))}
             </TableBody>

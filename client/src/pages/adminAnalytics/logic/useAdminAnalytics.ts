@@ -1,9 +1,10 @@
 // client/src/pages/adminAnalytics/logic/useAdminAnalytics.ts
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
 import { keepPreviousData } from "@tanstack/react-query"; // ✅ Melhor forma de reter dados antigos
+import { usePeriod, type SelectedPeriod } from "./usePeriod";
 
 // ========================================================
 // 🛡️ TIPAGENS ESTRITAS
@@ -12,7 +13,6 @@ import { keepPreviousData } from "@tanstack/react-query"; // ✅ Melhor forma de
 export type AnalyticsPeriod = "7d" | "30d" | "90d" | "all";
 
 export interface AnalyticsData {
-  topProducts: never[];
   financials: {
     netRevenue: number;
     grossRevenue: number;
@@ -20,7 +20,14 @@ export interface AnalyticsData {
   avgTicket: number;
   totalGivenDiscounts: number;
   newCustomers: number;
-  chartData: { date: string; Faturamento: number }[];
+  chartData: {
+    date: string;
+    Faturamento: number;
+    Pedidos: number;
+    Ticket: number;
+    Clientes: number;
+    Descontos: number;
+  }[];
   topDishes: { dishId: number; name: string; count: number }[];
   topAccompaniments: { name: string; count: number }[]; 
   paymentMethods: { name: string; value: number; count: number }[];
@@ -31,25 +38,16 @@ export interface AnalyticsData {
     total_discounted: number 
   }[];
   topDishesInPackages: { dishId: number; name: string; count: number }[];
+  metadata?: {
+    periodLabel: string;
+    startDate: string;
+    endDate: string;
+    timezone: string;
+  };
 }
 
-// ========================================================
-// 🛠️ FORMATADORES GLOBAIS
-// ========================================================
-
-export const formatters = {
-  money: (v: number) => 
-    new Intl.NumberFormat("pt-BR", { 
-      style: "currency", 
-      currency: "BRL" 
-    }).format(v || 0),
-    
-  num: (v: number) => 
-    Intl.NumberFormat("pt-BR").format(v || 0),
-    
-  percent: (v: number) => 
-    `${(v || 0).toFixed(1)}%`
-};
+import { formatters } from "../utils/formatters";
+export { formatters };
 
 // ========================================================
 // 🧠 HOOK DE LÓGICA
@@ -57,14 +55,15 @@ export const formatters = {
 
 export function useAdminAnalytics() {
   const utils = trpc.useUtils();
-  const [periodIndex, setPeriodIndex] = useState(1); 
-
-  const periodMap: AnalyticsPeriod[] = ["7d", "30d", "90d", "all"];
-  const periodLabels = ["7 dias", "30 dias", "3 meses", "Sempre"];
+  const [period, setPeriod] = usePeriod();
 
   // 1. Busca de dados via tRPC
   const { data, isLoading, isPlaceholderData, refetch } = trpc.admin.analytics.getDashboardStats.useQuery(
-    { period: periodMap[periodIndex] },
+    { 
+      preset: period.preset,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    },
     { 
       staleTime: 5 * 60 * 1000,
       placeholderData: keepPreviousData, // ✅ Substitui o hack do @ts-expect-error
@@ -95,10 +94,8 @@ export function useAdminAnalytics() {
     isPlaceholderData,
     refetch,
     
-    periodIndex,
-    setPeriodIndex,
-    periodLabels,
-    currentPeriod: periodMap[periodIndex],
+    period,
+    setPeriod,
     
     syncHistory: () => syncMutation.mutate(),
     isSyncing: syncMutation.isPending,

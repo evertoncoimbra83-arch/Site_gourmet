@@ -1,7 +1,8 @@
+// pages\adminAnalytics\view\tab\ProductsTab.tsx
 import React from "react";
 import { Grid, Card, Flex, Title, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, BarList } from "@tremor/react";
 import { ChefHat, BarChart3 } from "lucide-react";
-import { AnalyticsData } from "../../logic/useAdminAnalytics";
+import { AnalyticsData, formatters } from "../../logic/useAdminAnalytics";
 
 export function ProductsTab({ stats }: { stats: AnalyticsData }) {
   return (
@@ -23,7 +24,7 @@ export function ProductsTab({ stats }: { stats: AnalyticsData }) {
               <TableRow key={idx}>
                 <TableCell className="font-bold text-slate-700">{dish.name}</TableCell>
                 <TableCell className="text-right">
-                  <Badge color="emerald" className="rounded-lg font-black">{dish.count} un.</Badge>
+                  <Badge color="emerald" className="rounded-lg font-black">{formatters.num(dish.count)} un.</Badge>
                 </TableCell>
               </TableRow>
             ))}
@@ -36,10 +37,11 @@ export function ProductsTab({ stats }: { stats: AnalyticsData }) {
           <BarChart3 className="text-rose-500" size={24} />
           <Title className="font-black uppercase italic text-slate-800 tracking-tighter">Acompanhamentos</Title>
         </Flex>
-        <BarList 
-          data={stats.topAccompaniments.map(a => ({ name: a.name, value: a.count }))} 
-          color="rose" 
+        <BarList
+          data={stats.topAccompaniments.map(a => ({ name: a.name, value: a.count }))}
+          color="rose"
           className="mt-4"
+          valueFormatter={formatters.num}
         />
       </Card>
     </Grid>

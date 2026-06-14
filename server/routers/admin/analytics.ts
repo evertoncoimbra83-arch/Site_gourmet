@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { superAdminProcedure, router } from "../../_core/trpc.js";
-import { sql, gte, desc, inArray, and, gt, asc } from "drizzle-orm";
+import { sql, gte, lte, desc, inArray, and, gt, asc, eq, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db.js";
 import * as schema from "../../../drizzle/schema/index.js";
@@ -57,17 +57,105 @@ export const adminAnalyticsRouter = router({
    */
   getDashboardStats: superAdminProcedure
     .input(z.object({
-      period: z.enum(["7d", "30d", "90d", "all"]).default("30d")
+      preset: z.enum(["today", "7d", "30d", "90d", "current_month", "custom", "all"]).optional(),
+      period: z.enum(["7d", "30d", "90d", "all"]).optional(), // Para retrocompatibilidade
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
     }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
-      const days = input?.period === "7d" ? 7 : input?.period === "90d" ? 90 : 30;
+      const preset = input?.preset || (input?.period as any) || "30d";
       const now = new Date();
       
-      const dateLimit = input?.period === "all" ? 0 : 
-        safeInteger(new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0].replace(/-/g, ''));
+      const tzFormatter = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const spDateStr = tzFormatter.format(now); // "YYYY-MM-DD"
+
+      let dateLimitStart: number;
+      let dateLimitEnd: number | undefined = undefined;
+      let dateLimitObjStart: Date;
+      let dateLimitObjEnd: Date | undefined = undefined;
+      let periodLabel = "Últimos 30 dias";
+
+      if (preset === "today") {
+        const todayInt = safeInteger(spDateStr.replace(/-/g, ""));
+        dateLimitStart = todayInt;
+        dateLimitEnd = todayInt;
+        dateLimitObjStart = new Date(`${spDateStr}T00:00:00-03:00`);
+        dateLimitObjEnd = new Date(`${spDateStr}T23:59:59.999-03:00`);
+        periodLabel = "Hoje";
+      } else if (preset === "7d") {
+        const limitDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const limitDateStr = tzFormatter.format(limitDate);
+        dateLimitStart = safeInteger(limitDateStr.replace(/-/g, ""));
+        dateLimitObjStart = new Date(`${limitDateStr}T00:00:00-03:00`);
+        periodLabel = "Últimos 7 dias";
+      } else if (preset === "90d" || preset === "3m") {
+        const limitDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const limitDateStr = tzFormatter.format(limitDate);
+        dateLimitStart = safeInteger(limitDateStr.replace(/-/g, ""));
+        dateLimitObjStart = new Date(`${limitDateStr}T00:00:00-03:00`);
+        periodLabel = "Últimos 90 dias";
+      } else if (preset === "current_month") {
+        const firstDayStr = `${spDateStr.slice(0, 8)}01`; // "YYYY-MM-01"
+        dateLimitStart = safeInteger(firstDayStr.replace(/-/g, ""));
+        dateLimitObjStart = new Date(`${firstDayStr}T00:00:00-03:00`);
+        periodLabel = "Mês atual";
+      } else if (preset === "custom") {
+        if (!input?.startDate || !input?.endDate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "startDate e endDate são obrigatórios para o período personalizado",
+          });
+        }
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(input.startDate) || !dateRegex.test(input.endDate)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Formato de data inválido. Use YYYY-MM-DD",
+          });
+        }
+        dateLimitStart = safeInteger(input.startDate.replace(/-/g, ""));
+        dateLimitEnd = safeInteger(input.endDate.replace(/-/g, ""));
+        dateLimitObjStart = new Date(`${input.startDate}T00:00:00-03:00`);
+        dateLimitObjEnd = new Date(`${input.endDate}T23:59:59.999-03:00`);
+        periodLabel = "Período personalizado";
+      } else if (preset === "all") {
+        dateLimitStart = 0;
+        dateLimitObjStart = new Date(0); // Epoch
+        periodLabel = "Sempre";
+      } else {
+        const limitDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const limitDateStr = tzFormatter.format(limitDate);
+        dateLimitStart = safeInteger(limitDateStr.replace(/-/g, ""));
+        dateLimitObjStart = new Date(`${limitDateStr}T00:00:00-03:00`);
+        periodLabel = "Últimos 30 dias";
+      }
+
+      // Build general query filters for Drizzle
+      const biWhereConditions = [];
+      if (dateLimitStart > 0) {
+        biWhereConditions.push(gte(biFinancialFacts.dateId, dateLimitStart));
+      }
+      if (dateLimitEnd) {
+        biWhereConditions.push(lte(biFinancialFacts.dateId, dateLimitEnd));
+      }
+      const biWhere = biWhereConditions.length > 0 ? and(...biWhereConditions) : undefined;
+
+      const biSalesWhereConditions = [];
+      if (dateLimitStart > 0) {
+        biSalesWhereConditions.push(gte(biSalesFacts.dateId, dateLimitStart));
+      }
+      if (dateLimitEnd) {
+        biSalesWhereConditions.push(lte(biSalesFacts.dateId, dateLimitEnd));
+      }
+      const biSalesWhere = biSalesWhereConditions.length > 0 ? and(...biSalesWhereConditions) : undefined;
 
       try {
         const financials = await db
@@ -84,17 +172,24 @@ export const adminAnalyticsRouter = router({
             ) AS DECIMAL(10,2))`
           })
           .from(biFinancialFacts)
-          .where(dateLimit > 0 ? gte(biFinancialFacts.dateId, dateLimit) : undefined);
+          .where(biWhere);
 
         const fin = financials[0] || { grossRevenue: 0, netRevenue: 0, coupon: 0, loyalty: 0, auto: 0, totalDiscounts: 0 };
 
         const timeline = await db
           .select({
             dateId: biFinancialFacts.dateId,
-            Faturamento: sql<number>`CAST(SUM(${biFinancialFacts.netTotal}) AS DECIMAL(10,2))`
+            Faturamento: sql<number>`CAST(SUM(${biFinancialFacts.netTotal}) AS DECIMAL(10,2))`,
+            Pedidos: sql<number>`CAST(COUNT(${biFinancialFacts.orderId}) AS SIGNED)`,
+            Ticket: sql<number>`CAST(SUM(${biFinancialFacts.netTotal}) / COUNT(${biFinancialFacts.orderId}) AS DECIMAL(10,2))`,
+            Descontos: sql<number>`CAST(SUM(
+              COALESCE(${biFinancialFacts.discountCoupon}, 0) + 
+              COALESCE(${biFinancialFacts.discountLoyalty}, 0) + 
+              COALESCE(${biFinancialFacts.discountAuto}, 0)
+            ) AS DECIMAL(10,2))`
           })
           .from(biFinancialFacts)
-          .where(dateLimit > 0 ? gte(biFinancialFacts.dateId, dateLimit) : undefined)
+          .where(biWhere)
           .groupBy(biFinancialFacts.dateId)
           .orderBy(biFinancialFacts.dateId);
 
@@ -105,7 +200,7 @@ export const adminAnalyticsRouter = router({
             count: sql<number>`SUM(${biSalesFacts.quantity})`
           })
           .from(biSalesFacts)
-          .where(dateLimit > 0 ? gte(biSalesFacts.dateId, dateLimit) : undefined)
+          .where(biSalesWhere)
           .groupBy(biSalesFacts.dishId)
           .orderBy(desc(sql`SUM(${biSalesFacts.quantity})`))
           .limit(10);
@@ -115,13 +210,13 @@ export const adminAnalyticsRouter = router({
             SELECT jt.accName as name, SUM(quantity) as count
             FROM bi_sales_facts,
             JSON_TABLE(items_detail, '$[*].accompaniments[*]' COLUMNS (accName VARCHAR(255) PATH '$.name')) AS jt
-            WHERE date_id >= ${dateLimit} AND jt.accName IS NOT NULL
+            WHERE date_id >= ${dateLimitStart} ${dateLimitEnd ? sql`AND date_id <= ${dateLimitEnd}` : sql``} AND jt.accName IS NOT NULL
             GROUP BY jt.accName
             UNION ALL
             SELECT jt2.accName as name, SUM(quantity) as count
             FROM bi_sales_facts,
             JSON_TABLE(items_detail, '$[*].meals[*].accompaniments[*]' COLUMNS (accName VARCHAR(255) PATH '$.name')) AS jt2
-            WHERE date_id >= ${dateLimit} AND jt2.accName IS NOT NULL
+            WHERE date_id >= ${dateLimitStart} ${dateLimitEnd ? sql`AND date_id <= ${dateLimitEnd}` : sql``} AND jt2.accName IS NOT NULL
             GROUP BY jt2.accName
           ) AS consolidated_accs
           GROUP BY name ORDER BY count DESC LIMIT 10
@@ -135,7 +230,7 @@ export const adminAnalyticsRouter = router({
         const topCouponsQuery = await db.execute(sql`
           SELECT coupon_code as name, SUM(discount_coupon) as value, COUNT(*) as usage_count
           FROM bi_financial_facts
-          WHERE date_id >= ${dateLimit} AND coupon_code IS NOT NULL AND coupon_code != ''
+          WHERE date_id >= ${dateLimitStart} ${dateLimitEnd ? sql`AND date_id <= ${dateLimitEnd}` : sql``} AND coupon_code IS NOT NULL AND coupon_code != ''
           GROUP BY coupon_code ORDER BY value DESC LIMIT 5
         `);
         const couponRows = parseRawQueryRows(
@@ -147,7 +242,7 @@ export const adminAnalyticsRouter = router({
         const paymentMethodsQuery = await db.execute(sql`
           SELECT payment_method as name, SUM(net_total) as value, COUNT(*) as count
           FROM bi_financial_facts
-          WHERE date_id >= ${dateLimit} AND payment_method IS NOT NULL
+          WHERE date_id >= ${dateLimitStart} ${dateLimitEnd ? sql`AND date_id <= ${dateLimitEnd}` : sql``} AND payment_method IS NOT NULL
           GROUP BY payment_method ORDER BY value DESC
         `);
         const paymentRows = parseRawQueryRows(
@@ -158,16 +253,42 @@ export const adminAnalyticsRouter = router({
           "paymentMethodsQuery",
         );
 
-        const dateLimitObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const customerConditions = [
+          eq(schema.users.role, "user"),
+          isNull(schema.users.deletedAt)
+        ];
+        if (preset !== "all") {
+          customerConditions.push(gte(schema.users.createdAt, dateLimitObjStart));
+          if (dateLimitObjEnd) {
+            customerConditions.push(lte(schema.users.createdAt, dateLimitObjEnd));
+          }
+        }
+
         const customers = await db.select({ total: sql<number>`count(*)` })
           .from(schema.users)
-          .where(input?.period === "all" ? undefined : gte(schema.users.createdAt, dateLimitObj));
+          .where(and(...customerConditions));
 
         const totalOrders = await db.select({ count: sql<number>`count(*)` })
           .from(biFinancialFacts)
-          .where(dateLimit > 0 ? gte(biFinancialFacts.dateId, dateLimit) : undefined);
+          .where(biWhere);
 
         const ordersCount = safeNumber(totalOrders[0]?.count);
+
+        const newCustomersByDay = await db
+          .select({
+            dateStr: sql<string>`DATE_FORMAT(${schema.users.createdAt}, '%Y%m%d')`,
+            count: sql<number>`COUNT(*)`
+          })
+          .from(schema.users)
+          .where(and(...customerConditions))
+          .groupBy(sql`DATE_FORMAT(${schema.users.createdAt}, '%Y%m%d')`);
+
+        const customersMap = new Map<string, number>();
+        for (const row of newCustomersByDay) {
+          if (row.dateStr) {
+            customersMap.set(row.dateStr, safeNumber(row.count));
+          }
+        }
 
         return {
           financials: {
@@ -182,7 +303,15 @@ export const adminAnalyticsRouter = router({
           totalGivenDiscounts: safeNumber(fin.totalDiscounts),
           chartData: timeline.map(t => {
             const s = String(t.dateId);
-            return { date: `${s.slice(6, 8)}/${s.slice(4, 6)}`, Faturamento: safeNumber(t.Faturamento) };
+            const Clientes = customersMap.get(s) || 0;
+            return {
+              date: `${s.slice(6, 8)}/${s.slice(4, 6)}`,
+              Faturamento: safeNumber(t.Faturamento),
+              Pedidos: safeNumber((t as any).Pedidos),
+              Ticket: safeNumber((t as any).Ticket),
+              Clientes,
+              Descontos: safeNumber((t as any).Descontos),
+            };
           }),
           paymentMethods: paymentRows.map(p => ({
             name: String(p.name),
@@ -198,7 +327,13 @@ export const adminAnalyticsRouter = router({
           })),
           newCustomers: safeNumber(customers[0]?.total),
           avgTicket: ordersCount > 0 ? (safeNumber(fin.netRevenue) / ordersCount) : 0,
-          topDishesInPackages: []
+          topDishesInPackages: [],
+          metadata: {
+            periodLabel,
+            startDate: preset === "custom" && input?.startDate ? input.startDate : tzFormatter.format(dateLimitObjStart),
+            endDate: preset === "custom" && input?.endDate ? input.endDate : (dateLimitObjEnd ? tzFormatter.format(dateLimitObjEnd) : spDateStr),
+            timezone: "America/Sao_Paulo",
+          }
         };
       } catch (error) {
         logger.error({ err: error }, "Erro no Dashboard de BI");
@@ -214,7 +349,7 @@ export const adminAnalyticsRouter = router({
       cursor: z.string().optional(),
       limit: z.number().min(1).max(500).default(100)
     }).optional())
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
@@ -260,7 +395,7 @@ export const adminAnalyticsRouter = router({
           attempts: 2,
           jobId: `sync-${order.id}`,
           priority: 10,
-        });
+        }, (ctx.req as any)?.requestId);
 
         if (!queued) skipped += 1;
       }
