@@ -10,6 +10,7 @@ export const accompanimentOptions = mysqlTable("accompaniment_options", {
   priceModifier: decimal("price_modifier", { precision: 10, scale: 2 }).default("0.00"),
   accompanimentCategoryId: int("accompaniment_category_id").references(() => accompanimentCategories.id),
   isActive: boolean("is_active").notNull().default(true),
+  isNoAccompaniment: boolean("is_no_accompaniment").notNull().default(false),
   ingredients: text("ingredients"),
   
   // ✅ Colunas Nutricionais revisadas para bater com o Frontend/Roteador

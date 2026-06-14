@@ -121,6 +121,7 @@ export const dishSizes = mysqlTable("dish_sizes", {
   description: text("description"),
   groupsOrder: text("groups_order"), 
   weight: varchar("weight", { length: 20 }), 
+  noAccompanimentsMessage: varchar("no_accompaniments_message", { length: 255 }),
 });
 
 // ===================================================================

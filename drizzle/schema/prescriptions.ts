@@ -20,10 +20,20 @@ export interface SnapshotDish {
   dishId: number;
   sizeId: number;
   name: string;
+  sizeName?: string | null;
+  weight?: number | string | null;
+  sizeWeight?: number | string | null;
+  mainDishWeight?: number | null;
+  noAccompanimentsMessage?: string | null;
   priceAtCreation: number;
   multiplier: string | number;
   nutritionalData: {
     mainDishWeight: number;
+    sizeId?: number | null;
+    sizeName?: string | null;
+    weight?: number | string | null;
+    sizeWeight?: number | string | null;
+    noAccompanimentsMessage?: string | null;
     baseMacros: {
       kcal: number;
       protein: number;

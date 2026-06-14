@@ -63,6 +63,7 @@ export const orders = mysqlTable("orders", {
   loyaltyDiscount: decimal("loyalty_discount", { precision: 10, scale: 2 }).default("0.00"),
   
   cartId: varchar("cart_id", { length: 36 }),
+  publicAccessToken: varchar("public_access_token", { length: 64 }),
   discountsSnapshot: text("discounts_snapshot"), 
   paymentMethod: varchar("payment_method", { length: 255 }).notNull(),
   paymentStatus: mysqlEnum("payment_status", ["pending", "paid", "failed", "refunded"])
