@@ -20,6 +20,7 @@ import { isValidCPF } from "../auth/auth.logic.js";
 import { loadAddressSnapshot } from "./address.js";
 import { createOrderWithItems, cleanupCheckoutCarts } from "./orders.js";
 import { paymentRouter } from "./payment.js";
+import { logger } from "../../../logger.js";
 
 type CreateOrderParams = Parameters<typeof createOrderWithItems>[0];
 type BaseTx = CreateOrderParams["tx"];
@@ -258,12 +259,12 @@ export const checkoutRouter = router({
       } catch (error: unknown) {
         if (error instanceof TRPCError) throw error;
 
+        logger.error({ err: error, userId, cartId }, "CHECKOUT_PLACE_ORDER_FAILED");
+
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message:
-            error instanceof Error
-              ? error.message
-              : "Falha crítica no processamento do pedido.",
+            "Ocorreu um erro interno ao processar sua solicitação. Tente novamente.",
         });
       }
     }),

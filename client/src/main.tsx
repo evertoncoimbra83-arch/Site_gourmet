@@ -1,15 +1,35 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import App from "./App";
 import "./index.css";
 
-import { trpc, trpcClient } from "./_core/trpc";
+import { queryClient, trpc, trpcClient } from "./_core/trpc";
 
 // O bootstrap do GA4 é feito de forma dinâmica em useAnalytics.ts,
 // usando o Measurement ID salvo nas configurações públicas.
+
+function shouldIgnoreSentryNoise(message: string) {
+  const normalized = message.toLowerCase();
+
+  return [
+    "401",
+    "unauthorized",
+    "sdk init",
+    "domain",
+    "resizeobserver",
+    "network request cancelled",
+    "request cancelled",
+    "aborterror",
+    "service worker",
+    "sw update",
+    "cache",
+    "429",
+    "too many requests",
+  ].some((pattern) => normalized.includes(pattern));
+}
 
 if (import.meta.env.PROD) {
   Sentry.init({
@@ -18,25 +38,38 @@ if (import.meta.env.PROD) {
     integrations: [
       Sentry.browserTracingIntegration(),
       Sentry.replayIntegration(),
-      Sentry.consoleLoggingIntegration({ levels: ["error", "warn"] }),
     ],
     tracesSampleRate: 1.0,
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
-    ignoreErrors: ["top.GLOBALS", "LanguageClosure", "extension", "__v__"],
+    ignoreErrors: [
+      "top.GLOBALS",
+      "LanguageClosure",
+      "extension",
+      "__v__",
+      "ResizeObserver",
+      "Network request cancelled",
+      "AbortError",
+    ],
+    // Filtros de ruido esperado: visitante 401, SDK em dominio nao permitido,
+    // ResizeObserver, requests cancelados, Service Worker/cache e 429 local/dev.
+    beforeSend(event, hint) {
+      const exceptionMessages =
+        event.exception?.values
+          ?.map((value) => value.value || value.type || "")
+          .join(" ") || "";
+      const originalException =
+        hint.originalException instanceof Error
+          ? hint.originalException.message
+          : String(hint.originalException || "");
+      const message = [event.message, exceptionMessages, originalException]
+        .filter(Boolean)
+        .join(" ");
+
+      return shouldIgnoreSentryNoise(message) ? null : event;
+    },
   });
 }
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-      staleTime: 1000 * 60 * 5,
-      throwOnError: false,
-    },
-  },
-});
 
 const container = document.getElementById("root");
 if (!container) {

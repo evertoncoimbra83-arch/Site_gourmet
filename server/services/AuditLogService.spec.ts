@@ -29,6 +29,8 @@ describe("AuditLogService", () => {
           CEP: "12345-678",
           chave_pix: "cliente@example.com",
         },
+        customerName: "Cliente Teste",
+        full_name: "Nome Completo",
       };
 
       const result = AuditLogService.sanitizeData(input) as any;
@@ -38,6 +40,8 @@ describe("AuditLogService", () => {
       expect(result.token).toBe("[redacted]");
       expect(result.contato.CEP).toBe("12****78");
       expect(result.contato.chave_pix).toBe("[redacted]");
+      expect(result.customerName).toBe("[redacted]");
+      expect(result.full_name).toBe("[redacted]");
     });
 
     it("should remove base64 strings and massive arrays", () => {
@@ -50,7 +54,7 @@ describe("AuditLogService", () => {
 
       const result = AuditLogService.sanitizeData(input) as any;
 
-      expect(result.name).toBe("Test Name");
+      expect(result.name).toBe("[redacted]");
       expect(result.avatar).toContain("IMAGE_OR_BINARY_REMOVED");
       expect(result.hugeText).toContain("IMAGE_OR_BINARY_REMOVED");
       expect(result.items._summary).toContain("Array com 25 itens recortado");

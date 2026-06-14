@@ -1,40 +1,47 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { createTRPCReact } from '@trpc/react-query';
 import { httpBatchLink, loggerLink } from '@trpc/client';
-import { QueryClient } from '@tanstack/react-query';
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+} from '@tanstack/react-query';
 import superjson from 'superjson';
 import { getGuestId } from '../lib/guest';
 import type { AppRouter } from '../../../server/routers/index';
 
 export const trpc = createTRPCReact<AppRouter>();
 
-// ✅ CONFIGURAÇÃO DO QUERY CLIENT COM MONITOR DE ERROS
+function notifyTrpcError(err: unknown) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("trpc-error"));
+  }
+
+  if (import.meta.env.DEV) {
+    console.debug("tRPC request failed:", err);
+  }
+}
+
+// QueryClient unico usado pelo Provider, com monitor global de erros.
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: notifyTrpcError,
+  }),
+  mutationCache: new MutationCache({
+    onError: notifyTrpcError,
+  }),
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false, 
-      retry: false, 
+      refetchOnWindowFocus: false,
+      retry: 1,
       staleTime: 5 * 60 * 1000,
-      // @ts-ignore - Captura erros globais para disparar o floater de ajuda
-      onError: (err: unknown) => {
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("trpc-error"));
-        }
-        console.error("🔍 tRPC Query Error:", err);
-      }
+      throwOnError: false,
     },
     mutations: {
-      // @ts-ignore
-      onError: (err: unknown) => {
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("trpc-error"));
-        }
-        console.error("🚀 tRPC Mutation Error:", err);
-      }
-    }
+      throwOnError: false,
+    },
   },
 });
-
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   return ''; 

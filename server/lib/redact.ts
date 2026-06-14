@@ -28,6 +28,18 @@ const ADDRESS_KEYS = new Set([
   "receivername",
 ]);
 const PAYMENT_KEYS = new Set(["card", "cartao", "cvv", "pixkey", "chavepix", "chave_pix"]);
+const NAME_KEYS = new Set([
+  "name",
+  "nome",
+  "customername",
+  "customer_name",
+  "fullname",
+  "full_name",
+  "displayname",
+  "recipientname",
+  "billingname",
+  "deliveryname",
+]);
 const REDACTED_KEYS = new Set([
   ...CPF_KEYS,
   ...PHONE_KEYS,
@@ -35,6 +47,7 @@ const REDACTED_KEYS = new Set([
   ...SECRET_KEYS,
   ...ADDRESS_KEYS,
   ...PAYMENT_KEYS,
+  ...NAME_KEYS,
   "email",
 ]);
 
