@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Check } from "lucide-react"; 
 import { Label } from "@/components/ui/label";
 import { AccompanimentList } from "./AccompanimentList";
+import { hasAccompaniments } from "../logic/validation";
 
 // --- INTERFACES COMPARTILHADAS ---
 interface AccOption {
@@ -43,6 +44,7 @@ interface SizeOption {
   accompanimentGroups?: AccGroup[];
   groups?: AccGroup[];
   groupsOrder?: string | number[];
+  noAccompanimentsMessage?: string | null;
 }
 
 interface SizeSelectorProps {
@@ -66,9 +68,34 @@ export function SizeSelector({
 
   // 1. Ordenação dos Tamanhos
   const sortedSizes = useMemo(() => {
-    return [...sizes].sort((a, b) => 
-      (a.displayOrder ?? a.display_order ?? 0) - (b.displayOrder ?? b.display_order ?? 0)
-    );
+    return [...sizes].sort((a, b) => {
+      const orderA = a.displayOrder ?? a.display_order;
+      const orderB = b.displayOrder ?? b.display_order;
+      if (orderA !== undefined && orderB !== undefined && Number(orderA) !== Number(orderB)) {
+        return Number(orderA) - Number(orderB);
+      }
+      const extractGrams = (sizeObj: any) => {
+        const w = sizeObj.main_dish_weight ?? sizeObj.mainDishWeight ?? sizeObj.weight;
+        if (w !== undefined && w !== null && !isNaN(Number(w))) {
+          return Number(w);
+        }
+        const nameStr = String(sizeObj.name || "");
+        const match = nameStr.match(/(\d+)\s*(g|gr|grama|kg)/i);
+        if (match) {
+          let val = parseInt(match[1], 10);
+          if (match[2].toLowerCase() === "kg") val *= 1000;
+          return val;
+        }
+        const numMatch = nameStr.match(/(\d+)/);
+        return numMatch ? parseInt(numMatch[1], 10) : 0;
+      };
+      const gramsA = extractGrams(a);
+      const gramsB = extractGrams(b);
+      if (gramsA !== gramsB) {
+        return gramsA - gramsB;
+      }
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
   }, [sizes]);
 
   // 2. Encontrar o objeto do tamanho selecionado
@@ -148,6 +175,15 @@ export function SizeSelector({
       {/* ÁREA DE PERSONALIZAÇÃO */}
       {selectedSizeObj && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
+          {/* Se o tamanho não tem acompanhamentos disponíveis, exibe a mensagem */}
+          {!hasAccompaniments(selectedSizeObj) ? (
+            <div className="px-1 py-2 text-[9px] font-bold text-slate-400 italic text-center">
+              {/* noAccompanimentsMessage do tamanho selecionado */}
+              {(selectedSizeObj as any).noAccompanimentsMessage ||
+                "Este tamanho não possui acompanhamentos disponíveis."}
+            </div>
+          ) : (
+            <>
           <div className="flex items-center gap-2 px-1">
             <div className="h-px flex-1 bg-slate-100" />
             <Label className="text-[10px] font-black uppercase text-emerald-600 tracking-widest italic shrink-0">
@@ -165,6 +201,8 @@ export function SizeSelector({
               onRemove={onRemoveAcc}
             />
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

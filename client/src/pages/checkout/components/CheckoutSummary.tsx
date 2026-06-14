@@ -1,5 +1,5 @@
 // client/src/pages/checkout/components/CheckoutSummary.tsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,11 @@ import {
 import {
   Loader2, ShoppingBag, ArrowRight,
   Store, Truck, ChevronRight,
-  Gift, Percent, MessageSquare, Scale, AlertCircle
+  Gift, Percent, MessageSquare, Scale, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCheckout } from "../context/CheckoutContext";
-import { useCheckoutReadiness } from "../logic/useCheckoutReadiness";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/_core/trpc";
 
 const SummaryRow = ({ label, value, icon, isDiscount }: { label: string; value: string; icon?: React.ReactElement | null; isDiscount?: boolean }) => (
@@ -52,10 +52,18 @@ export default function CheckoutSummary() {
     actions, 
     isSubmitting, 
     isLoading, 
-    machineState 
+    machineState,
+    acceptedTerms,
+    setAcceptedTerms,
+    readiness,
+    firstIssue,
+    handleFinalizeClick
   } = useCheckout();
 
-  const { data: loyaltySettings } = trpc.loyalty.getSettings.useQuery();
+  const { user: authUser, loading: authLoading } = useAuth();
+  const { data: loyaltySettings } = trpc.loyalty.getSettings.useQuery(undefined, {
+    enabled: !authLoading && !!authUser,
+  });
 
   const estimatedPoints = useMemo(() => {
     if (!loyaltySettings || loyaltySettings.enabled === false) return 0;
@@ -65,11 +73,6 @@ export default function CheckoutSummary() {
     return Math.floor(summary.total * earnPointsPerReal);
   }, [loyaltySettings, summary.total]);
   
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  
-  // ✅ Orquestrador de prontidão — avalia os 6 portões independentemente
-  const checkoutCtx = useCheckout();
-  const readiness = useCheckoutReadiness({ viewModel: checkoutCtx, machineState, acceptedTerms });
   const isProcessing = machineState === 'submitting' || isSubmitting;
   const canSubmit = readiness.isReady && !isProcessing;
 
@@ -83,7 +86,6 @@ export default function CheckoutSummary() {
       logisticsCanContinue: logistics.canContinue,
       logisticsCanDeliver: logistics.canDeliver,
       selectedAddressId: logistics.selectedAddressId,
-      paymentSelectedId: checkoutCtx.payment.selectedId,
       acceptedTerms,
     });
   }, [
@@ -93,7 +95,6 @@ export default function CheckoutSummary() {
     logistics.canContinue,
     logistics.canDeliver,
     logistics.selectedAddressId,
-    checkoutCtx.payment.selectedId,
     acceptedTerms,
   ]);
 
@@ -120,6 +121,12 @@ export default function CheckoutSummary() {
                     {item.displaySize && (
                       <span className="inline-flex items-center gap-1 mt-1 text-[7px] font-black text-emerald-600 uppercase">
                         <Scale size={7} /> {item.displaySize}
+                      </span>
+                    )}
+                    {/* Exibe mensagem operacional do tamanho sem acompanhamentos */}
+                    {(item as any).noAccompanimentsMessage && (
+                      <span className="block mt-1 text-[7px] font-bold text-slate-400 uppercase italic">
+                        {item.noAccompanimentsMessage}
                       </span>
                     )}
                   </div>
@@ -236,12 +243,12 @@ export default function CheckoutSummary() {
           </div>
         </div>
 
-        {/* BOTÃO FINALIZAR */}
-        <div className="space-y-4">
+        {/* BOTÃO FINALIZAR (Oculto no mobile, onde é exibido o sticky CTA footer) */}
+        <div className="space-y-4 hidden lg:block">
           <Button
             data-testid="btn-finalize-order"
-            onClick={() => actions.placeOrder()}
-            disabled={!canSubmit}
+            onClick={handleFinalizeClick}
+            disabled={!canSubmit || isProcessing || isLoading}
             className={cn(
               "w-full h-16 rounded-3xl font-black uppercase tracking-widest text-xs shadow-xl transition-all", 
               canSubmit ? "bg-slate-900 hover:bg-emerald-600 text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
@@ -251,21 +258,21 @@ export default function CheckoutSummary() {
               <Loader2 className="animate-spin" />
             ) : (
               <div className="flex items-center gap-2">
-                <span>Finalizar Pedido</span>
-                <ArrowRight size={16} />
+                <span>{firstIssue?.message || "Finalizar Pedido"}</span>
+                {!firstIssue && <ArrowRight size={16} />}
               </div>
             )}
           </Button>
 
           {!canSubmit && machineState !== 'loading' && (
             <div className="flex flex-col gap-1 items-center">
-              {machineState !== 'review_ready' && machineState !== 'submitting' && (
-                <p className="text-[8px] font-black text-rose-500 uppercase italic">Complete os passos anteriores para liberar</p>
-              )}
-              {import.meta.env.DEV && (
-                <p className="text-[8px] font-mono text-slate-500">
-                  gate={readiness.gate} machine={machineState}
-                </p>
+              {machineState === 'shipping_validating' ? (
+                <div className="flex items-center gap-1.5 text-slate-500">
+                  <Loader2 size={10} className="animate-spin text-emerald-500" />
+                  <p className="text-[8px] font-black uppercase text-slate-400 italic">Validando frete...</p>
+                </div>
+              ) : machineState !== 'submitting' && firstIssue && (
+                <p className="text-[8px] font-black text-rose-500 uppercase italic">{firstIssue?.message || "Complete os passos anteriores para liberar"}</p>
               )}
               {logistics.type === "delivery" && !logistics.canDeliver && (
                 <div className="flex items-center gap-1.5 text-rose-500 mb-1">

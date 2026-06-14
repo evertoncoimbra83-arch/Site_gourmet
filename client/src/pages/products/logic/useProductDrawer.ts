@@ -4,6 +4,7 @@ import { useCart } from "@/_core/CartContext";
 import { useDishNutrition } from "./useDishNutrition";
 import { mapDishFromDb } from "./mappers";
 import { appToast as toast } from "@/lib/app-toast";
+import { hasAccompaniments } from "./validation";
 import type { AccOption, AccGroup, DishSize, MappedDish } from "./types";
 // ✅ CORREÇÃO: Voltamos a importar o NutritionValues pois o carrinho exige ele
 import type { ProductCustomOptions, Id, NutritionValues } from "@/_core/type/utils"; 
@@ -102,7 +103,6 @@ export function useProductDrawer(dishId: string | number | null, onClose: () => 
   const { addItem } = useCart();
   
   const footerRef = useRef<HTMLDivElement>(null);
-  const sizeSelectorRef = useRef<HTMLDivElement>(null);
 
   const [quantity, setQuantity] = useState(1);
   const [selectedSize, setSelectedSize] = useState<DishSize | null>(null);
@@ -131,12 +131,6 @@ export function useProductDrawer(dishId: string | number | null, onClose: () => 
     }
   }, [dishId]);
 
-  const scrollTo = (ref: React.RefObject<HTMLDivElement | null>) => {
-    setTimeout(() => {
-      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 200);
-  };
-
   const totalNutrition = useDishNutrition(
     dish as unknown as Record<string, unknown>, 
     selectedSize as unknown as Record<string, unknown>, 
@@ -163,6 +157,18 @@ export function useProductDrawer(dishId: string | number | null, onClose: () => 
   const isAccompanimentsComplete = useMemo(() => 
     checkCompletion(selectedAccs, selectedSize), 
   [selectedSize, selectedAccs]);
+
+  // Se o tamanho selecionado não tem acompanhamentos reais disponíveis
+  const hasNoAvailableAccompaniments = useMemo(
+    () => !!selectedSize && !hasAccompaniments(selectedSize),
+    [selectedSize],
+  );
+
+  // Mensagem operacional do tamanho sem acompanhamentos
+  const noAccompanimentsMessage = useMemo(
+    () => (selectedSize as any)?.noAccompanimentsMessage || null,
+    [selectedSize],
+  );
 
   const handleAccSelection = (group: unknown, optId: string | number) => {
     const g = group as AccGroup;
@@ -194,15 +200,71 @@ export function useProductDrawer(dishId: string | number | null, onClose: () => 
           newState = countInGroup < maxAllowed ? [...prev, newItem] : prev;
         }
       }
-      if (checkCompletion(newState, selectedSize)) scrollTo(footerRef);
       return newState;
     });
   };
 
   const handleSizeSelect = (s: DishSize) => {
     setSelectedSize(s);
-    setSelectedAccs([]);
-    scrollTo(sizeSelectorRef);
+
+    const preservedAccs: AccOption[] = [];
+    const newGroups = (s.accompanimentGroups || (s as any).groups || []) as AccGroup[];
+
+    // Agrupar os acompanhamentos atuais por groupId
+    const prevAccsByGroup = new Map<string, AccOption[]>();
+    for (const acc of selectedAccs) {
+      const gId = String(acc.groupId);
+      if (!prevAccsByGroup.has(gId)) {
+        prevAccsByGroup.set(gId, []);
+      }
+      prevAccsByGroup.get(gId)!.push(acc);
+    }
+
+    for (const newGroup of newGroups) {
+      const gId = String(newGroup.groupId ?? newGroup.id);
+      const prevGroupAccs = prevAccsByGroup.get(gId) || [];
+      const maxSelections = Math.max(1, Number(newGroup.maxSelections || 1));
+      
+      const validGroupSelections: AccOption[] = [];
+
+      for (const acc of prevGroupAccs) {
+        // Encontrar a opção correspondente no novo grupo por ID
+        const matchingOpt = (newGroup.options || []).find(
+          (opt: any) => String(opt.id) === String(acc.id)
+        );
+
+        if (matchingOpt) {
+          const opt = matchingOpt as any;
+          // Validar se a opção está ativa, disponível e não é "Sem Acompanhamento"
+          const isUnavailable = 
+            opt.isActive === false || opt.isActive === "false" ||
+            opt.is_active === false || opt.is_active === "false" ||
+            opt.active === false || opt.active === "false" ||
+            opt.isAvailable === false || opt.isAvailable === "false" ||
+            opt.available === false || opt.available === "false" ||
+            opt.disabled === true || opt.disabled === "true" || opt.disabled === "disabled" ||
+            opt.status === "inactive" || opt.status === "disabled" || opt.status === "unavailable" ||
+            opt.unavailable === true || opt.unavailable === "true" ||
+            opt.isUnavailable === true || opt.isUnavailable === "true" ||
+            opt.isNoAccompaniment === true || opt.isNoAccompaniment === "true" ||
+            opt.is_no_accompaniment === true || opt.is_no_accompaniment === "true";
+
+          if (!isUnavailable) {
+            validGroupSelections.push({
+              ...acc,
+              defaultGrammage: Number(newGroup.defaultGrammage || 100),
+              groupName: newGroup.name || acc.groupName || "",
+            });
+          }
+        }
+      }
+
+      // Limitar a quantidade de acompanhamentos preservados ao máximo permitido pelo novo grupo
+      const finalSelections = validGroupSelections.slice(0, maxSelections);
+      preservedAccs.push(...finalSelections);
+    }
+
+    setSelectedAccs(preservedAccs);
   };
 
   const handleAddToCart = async () => {
@@ -263,9 +325,10 @@ export function useProductDrawer(dishId: string | number | null, onClose: () => 
     totalNutrition,
     totalUnitPrice,
     isAccompanimentsComplete,
+    hasNoAvailableAccompaniments,
+    noAccompanimentsMessage,
     isAdding: isAddingItem,
     footerRef,
-    sizeSelectorRef,
     handleSizeSelect,
     handleAccSelection,
     handleAddToCart

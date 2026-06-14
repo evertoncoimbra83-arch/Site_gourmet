@@ -128,6 +128,12 @@ function parseRecord(value: unknown): Record<string, unknown> {
   }
 }
 
+/** Normaliza o campo noAccompanimentsMessage de um registro de opção do carrinho */
+function normalizeNoAccompanimentsMessage(record: Record<string, unknown>): string | undefined {
+  const value = record.noAccompanimentsMessage;
+  return isString(value) && value.trim() ? value : undefined;
+}
+
 function normalizeTotalsMetadata(value: unknown): ServerTotalsMetadata {
   const record = isRecord(value) ? value : {};
 
@@ -316,6 +322,8 @@ function normalizeProductOptions(record: Record<string, unknown>): ProductCustom
         ? record.selectedSizeId
         : dishId,
     selectedSizeName: toStringOrUndefined(record.selectedSizeName) || "",
+    // Preserva metadado operacional de tamanho sem acompanhamentos
+    noAccompanimentsMessage: normalizeNoAccompanimentsMessage(record),
     selectedAccs,
   };
 }
@@ -600,9 +608,41 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             sizeName: existingItem.sizeName,
           }),
         );
-      }
 
-      toast.success("Item removido do carrinho");
+        // Exibir toast com ação Desfazer
+        let isRestoring = false;
+        const toastId = toast.success("Item removido do carrinho", {
+          action: {
+            label: "Desfazer",
+            onClick: async () => {
+              if (isRestoring) return;
+              isRestoring = true;
+              toast.dismiss(toastId);
+              try {
+                await toast.promise(
+                  addItemMutation.mutateAsync({
+                    dishId: existingItem.dishId,
+                    packageId: typeof existingItem.packageId === "number" ? existingItem.packageId : undefined,
+                    quantity: existingItem.quantity,
+                    optionsPayload: existingItem.options,
+                    nutritionPayload: toNutritionPayload(existingItem.appliedNutrition),
+                  }),
+                  {
+                    loading: "Restaurando item...",
+                    success: "Item restaurado!",
+                    error: "Não foi possível restaurar o item.",
+                  }
+                );
+              } catch (err) {
+                console.error("[CartContext] Erro ao restaurar item:", err);
+              }
+            },
+          },
+          duration: 6000,
+        });
+      } else {
+        toast.success("Item removido do carrinho");
+      }
     },
 
     updateQuantity: async (itemId, quantity) => {
@@ -628,9 +668,41 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
               sizeName: existingItem.sizeName,
             }),
           );
-        }
 
-        toast.success("Item removido do carrinho");
+          // Exibir toast com ação Desfazer
+          let isRestoring = false;
+          const toastId = toast.success("Item removido do carrinho", {
+            action: {
+              label: "Desfazer",
+              onClick: async () => {
+                if (isRestoring) return;
+                isRestoring = true;
+                toast.dismiss(toastId);
+                try {
+                  await toast.promise(
+                    addItemMutation.mutateAsync({
+                      dishId: existingItem.dishId,
+                      packageId: typeof existingItem.packageId === "number" ? existingItem.packageId : undefined,
+                      quantity: existingItem.quantity,
+                      optionsPayload: existingItem.options,
+                      nutritionPayload: toNutritionPayload(existingItem.appliedNutrition),
+                    }),
+                    {
+                      loading: "Restaurando item...",
+                      success: "Item restaurado!",
+                      error: "Não foi possível restaurar o item.",
+                    }
+                  );
+                } catch (err) {
+                  console.error("[CartContext] Erro ao restaurar item:", err);
+                }
+              },
+            },
+            duration: 6000,
+          });
+        } else {
+          toast.success("Item removido do carrinho");
+        }
         return;
       }
 
