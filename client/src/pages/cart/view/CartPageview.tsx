@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useCartPageLogic } from "./../logic/useCartPageLogic";
-import { ChevronLeft, ShoppingBag, Loader2, ChevronDown } from "lucide-react";
+import { ChevronLeft, ShoppingBag, Loader2, ChevronDown, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 
-import CartItem from "./../view/parts/CartItemRow"; 
+import CartItem from "./../view/parts/CartItemRow";
 import { CartSummary } from "./../view/parts/CartSummary";
 import { CartLoyalty } from "./../view/parts/CartLoyalty";
 import { DiscountRoadmap } from "./../view/parts/DiscountRoadmap";
@@ -45,6 +45,15 @@ export function CartPageView() {
   const [simulatedShipping, setSimulatedShipping] = useState<number | null>(null);
   const [isDeliveryAvailable, setIsDeliveryAvailable] = useState(true);
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
+  const [shippingBlock, setShippingBlock] = useState<{
+    isBelowMin: boolean;
+    isOutOfArea: boolean;
+    minOrderValue: number;
+  }>({
+    isBelowMin: false,
+    isOutOfArea: false,
+    minOrderValue: 0,
+  });
 
   const {
     items = [],
@@ -86,6 +95,22 @@ export function CartPageView() {
     summaryRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const handleBlockStatusChange = useCallback((isBelowMin: boolean, isOutOfArea: boolean, minOrderValue: number) => {
+    setShippingBlock({ isBelowMin, isOutOfArea, minOrderValue });
+  }, []);
+
+  const handleShippingResult = useCallback((cost: number, isAvailable: boolean) => {
+    setSimulatedShipping(cost);
+    setIsDeliveryAvailable(isAvailable);
+    setIsCalculatingShipping(false);
+  }, []);
+
+  const handleGoCheckout = useCallback(() => {
+    if (!isCalculatingShipping) {
+      handleCheckout();
+    }
+  }, [isCalculatingShipping, handleCheckout]);
+
   /**
    * ✅ PROCESSAMENTO ROBUSTO SEM ANY
    * Garante que strings JSON sejam convertidas e campos snake_case sejam mapeados.
@@ -120,9 +145,9 @@ export function CartPageView() {
         quantity: Number(item.quantity || 0),
         image: item.image ?? null,
         // Fallbacks para o nome do tamanho (suporta várias fontes de dados)
-        sizeName: item.sizeName ?? 
-                  (rawOptions?.sizeName as string) ?? 
-                  (rawOptions?.selectedSizeName as string) ?? 
+        sizeName: item.sizeName ??
+                  (rawOptions?.sizeName as string) ??
+                  (rawOptions?.selectedSizeName as string) ??
                   null,
         appliedNutrition: safeNutrition,
         options: rawOptions
@@ -190,7 +215,7 @@ export function CartPageView() {
             {processedItems.map((group) => (
               <CartItem
                 key={group.uniqueKey}
-                group={group} 
+                group={group}
                 money={money}
                 updateQuantity={(id, qty) => updateQuantity(String(id), qty)}
                 removeItem={(id) => removeItem(String(id))}
@@ -209,13 +234,9 @@ export function CartPageView() {
             loyaltyDiscountValue={Number(totals?.loyaltyDiscount || 0)}
             shipping={simulatedShipping !== null ? simulatedShipping : (totals?.shipping ?? 0)}
             isDeliveryAvailable={isDeliveryAvailable}
-            isCalculatingShipping={isCalculatingShipping} 
-            
-            onShippingResult={(cost, isAvailable) => {
-              setSimulatedShipping(cost);
-              setIsDeliveryAvailable(isAvailable);
-              setIsCalculatingShipping(false);
-            }}
+            isCalculatingShipping={isCalculatingShipping}
+            onBlockStatusChange={handleBlockStatusChange}
+            onShippingResult={handleShippingResult}
 
             quantityRuleName={discountsInfo?.autoDiscountName}
             couponCode={discountsInfo?.coupon?.code}
@@ -225,11 +246,7 @@ export function CartPageView() {
             couponError={discountsInfo?.coupon?.hasError ? "Cupom inválido" : null}
             removeCoupon={handleRemoveCoupon}
             money={money}
-            goCheckout={() => {
-               if (!isCalculatingShipping) {
-                 handleCheckout();
-               }
-            }}
+            goCheckout={handleGoCheckout}
             couponInput={couponInput}
             setCouponInput={setCouponInput}
             loyaltyValidation={loyaltyValidation}
@@ -246,20 +263,42 @@ export function CartPageView() {
 
       <AnimatePresence>
         {!isSummaryInView && (
-          <div className="fixed bottom-8 left-0 right-0 flex justify-center z-40 md:hidden px-6 pointer-events-none">
+          <div
+            className="fixed left-0 right-0 flex justify-center z-40 md:hidden px-6 pointer-events-none"
+            style={{ bottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+          >
             <motion.button
-              initial={{ opacity: 0, scale: 0.8, y: 40 }} 
-              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              initial={{ opacity: 0, scale: 0.8, y: 40 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 40 }}
-              onClick={scrollToSummary}
-              className="pointer-events-auto w-full max-w-70 bg-slate-950/95 backdrop-blur-2xl text-white px-7 h-16 rounded-4xl shadow-2xl border border-white/10 flex items-center justify-between active:scale-95 transition-all"
+              disabled={isCalculatingShipping}
+              onClick={handleGoCheckout}
+              className="pointer-events-auto w-full bg-slate-950/95 backdrop-blur-2xl text-white px-6 h-16 rounded-3xl shadow-2xl border border-white/10 flex items-center justify-between active:scale-95 transition-all disabled:opacity-50"
             >
-              <div className="flex flex-col items-start leading-none">
-                <span className="text-[10px] font-black uppercase italic tracking-widest text-emerald-400">Totalizar Sacola</span>
-                <span className="text-[8px] font-bold text-slate-500 mt-1 uppercase">Sincronizar</span>
+              <div className="flex flex-col items-start leading-none text-left">
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                  Finalizar Pedido • {money(totals?.total ?? 0)}
+                </span>
+                {shippingBlock.isOutOfArea ? (
+                  <span className="text-[8px] font-bold text-amber-400 mt-1 uppercase">
+                    CEP fora da área de entrega. Apenas Retirada.
+                  </span>
+                ) : shippingBlock.isBelowMin ? (
+                  <span className="text-[8px] font-bold text-amber-400 mt-1 uppercase">
+                    Abaixo do mínimo para entrega. Apenas Retirada.
+                  </span>
+                ) : (
+                  <span className="text-[8px] font-bold text-slate-500 mt-1 uppercase">
+                    Ir para o checkout
+                  </span>
+                )}
               </div>
               <div className="bg-emerald-500 rounded-2xl p-2 shadow-lg shadow-emerald-500/30">
-                <ChevronDown size={16} className="text-slate-950 animate-bounce" strokeWidth={4} />
+                {isCalculatingShipping ? (
+                  <Loader2 size={16} className="text-slate-950 animate-spin" />
+                ) : (
+                  <ArrowRight size={16} className="text-slate-950" strokeWidth={4} />
+                )}
               </div>
             </motion.button>
           </div>

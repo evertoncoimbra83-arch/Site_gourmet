@@ -1,5 +1,6 @@
 // client/src/_core/hooks/usePrescriptionCart.ts
 import { trpc } from "@/_core/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { appToast as toast } from "@/lib/app-toast";
 
 interface PrescriptionOption {
@@ -26,12 +27,15 @@ interface CartItemPayload {
 
 export function usePrescriptionCart() {
   const utils = trpc.useUtils();
+  const { isAuthenticated, loading } = useAuth();
 
   // ✅ 2. Removido o 'storefront' do caminho tRPC. A rota real é 'nutri'
-  const { 
-    data: prescription, 
-    isLoading: isLoadingDiet 
-  } = trpc.nutri.getMyPrescription.useQuery();
+  const {
+    data: prescription,
+    isLoading: isLoadingDiet
+  } = trpc.nutri.getMyPrescription.useQuery(undefined, {
+    enabled: !loading && isAuthenticated
+  });
 
   // ✅ 3. Usamos ts-expect-error porque ainda vamos criar a rota do carrinho no backend!
   // @ts-expect-error - A rota cart.addBulkItems será criada no backend em breve
@@ -41,7 +45,7 @@ export function usePrescriptionCart() {
         description: "Todos os pratos da sua dieta já estão no carrinho."
       });
       // @ts-expect-error - O caminho exato da query do seu carrinho pode variar
-      utils.cart.get.invalidate(); 
+      utils.cart.get.invalidate();
     },
     onError: (err: { message: string }) => {
       toast.error("Ops! Algo deu errado.", { description: err.message });
@@ -63,7 +67,7 @@ export function usePrescriptionCart() {
           .filter((option: PrescriptionOption) => option.dishId) // Pega só o que tem ID de prato
           .map((option: PrescriptionOption) => ({
             dishId: option.dishId as string | number,
-            quantity: 1, 
+            quantity: 1,
             options: JSON.stringify({
               source: "prescription",
               mealName: meal.name,

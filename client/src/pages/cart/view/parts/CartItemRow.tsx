@@ -1,5 +1,5 @@
 import React, { forwardRef, useMemo, useState, useEffect } from "react";
-import { Trash2, Minus, Plus, Package, Utensils } from "lucide-react";
+import { Trash2, Minus, Plus, Package, Utensils, Info } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { Id } from "@/_core/type/utils";
@@ -23,8 +23,8 @@ interface NutritionInfo {
 
 interface GourmetMealUI extends NormalizedMeal {
   dishId?: string | number;
-  label?: string; 
-  accompaniments?: GourmetAccUI[]; 
+  label?: string;
+  accompaniments?: GourmetAccUI[];
   selectedAccompaniments?: GourmetAccUI[];
   selectedAccs?: GourmetAccUI[];
 }
@@ -33,7 +33,7 @@ interface GourmetAccUI {
   id?: string | number;
   name?: string;
   weight?: number | string;
-  label?: string; 
+  label?: string;
 }
 
 interface PackageTraceItem {
@@ -76,7 +76,7 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
 
     // 1. Normalização de Opções
     const options = useMemo(() => normalizeGourmetOptions(group.options), [group.options]);
-    
+
     const rawOptions = useMemo(() => {
       if (typeof group.options === 'string') {
         try { return JSON.parse(group.options) as Record<string, unknown>; } catch { return {}; }
@@ -84,9 +84,9 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
       return (group.options || {}) as Record<string, unknown>;
     }, [group.options]);
 
-    const isPackage = group.itemType === "package" || 
-                      rawOptions._type === "package_custom" || 
-                      Array.isArray(rawOptions.meals) || 
+    const isPackage = group.itemType === "package" ||
+                      rawOptions._type === "package_custom" ||
+                      Array.isArray(rawOptions.meals) ||
                       Array.isArray(options.meals);
 
     // 2. Normalização de Nutrição
@@ -102,14 +102,14 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
     const packageMeals = useMemo(() => {
       const mealsArray = (options.meals || rawOptions.meals) as GourmetMealUI[];
       if (!isPackage || !Array.isArray(mealsArray)) return [];
-      
+
       const nutritionObj = rawNutrition as AppliedNutritionObject;
       const itemsTrace = nutritionObj?.itemsTrace || [];
 
       return mealsArray.map((meal, idx) => {
         const traceData = itemsTrace.find((t) => String(t.dishId) === String(meal.dishId)) || itemsTrace[idx];
-        
-        const individualKcal = traceData?.nutrition?.energyKcal || 
+
+        const individualKcal = traceData?.nutrition?.energyKcal ||
                              traceData?.nutrition?.energy_kcal;
 
         const rawAccs = (meal.accompaniments || meal.selectedAccompaniments || meal.selectedAccs || []) as GourmetAccUI[];
@@ -118,7 +118,7 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
           name: meal.dishName || meal.label || "Marmita",
           accs: rawAccs.map(a => ({
             name: a.name || a.label || "Item",
-            weight: a.weight ? `${a.weight}g` : "" 
+            weight: a.weight ? `${a.weight}g` : ""
           })).sort((a, b) => safeInteger(String(b.weight)) - safeInteger(String(a.weight))),
           kcal: individualKcal ? Math.round(Number(individualKcal)) : null,
         };
@@ -131,6 +131,13 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
     }, [group.image, imageError]);
 
     const displaySize = options.size?.name || (rawOptions.sizeName as string) || group.sizeName;
+    const noAccompanimentsMessage =
+      typeof rawOptions.noAccompanimentsMessage === "string"
+        ? rawOptions.noAccompanimentsMessage.trim()
+        : "";
+    const singleAccs =
+      ((options.accompaniments as GourmetAccUI[]) ||
+        ((rawOptions.selectedAccs as GourmetAccUI[]) || []));
 
     const [qtyAnim, setQtyAnim] = useState(group.quantity);
     useEffect(() => setQtyAnim(group.quantity), [group.quantity]);
@@ -144,11 +151,11 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
         <div className="flex gap-3 mb-3">
           <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
             {currentImageUrl ? (
-              <img 
-                src={currentImageUrl} 
-                alt={group.name} 
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" 
-                onError={() => setImageError(true)} 
+              <img
+                src={currentImageUrl}
+                alt={group.name}
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                onError={() => setImageError(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-slate-300">
@@ -165,8 +172,8 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
             {displaySize && <p className="mt-1 text-[11px] font-medium text-slate-500 uppercase tracking-wide">{displaySize}</p>}
           </div>
 
-          <button 
-            onClick={() => removeItem(group.id)} 
+          <button
+            onClick={() => removeItem(group.id)}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 active:scale-90 transition-colors"
           >
             <Trash2 size={16} />
@@ -175,15 +182,25 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
 
         <div className="space-y-3">
           {/* Acompanhamentos para Pratos Avulsos */}
-          {!isPackage && (
-            <div className="flex flex-wrap gap-1">
-              {((options.accompaniments as GourmetAccUI[]) || 
-                ((rawOptions.selectedAccs as GourmetAccUI[]) || [])
-              ).map((acc, i) => (
-                <span key={i} className="rounded-md bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500 border border-slate-100">
-                  {acc.name || acc.label || "Item"}{acc.weight ? ` · ${acc.weight}g` : ""}
-                </span>
-              ))}
+          {!isPackage && (singleAccs.length > 0 || noAccompanimentsMessage) && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                Acompanhamentos
+              </p>
+              {singleAccs.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {singleAccs.map((acc, i) => (
+                    <span key={i} className="rounded-md bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500 border border-slate-100">
+                      {acc.name || acc.label || "Item"}{acc.weight ? ` · ${acc.weight}g` : ""}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-medium leading-snug text-slate-500">
+                  <Info size={12} className="mt-0.5 shrink-0 text-slate-400" />
+                  <span>{noAccompanimentsMessage}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -221,25 +238,25 @@ const CartItemRow = forwardRef<HTMLDivElement, CartItemProps>(
               {money(safeNumber(group.price) * group.quantity)}
             </span>
             <div className="flex items-center gap-px rounded-xl border border-slate-200 bg-slate-100 overflow-hidden">
-              <button 
-                onClick={() => updateQuantity(group.id, group.quantity - 1)} 
-                disabled={group.quantity <= 1} 
+              <button
+                onClick={() => updateQuantity(group.id, group.quantity - 1)}
+                disabled={group.quantity <= 1}
                 className="flex h-8 w-8 items-center justify-center bg-white text-slate-500 hover:text-emerald-600 disabled:opacity-30 transition-colors"
               >
                 <Minus size={14} strokeWidth={3} />
               </button>
               <AnimatePresence mode="wait">
-                <motion.span 
-                  key={qtyAnim} 
-                  initial={{ y: -8, opacity: 0 }} 
-                  animate={{ y: 0, opacity: 1 }} 
+                <motion.span
+                  key={qtyAnim}
+                  initial={{ y: -8, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
                   className="flex h-8 w-10 items-center justify-center bg-white text-sm font-black tabular-nums text-slate-800"
                 >
                   {group.quantity}
                 </motion.span>
               </AnimatePresence>
-              <button 
-                onClick={() => updateQuantity(group.id, group.quantity + 1)} 
+              <button
+                onClick={() => updateQuantity(group.id, group.quantity + 1)}
                 className="flex h-8 w-8 items-center justify-center bg-white text-slate-500 hover:text-emerald-600 transition-colors"
               >
                 <Plus size={14} strokeWidth={3} />

@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckoutAddressForm } from "./CheckoutAddressForm";
 import { useCheckout } from "../context/CheckoutContext"; // ✅ Agora consome do Contexto Centralizado
+import { appToast as toast } from "@/lib/app-toast";
 
 // ==================== SUB-COMPONENTES ====================
 
@@ -52,8 +53,11 @@ const PickupToggle = ({
           <Store size={18} />
         </div>
         <div className="text-left">
-          <p className={cn("text-xs font-black uppercase tracking-tight", isPickup ? "text-emerald-900" : "text-slate-700")}>
+          <p className={cn("text-xs font-black uppercase tracking-tight flex items-center gap-2", isPickup ? "text-emerald-900" : "text-slate-700")}>
             Retirar no Local
+            <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100/30 px-1.5 py-0.5 rounded-md">
+              Grátis
+            </span>
           </p>
           {disabled && (
             <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-1">
@@ -136,7 +140,7 @@ const ShippingValidationAlert = ({ errorMessage, type = "warning" }: { errorMess
 // ==================== COMPONENTE PRINCIPAL ====================
 
 export default function CheckoutShipping() {
-  const { logistics, actions, isLoading, machineState, summary } = useCheckout();
+  const { logistics, actions, isLoading, machineState, summary, session } = useCheckout();
   const [addressMode, setAddressMode] = useState<"view" | "select" | "form">("view");
 
   const {
@@ -156,6 +160,7 @@ export default function CheckoutShipping() {
 
   const isPickup = selectedShippingType === "pickup";
   const selectedAddress = addresses.find((a) => String(a.id) === String(selectedAddressId));
+  const needsGuestSessionForDelivery = !isPickup && !session.isReady;
 
   const pickupInfo = summary?.storeInfo || {
     address: "Avenida Samuel Martins, 881 - Vila Progresso, Jundiaí - SP",
@@ -177,6 +182,34 @@ export default function CheckoutShipping() {
     }
   };
 
+  const requestGuestIdentification = () => {
+    toast.warning(
+      "Para cadastrar o endereço, finalize primeiro sua identificação como visitante.",
+      {
+        description: "Você não precisa criar senha.",
+      },
+    );
+    window.dispatchEvent(
+      new CustomEvent("checkout-focus-error", {
+        detail: { field: "customerName", section: "customer" },
+      }),
+    );
+  };
+
+  const openAddressForm = () => {
+    if (needsGuestSessionForDelivery) {
+      requestGuestIdentification();
+      return;
+    }
+    setAddressMode("form");
+  };
+
+  useEffect(() => {
+    if (needsGuestSessionForDelivery && addressMode === "form") {
+      setAddressMode("view");
+    }
+  }, [addressMode, needsGuestSessionForDelivery]);
+
   if (isLoading && machineState === 'loading') {
     return (
       <div className="p-10 flex flex-col items-center gap-2">
@@ -191,17 +224,17 @@ export default function CheckoutShipping() {
       "space-y-4 animate-in fade-in duration-500",
       isLocked && "opacity-70 pointer-events-none"
     )}>
-      
+
       {isBelowMinForDelivery && (
-        <ShippingValidationAlert 
+        <ShippingValidationAlert
           type="error"
-          errorMessage={`Pedidos abaixo de R$ ${MIN_VALUE_FOR_DELIVERY.toFixed(2).replace('.', ',')} estão disponíveis apenas para RETIRADA.`} 
+          errorMessage={`Pedidos abaixo de R$ ${MIN_VALUE_FOR_DELIVERY.toFixed(2).replace('.', ',')} estão disponíveis apenas para RETIRADA.`}
         />
       )}
 
-      <PickupToggle 
-        isPickup={isPickup} 
-        onToggle={toggleShippingMode} 
+      <PickupToggle
+        isPickup={isPickup}
+        onToggle={toggleShippingMode}
         disabled={isBelowMinForDelivery || isLocked}
         pickupInfo={pickupInfo}
       />
@@ -237,9 +270,14 @@ export default function CheckoutShipping() {
                     <div className="p-10 text-center border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50 flex flex-col items-center">
                       <MapPin size={32} className="text-slate-200 mb-3" />
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-5">Nenhum endereço salvo</p>
-                      <Button 
+                      {needsGuestSessionForDelivery && (
+                        <p className="text-[10px] font-bold text-amber-600 leading-relaxed mb-4 max-w-sm">
+                          Para cadastrar o endereço, finalize primeiro sua identificação como visitante. Você não precisa criar senha.
+                        </p>
+                      )}
+                      <Button
                         disabled={isLocked}
-                        onClick={() => setAddressMode("form")} 
+                        onClick={openAddressForm}
                         className="bg-slate-900 hover:bg-emerald-600 rounded-2xl font-black uppercase text-[10px] px-8 h-12 transition-all text-white"
                       >
                         Cadastrar Agora
@@ -278,9 +316,9 @@ export default function CheckoutShipping() {
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t">
                         <button onClick={() => setAddressMode("view")} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600">Voltar</button>
-                        <Button 
-                          onClick={() => setAddressMode("form")} 
-                          variant="ghost" 
+                        <Button
+                          onClick={openAddressForm}
+                          variant="ghost"
                           disabled={isLocked}
                           className="h-8 text-[10px] font-black uppercase gap-1 text-emerald-600"
                         >
@@ -297,11 +335,24 @@ export default function CheckoutShipping() {
                         {isBusy ? <Loader2 size={18} className="animate-spin text-emerald-600" /> : <MapPin size={18} className="text-emerald-600" />}
                         <div className="min-w-0">
                           <p className="text-[11px] font-black text-slate-800 leading-tight truncate">{selectedAddress?.street}, {selectedAddress?.number}</p>
-                          <p className="text-[10px] font-medium text-slate-500">{selectedAddress?.neighborhood}</p>
+                          <p className="text-[10px] font-medium text-slate-500">
+                            {selectedAddress?.neighborhood}
+                            {selectedAddress?.zipCode ? ` • CEP: ${selectedAddress.zipCode.replace(/\D/g, "").replace(/^(\d{5})(\d)/, "$1-$2")}` : ""}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200/20">
+                              Frete: {logistics.shippingCost > 0 ? logistics.shippingCostFormatted : "Grátis"}
+                            </span>
+                            {!logistics.errorMessage && (
+                              <span className="text-[9px] font-bold text-slate-400">
+                                • Entrega hoje
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => setAddressMode("select")} 
+                      <button
+                        onClick={() => setAddressMode("select")}
                         disabled={isLocked}
                         className="bg-white border p-2 rounded-xl text-emerald-700 hover:bg-emerald-50 shadow-sm transition-all disabled:opacity-50"
                       >

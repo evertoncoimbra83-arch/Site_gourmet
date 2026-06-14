@@ -1,8 +1,9 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, and, sql } from "drizzle-orm";
 import {
   cartItems,
   carts,
   coupons,
+  couponUsage,
   discountRules,
   loyaltySettings,
 } from "../../../../drizzle/schema/index.js";
@@ -176,13 +177,49 @@ export async function syncCartState(db: DbType, cartId: string, userId?: string 
 
     const pricingResult = calculatePricing(domainItems, rulesRaw);
     const subtotal = roundMoney(pricingResult.subtotal);
-    const autoDiscount = roundMoney(pricingResult.discounts);
-    const autoDiscountName = pricingResult.appliedRule?.name || null;
 
+    let autoDiscount = 0;
+    let autoDiscountName: string | null = null;
     let couponDiscount = 0;
     let couponError: string | null = null;
+    let loyaltyDiscount = 0;
 
-    if (cartData.couponCode) {
+    if (cartData.usesLoyalty && activeUserId) {
+      // 1. Fidelidade vence: zera autoDiscount e couponDiscount
+      autoDiscount = 0;
+      autoDiscountName = null;
+      couponDiscount = 0;
+
+      try {
+        const loyaltyData = await Loyalty.getUserPoints(activeUserId);
+        const points = Math.max(
+          0,
+          safeNumber(loyaltyData?.current_points ?? loyaltyData?.points, 0),
+        );
+        const [settings] = await db.select().from(loyaltySettings).limit(1);
+
+        if (settings?.enabled && points > 0) {
+          const pointsWorthMoney =
+            (points / safeFloat(settings.redemptionRatePoints)) *
+            safeFloat(settings.redemptionRateMoney);
+          const remainder = subtotal;
+
+          loyaltyDiscount = Math.min(
+            pointsWorthMoney,
+            remainder,
+            safeFloat(settings.maxDiscountAmount),
+          );
+          loyaltyDiscount = roundMoney(loyaltyDiscount);
+        }
+      } catch (error) {
+        console.error("Erro ao recalcular fidelidade do carrinho:", error);
+      }
+    } else if (cartData.couponCode) {
+      // 2. Cupom vence: zera autoDiscount e loyalty
+      autoDiscount = 0;
+      autoDiscountName = null;
+      loyaltyDiscount = 0;
+
       const [dbCoupon] = await db
         .select()
         .from(coupons)
@@ -198,45 +235,44 @@ export async function syncCartState(db: DbType, cartId: string, userId?: string 
             .toFixed(2)
             .replace(".", ",")} para ativar este cupom.`;
         } else {
-          const discountValue = safeFloat(dbCoupon.discountValue);
-          const isPercent = String(dbCoupon.discountType)
-            .toLowerCase()
-            .includes("percent");
-          const baseCalc = Math.max(0, subtotal - autoDiscount);
+          // Check maxUsesPerCustomer
+          let reachedLimit = false;
+          if (activeUserId && dbCoupon.maxUsesPerCustomer) {
+            const [userUsageRes] = await db
+              .select({ count: sql<number>`count(*)` })
+              .from(couponUsage)
+              .where(and(
+                eq(couponUsage.couponId, dbCoupon.id),
+                eq(couponUsage.userId, activeUserId)
+              ));
+            if (safeNumber(userUsageRes.count) >= dbCoupon.maxUsesPerCustomer) {
+              couponError = "Limite de uso por cliente atingido.";
+              reachedLimit = true;
+            }
+          }
 
-          couponDiscount = isPercent ? baseCalc * (discountValue / 100) : discountValue;
+          if (!reachedLimit) {
+            const discountValue = safeFloat(dbCoupon.discountValue);
+            const isPercent = String(dbCoupon.discountType)
+              .toLowerCase()
+              .includes("percent");
+            const baseCalc = subtotal;
 
-          const maxDiscount = safeFloat(dbCoupon.maxDiscount);
-          if (maxDiscount > 0 && couponDiscount > maxDiscount) couponDiscount = maxDiscount;
-          if (couponDiscount > baseCalc) couponDiscount = baseCalc;
-          couponDiscount = roundMoney(couponDiscount);
+            couponDiscount = isPercent ? baseCalc * (discountValue / 100) : discountValue;
+
+            const maxDiscount = safeFloat(dbCoupon.maxDiscount);
+            if (maxDiscount > 0 && couponDiscount > maxDiscount) couponDiscount = maxDiscount;
+            if (couponDiscount > baseCalc) couponDiscount = baseCalc;
+            couponDiscount = roundMoney(couponDiscount);
+          }
         }
       }
-    }
-
-    let loyaltyDiscount = 0;
-    if (cartData.usesLoyalty && activeUserId) {
-      try {
-        const loyaltyData = await Loyalty.getUserPoints(activeUserId);
-        const points = safeNumber(loyaltyData?.current_points || loyaltyData?.points, 0);
-        const [settings] = await db.select().from(loyaltySettings).limit(1);
-
-        if (settings?.enabled && points > 0) {
-          const pointsWorthMoney =
-            (points / safeFloat(settings.redemptionRatePoints)) *
-            safeFloat(settings.redemptionRateMoney);
-          const remainder = Math.max(0, subtotal - autoDiscount - couponDiscount);
-
-          loyaltyDiscount = Math.min(
-            pointsWorthMoney,
-            remainder,
-            safeFloat(settings.maxDiscountAmount),
-          );
-          loyaltyDiscount = roundMoney(loyaltyDiscount);
-        }
-      } catch (error) {
-        console.error("Erro ao recalcular fidelidade do carrinho:", error);
-      }
+    } else {
+      // 3. Progressivo vence
+      autoDiscount = roundMoney(pricingResult.discounts);
+      autoDiscountName = pricingResult.appliedRule?.name || null;
+      couponDiscount = 0;
+      loyaltyDiscount = 0;
     }
 
     const shipping = roundMoney(safeFloat(cartData.shippingValue));

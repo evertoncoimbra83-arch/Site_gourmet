@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
-import { orders, orderItems, dishes, packages } from "../../../drizzle/schema/index.js"; 
+import { orders, orderItems, dishes, packages, users } from "../../../drizzle/schema/index.js";
 import { eq, inArray, desc } from "drizzle-orm";
 import { safeJsonParse as parseJsonSafe, safeNumber } from "../../lib/safe-parse.js";
 import { logger } from "../../logger.js";
@@ -33,8 +33,8 @@ interface OrderItemParsed {
 function safeJsonParse(value: unknown): Record<string, unknown> {
   if (!value) return {};
   if (typeof value !== "string") {
-    return (value && typeof value === "object") 
-      ? (value as Record<string, unknown>) 
+    return (value && typeof value === "object")
+      ? (value as Record<string, unknown>)
       : {};
   }
   try {
@@ -111,8 +111,21 @@ export const ordersRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível" });
-    
+
     const userId = String(ctx.user.id);
+
+    const [userProfile] = await db
+      .select({ loginMethod: users.loginMethod })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userProfile?.loginMethod === "guest") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Não é permitido visualizar histórico de pedidos como visitante.",
+      });
+    }
 
     const baseOrders = await db
       .select()
@@ -154,7 +167,7 @@ export const ordersRouter = router({
           dishId: item.dishId ? Number(item.dishId) : null,
           packageId: item.packageId ? Number(item.packageId) : null,
           quantity: safeNumber(item.quantity, 1),
-          unitPrice: safeNumber(item.unitPrice), 
+          unitPrice: safeNumber(item.unitPrice),
           totalPrice: safeNumber(item.totalPrice),
           options: safeJsonParse(item.options),
           appliedNutrition: safeJsonParse(item.appliedNutrition),
@@ -199,15 +212,57 @@ export const ordersRouter = router({
       return order;
     }),
 
-  getById: protectedProcedure
-    .input(z.object({ id: z.string() }))
+  getById: publicProcedure
+    .input(z.object({
+      id: z.string(),
+      token: z.string().optional().nullish(),
+    }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const order = await fetchOrderWithItems(db, input.id);
-      if (String(order.userId) !== String(ctx.user.id)) {
+
+      // 1. Ownership check — usuário logado
+      const isOwner = ctx.user?.id && String(order.userId) === String(ctx.user.id);
+
+      if (isOwner) {
+        // Usuário autenticado e dono do pedido → resposta completa
+        return order;
+      }
+
+      // 2. Token check — acesso guest via publicAccessToken
+      const matchesToken = input.token
+        && order.publicAccessToken
+        && String(order.publicAccessToken) === String(input.token);
+
+      if (!matchesToken) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Pedido não pertence ao usuário." });
       }
-      return order;
+
+      // 3. Sanitização — retornar apenas dados necessários para a tela de sucesso
+      return {
+        id: order.id,
+        status: order.status,
+        items: order.items.map((item) => ({
+          id: item.id,
+          dishName: item.dishName,
+          sizeName: item.sizeName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          imageUrl: item.imageUrl,
+          options: item.options,
+        })),
+        subtotal: order.subtotal,
+        shippingCost: order.shippingCost,
+        total: order.total,
+        totalDiscount: order.totalDiscount,
+        customerName: order.customerName,
+        paymentMethod: order.paymentMethod,
+        shippingCity: order.shippingCity,
+        shippingState: order.shippingState,
+        notes: order.notes,
+        createdAt: order.createdAt,
+      };
     }),
 });

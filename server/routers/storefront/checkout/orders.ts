@@ -16,9 +16,9 @@ import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
 // --- TIPAGENS ---
 
 type TransactionType = MySqlTransaction<
-  MySql2QueryResultHKT, 
-  MySql2PreparedQueryHKT, 
-  typeof schema, 
+  MySql2QueryResultHKT,
+  MySql2PreparedQueryHKT,
+  typeof schema,
   ExtractTablesWithRelations<typeof schema>
 >;
 
@@ -115,6 +115,7 @@ export async function createOrderWithItems(params: {
     customerName: string;
     customerDocument: string;
     customerPhone: string;
+    customerEmail?: string | null;
     notes?: string | null;
   };
   shippingCost: number;
@@ -128,6 +129,7 @@ export async function createOrderWithItems(params: {
   payMethod: { name: string } | undefined;
   verifiedItems: VerifiedOrderItem[];
   finalNet: number;
+  isGuest?: boolean;
 }) {
   const {
     tx,
@@ -143,6 +145,7 @@ export async function createOrderWithItems(params: {
   } = params;
 
   const newOrderId = generateFriendlyOrderId();
+  const publicAccessToken = params.isGuest ? crypto.randomUUID() : null;
 
   // Descriptografa campos do snapshot caso venham criptografados (ex: de um endereço salvo anteriormente)
   const street = safeDecrypt(addressSnap.street || addressSnap.address || addressSnap.text || (input.shippingType === "pickup" ? "Retirada" : ""));
@@ -163,6 +166,7 @@ export async function createOrderWithItems(params: {
     total: toNumber(finalNet).toFixed(2),
     paymentMethod: payMethod?.name || "Não informado",
     paymentStatus: "pending",
+    publicAccessToken,
     // ✅ Campos de endereço são BLOB/Encrypted no DB, usamos encrypt()
     shippingAddress: encrypt(street),
     shippingAddressNumber: encrypt(number),
@@ -174,7 +178,7 @@ export async function createOrderWithItems(params: {
     customerName: encrypt(input.customerName),
     customerDocument: encrypt(input.customerDocument),
     customerPhone: encrypt(input.customerPhone),
-    discountsSnapshot: JSON.stringify({ ...details, totals }),
+    discountsSnapshot: JSON.stringify({ ...details, totals, customerEmail: input.customerEmail }),
     notes: input.notes || "",
   };
 
@@ -221,7 +225,7 @@ export async function createOrderWithItems(params: {
     await tx.insert(orderItems).values(itemsToInsert);
   }
 
-  return newOrderId;
+  return { orderId: newOrderId, publicAccessToken };
 }
 
 /**

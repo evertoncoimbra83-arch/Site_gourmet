@@ -27,18 +27,18 @@ export const discountRules = mysqlTable("discount_rules", {
   id: int("id").primaryKey().autoincrement(),
   name: varchar("name", { length: 255 }).notNull(),
   description: varchar("description", { length: 512 }),
-  
+
   // Colunas de Quantidade (min_quantity)
   minQuantity: int("min_quantity"),
   maxQuantity: int("max_quantity"),
-  
+
   // Mapeamento: JS 'discountType' -> DB 'type' | JS 'discountValue' -> DB 'value'
   discountType: mysqlEnum("type", ["percentage", "fixed"]).notNull(),
   discountValue: decimal("value", { precision: 10, scale: 2 }).notNull(),
-  
+
   priority: int("priority"),
   isActive: boolean("is_active").default(true),
-  
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
@@ -61,10 +61,11 @@ export const coupons = mysqlTable("coupons", {
   // Mapeamento: JS 'discountType' -> DB 'discount_type'
   discountType: mysqlEnum("discount_type", ["percentage", "fixed"]).notNull(),
   discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
-  
+
   minOrderValue: decimal("min_order_value", { precision: 10, scale: 2 }),
   maxDiscount: decimal("max_discount", { precision: 10, scale: 2 }),
   usageLimit: int("usage_limit"),
+  maxUsesPerCustomer: int("max_uses_per_customer"),
   validFrom: timestamp("valid_from"),
   validUntil: timestamp("valid_until"),
   isActive: boolean("is_active").default(true),
@@ -75,7 +76,7 @@ export const coupons = mysqlTable("coupons", {
 // --- LOG DE USO E RELAÇÕES ---
 // ====================================================
 
-export const couponUsage = mysqlTable("coupon_usage", { 
+export const couponUsage = mysqlTable("coupon_usage", {
   id: varchar("id", { length: 255 }).primaryKey(),
   couponId: varchar("coupon_id", { length: 255 }).notNull().references(() => coupons.id),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
@@ -92,6 +93,7 @@ export const couponUsageRelations = relations(couponUsage, ({ one }) => ({
   user: one(users, { fields: [couponUsage.userId], references: [users.id] }),
   order: one(orders, { fields: [couponUsage.orderId], references: [orders.id] }),
 }));
+
 export const announcements = mysqlTable("announcements", {
   id: varchar("id", { length: 255 }).primaryKey(),
   title: varchar("title", { length: 255 }).notNull(),

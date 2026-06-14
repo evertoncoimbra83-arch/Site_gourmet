@@ -15,6 +15,8 @@ export interface CheckoutCartItem {
     accompaniments: string[];
   }[];
   accompaniments?: string[];
+  hasNoAvailableAccompaniments?: boolean;
+  noAccompanimentsMessage?: string;
 }
 
 export interface AddressItem {
@@ -32,14 +34,26 @@ export interface CheckoutViewModel {
   isLoading: boolean;
   isSubmitting: boolean;
   currentStep: number;
-  
+  session: {
+    isReady: boolean;
+    isLoading: boolean;
+    userId: string | null;
+  };
+
   customer: {
     name: string;
     cpf: string;
     phone: string;
+    email: string;
     isCPFValid: boolean;
+    errors?: {
+      name?: string;
+      cpf?: string;
+      phone?: string;
+      email?: string;
+    };
   };
-  
+
   logistics: {
     type: "delivery" | "pickup";
     addresses: AddressItem[];
@@ -49,8 +63,9 @@ export interface CheckoutViewModel {
     canContinue: boolean;
     errorMessage?: string;
     canDeliver: boolean;
+    zipCode?: string;
   };
-  
+
   payment: {
     methods: {
       id: string;
@@ -59,7 +74,7 @@ export interface CheckoutViewModel {
     }[];
     selectedId: string | null;
   };
-  
+
   summary: {
     items: CheckoutCartItem[];
     subtotal: number;
@@ -73,7 +88,7 @@ export interface CheckoutViewModel {
       hours?: string;
     };
   };
-  
+
   actions: {
     setField: (field: string, value: string | number | boolean | null) => void;
     setShippingType: (type: "delivery" | "pickup") => void;

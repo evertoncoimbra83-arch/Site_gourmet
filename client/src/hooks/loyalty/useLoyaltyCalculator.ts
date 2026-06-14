@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { safeNumber } from "@/lib/safe-parse";
 
 // ✅ Interface para as faixas dinâmicas de desconto
 export interface RedemptionRule {
@@ -17,28 +18,31 @@ export interface LoyaltySettings {
 }
 
 export function useLoyaltyCalculator(
-  availablePoints: number, 
-  subtotal: number, 
+  availablePoints: number,
+  subtotal: number,
   settings: LoyaltySettings | undefined
 ) {
   return useMemo(() => {
+    const currentAvailablePoints = Math.max(0, Math.floor(safeNumber(availablePoints)));
+    const currentSubtotal = Math.max(0, safeNumber(subtotal));
+
     // 1. Verificações iniciais de segurança
     if (!settings || !settings.enabled) {
-      return { 
-        canRedeem: false, 
-        discountValue: 0, 
-        pointsToUse: 0, 
+      return {
+        canRedeem: false,
+        discountValue: 0,
+        pointsToUse: 0,
         maxDiscountPossible: 0,
         pointValueUnit: 0,
         minRequired: 0,
         appliedLimit: 0,
-        calculatePointsForValue: () => 0 
+        calculatePointsForValue: () => 0
       };
     }
 
     // 2. Normalização e Definição da Taxa de Conversão (R$ por Ponto)
-    const ratePoints = Math.max(1, Number(settings.redemptionRatePoints || 100));
-    const rateMoney = Number(settings.redemptionRateMoney || 1);
+    const ratePoints = Math.max(1, Math.floor(safeNumber(settings.redemptionRatePoints, 100)));
+    const rateMoney = Math.max(0, safeNumber(settings.redemptionRateMoney, 1));
     const pointValueUnit = rateMoney / ratePoints;
 
     // 3. ✅ Limite vem SEMPRE das faixas — maxDiscountAmount global foi eliminado
@@ -49,11 +53,11 @@ export function useLoyaltyCalculator(
     if (Array.isArray(rules) && rules.length > 0) {
       // Ordenamos do maior para o menor e pegamos a primeira faixa atingida
       const applicableRule = [...rules]
-        .sort((a, b) => Number(b.minOrderValue) - Number(a.minOrderValue))
-        .find(rule => subtotal >= Number(rule.minOrderValue));
+        .sort((a, b) => safeNumber(b.minOrderValue) - safeNumber(a.minOrderValue))
+        .find(rule => currentSubtotal >= safeNumber(rule.minOrderValue));
 
       if (applicableRule) {
-        limitFromRules = Number(applicableRule.maxDiscount);
+        limitFromRules = Math.max(0, safeNumber(applicableRule.maxDiscount));
       } else {
         // Tem regras, mas o carrinho não atingiu nem a menor — bloqueia
         limitFromRules = 0;
@@ -65,14 +69,14 @@ export function useLoyaltyCalculator(
 
     // 4. Cálculo do Desconto Real Possível
     // Valor total que os pontos do cliente valem em dinheiro (Linear)
-    const userPointsMoneyValue = Number(availablePoints || 0) * pointValueUnit;
-    
-    // O desconto máximo permitido é o menor entre: 
+    const userPointsMoneyValue = currentAvailablePoints * pointValueUnit;
+
+    // O desconto máximo permitido é o menor entre:
     // (Saldo do cliente) VS (Limite da Faixa/Fallback) VS (Subtotal do Pedido)
     const maxDiscountPossible = Math.max(0, Math.min(
-      userPointsMoneyValue, 
+      userPointsMoneyValue,
       limitFromRules,
-      subtotal
+      currentSubtotal
     ));
 
     // 5. Função Utilitária: Converte R$ em Pontos necessários
@@ -81,13 +85,13 @@ export function useLoyaltyCalculator(
       return Math.ceil(valueInCash / pointValueUnit);
     };
 
-    const minRequired = Number(settings.minCartAmount || 0);
+    const minRequired = Math.max(0, safeNumber(settings.minCartAmount));
 
     return {
-      maxDiscountPossible: Number(maxDiscountPossible.toFixed(2)), // Garante precisão decimal
+      maxDiscountPossible: safeNumber(maxDiscountPossible.toFixed(2)),
       calculatePointsForValue,
       // canRedeem indica se o pedido atingiu o mínimo global e se há pontos
-      canRedeem: availablePoints > 0 && subtotal >= minRequired, 
+      canRedeem: currentAvailablePoints > 0 && currentSubtotal >= minRequired,
       pointValueUnit,
       minRequired,
       appliedLimit: limitFromRules

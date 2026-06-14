@@ -1,5 +1,5 @@
 // shared/domain/checkout/customer.ts
-import { validateCPF } from "@/lib/utils"; // Ou mova o validateCPF para o domínio também!
+import { isValidCpf, normalizeCpf } from "./cpf";
 
 export interface RawCustomerData {
   id?: string | number;
@@ -16,7 +16,7 @@ export interface RawCustomerData {
 export function extractCustomerData(raw: RawCustomerData | null | undefined) {
   if (!raw) return null;
 
-  const cpf = String(raw.customerDocument ?? raw.cpf ?? raw.document ?? "").trim();
+  const cpf = normalizeCpf(raw.customerDocument ?? raw.cpf ?? raw.document ?? "");
   const phone = String(raw.phone ?? raw.whatsapp ?? raw.mobile ?? "").trim();
 
   return {
@@ -24,6 +24,6 @@ export function extractCustomerData(raw: RawCustomerData | null | undefined) {
     email: raw.email ?? "",
     cpf,
     phone,
-    isCPFValid: validateCPF(cpf.replace(/\D/g, ""))
+    isCPFValid: isValidCpf(cpf),
   };
 }

@@ -13,13 +13,15 @@ interface ShippingProps {
   selectedShippingType: "delivery" | "pickup";
   subtotal: number;
   addresses: AddressShort[];
+  isSubmitting?: boolean;
+  zipCode?: string;
 }
 
 interface ZipValidationResponse {
   isValid: boolean;
   cityAllowed?: boolean;
   shippingCost?: number;
-  price?: number; 
+  price?: number;
   minOrderValue?: number;
   message?: string;
 }
@@ -60,7 +62,9 @@ export function useValidateShipping({
   selectedAddressId,
   selectedShippingType,
   subtotal,
-  addresses
+  addresses,
+  isSubmitting = false,
+  zipCode
 }: ShippingProps): ShippingValidationResult {
   const utils = trpc.useUtils();
   const [isLoading, setIsLoading] = useState(false);
@@ -71,10 +75,12 @@ export function useValidateShipping({
 
   // 1. Extração reativa do CEP
   const currentZip = useMemo(() => {
-    if (!selectedAddressId || !addresses.length) return null;
-    const addr = addresses.find((a) => String(a.id) === String(selectedAddressId));
-    return addr ? addr.zipCode.replace(/\D/g, "") : null;
-  }, [selectedAddressId, addresses]);
+    if (selectedAddressId && addresses.length) {
+      const addr = addresses.find((a) => String(a.id) === String(selectedAddressId));
+      if (addr) return addr.zipCode.replace(/\D/g, "");
+    }
+    return zipCode ? zipCode.replace(/\D/g, "") : null;
+  }, [selectedAddressId, addresses, zipCode]);
 
   // 2. Lógica de Valor Mínimo (Calculado localmente baseado no retorno da zona)
   const isBelowMin = useMemo(() => {
@@ -84,6 +90,9 @@ export function useValidateShipping({
 
   // 3. Validação Logística no Backend
   useEffect(() => {
+    // Se o pedido estiver finalizando, não faz validações adicionais
+    if (isSubmitting) return;
+
     let isMounted = true;
 
     const validate = async () => {
@@ -100,12 +109,12 @@ export function useValidateShipping({
       setIsLoading(true);
 
       try {
-        const rawRes = await utils.addresses.validateZipZone.fetch({ 
+        const rawRes = await utils.addresses.validateZipZone.fetch({
           zipCode: currentZip,
-          storeSlug: "jundiai" 
+          storeSlug: "jundiai"
         });
         const res = normalizeZipValidationResponse(rawRes);
-        
+
         if (!isMounted) return;
 
         if (res.isValid) {
@@ -134,23 +143,23 @@ export function useValidateShipping({
     validate();
 
     return () => { isMounted = false; };
-  }, [currentZip, selectedShippingType, utils]);
+  }, [currentZip, selectedShippingType, utils, isSubmitting]);
 
   return {
-    isLoading, 
+    isLoading,
     isZipOutOfArea,
     isCityDenied,
     isBelowMin,
     shippingCost: selectedShippingType === "pickup" ? 0 : shippingCost,
     minOrderValue: zoneMinOrder,
-    canContinue: selectedShippingType === "pickup" 
-      ? true 
+    canContinue: selectedShippingType === "pickup"
+      ? true
       : (
-          !!currentZip && 
-          currentZip.length === 8 && 
-          !isZipOutOfArea && 
-          !isCityDenied && 
-          !isBelowMin && 
+          !!currentZip &&
+          currentZip.length === 8 &&
+          !isZipOutOfArea &&
+          !isCityDenied &&
+          !isBelowMin &&
           !isLoading
         ),
   };

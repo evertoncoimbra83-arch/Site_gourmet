@@ -1,4 +1,5 @@
 // client/src/pages/checkout/logic/checkoutService.ts
+import { normalizeCpf } from "@shared/domain/checkout/cpf";
 
 export interface PlaceOrderPayload {
   id: string;
@@ -8,6 +9,7 @@ export interface PlaceOrderPayload {
   customerName: string;
   customerDocument: string;
   customerPhone: string;
+  customerEmail?: string | null;
   useLoyaltyPoints: boolean;
   notes?: string;
 }
@@ -17,6 +19,7 @@ export interface RawCheckoutSubmission {
   customerName: string;
   customerCpf: string;
   customerPhone: string;
+  customerEmail?: string | null;
   selectedPaymentId: string | number;
   selectedShippingType: "delivery" | "pickup";
   selectedAddressId: string | number | null;
@@ -35,8 +38,9 @@ export const CheckoutService = {
           ? null
           : String(raw.selectedAddressId),
       customerName: raw.customerName.trim(),
-      customerDocument: raw.customerCpf.replace(/\D/g, ""),
+      customerDocument: normalizeCpf(raw.customerCpf),
       customerPhone: raw.customerPhone.replace(/\D/g, ""),
+      customerEmail: raw.customerEmail?.trim() || null,
       useLoyaltyPoints: Boolean(raw.usesLoyalty),
       notes: raw.notes?.trim() || undefined,
     };

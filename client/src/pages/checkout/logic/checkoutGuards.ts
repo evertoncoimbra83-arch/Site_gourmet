@@ -10,7 +10,8 @@ export const isCustomerReady = (vm: CheckoutViewModel): boolean => {
   return (
     customer.name.trim().length > 3 &&
     customer.isCPFValid &&
-    customer.phone.length >= 10
+    customer.phone.length >= 10 &&
+    vm.session.isReady
   );
 };
 
@@ -19,7 +20,7 @@ export const isCustomerReady = (vm: CheckoutViewModel): boolean => {
  */
 export const isLogisticsReady = (vm: CheckoutViewModel): boolean => {
   const { logistics } = vm;
-  
+
   // Se for retirada, não precisa de endereço
   if (logistics.type === 'pickup') return true;
 
@@ -44,7 +45,7 @@ export const canTransitionTo = (
   switch (targetState) {
     case 'customer_ready':
       return isCustomerReady(vm);
-    
+
     case 'shipping_validating':
       // Só tenta validar frete se o cliente estiver pronto e houver um endereço (ou for pickup)
       return isCustomerReady(vm) && (vm.logistics.type === 'pickup' || !!vm.logistics.selectedAddressId);

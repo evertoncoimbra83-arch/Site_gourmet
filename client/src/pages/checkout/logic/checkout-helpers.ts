@@ -1,9 +1,9 @@
 // client/src/pages/checkout/logic/checkout-helpers.ts
 
-import { 
+import {
   calculateItemUnitPrice,
   calculateDiscountValue,
-  calculateGrandTotal 
+  calculateGrandTotal
 } from "../../../../../shared/domain/math/pricing";
 
 /* --------------------------------- TYPES ---------------------------------- */
@@ -55,7 +55,7 @@ interface PaymentMethodBase {
 /* ----------------------------- CONSTANTES --------------------------------- */
 
 const BENEFIT_KEYWORDS = [
-  'vr', 'alelo', 'verocard', 'sodexo', 'ticket', 
+  'vr', 'alelo', 'verocard', 'sodexo', 'ticket',
   'ben', 'vale', 'refeição', 'alimentação', 'pluxee', 'msbeneficios'
 ];
 
@@ -100,7 +100,7 @@ export function processCartItems(items: RawCartItem[], money: (v: number) => str
 
   return items.map((item) => {
     const options = parseOptions(item.options);
-    
+
     const unitPrice = calculateItemUnitPrice(item.price, {
       size: options.size,
       accompaniments: options.selectedAccs || options.selectedAccompaniments || []
@@ -144,9 +144,9 @@ export function computePaymentDiscount(
   const method = paymentMethods.find(
     (m) => String(m.id) === String(selectedPaymentId)
   );
-  
+
   const perc = toNumber(method?.discountPercentage ?? method?.discount_percentage);
-  
+
   return calculateDiscountValue(subtotal, { type: 'percentage', value: perc });
 }
 
@@ -176,7 +176,7 @@ export function categorizePaymentMethods(methods: PaymentMethodBase[]) {
   methods.forEach((m) => {
     const name = (m.name || "").toLowerCase();
     const isBenefit = BENEFIT_KEYWORDS.some(k => name.includes(k)) || m.type === 'meal' || m.icon === 'meal';
-    
+
     if (isBenefit) benefits.push(m);
     else standard.push(m);
   });
@@ -204,4 +204,62 @@ export function computeDeliveryStatus(params: {
   const isDeliveryBlocked = isZipOutOfArea || isBelowMin || isZipValid === null;
 
   return { isDeliveryBlocked, isBelowMin, isZipOutOfArea };
+}
+
+/**
+ * Mapeia erros do tRPC (sejam Zod ou manuais do backend) para campos específicos do checkout.
+ */
+export function mapValidationError(err: any): {
+  errors: { name?: string; cpf?: string; phone?: string };
+  isValidationError: boolean;
+  focusField?: "customerName" | "customerPhone" | "customerCpf";
+} {
+  const errors: { name?: string; cpf?: string; phone?: string } = {};
+  let isValidationError = false;
+  let focusField: "customerName" | "customerPhone" | "customerCpf" | undefined;
+
+  const msg = err?.message || "";
+  // tRPC parseia erros de validação do Zod nesta estrutura
+  const zodErrors = err?.data?.zodError?.fieldErrors;
+
+  if (zodErrors && typeof zodErrors === "object") {
+    const nameErr = zodErrors.customerName?.[0] || zodErrors.name?.[0];
+    const phoneErr = zodErrors.customerPhone?.[0] || zodErrors.phone?.[0];
+    const cpfErr = zodErrors.customerDocument?.[0] || zodErrors.customerCpf?.[0] || zodErrors.cpf?.[0];
+
+    if (nameErr) {
+      errors.name = nameErr;
+      isValidationError = true;
+      focusField = "customerName";
+    }
+    if (phoneErr) {
+      errors.phone = phoneErr;
+      isValidationError = true;
+      if (!focusField) focusField = "customerPhone";
+    }
+    if (cpfErr) {
+      errors.cpf = cpfErr;
+      isValidationError = true;
+      if (!focusField) focusField = "customerCpf";
+    }
+  }
+
+  // Fallback por mensagem se não foi mapeado pelo Zod
+  if (!isValidationError && msg) {
+    if (msg.includes("telefone informado é inválido") || msg.includes("Telefone inválido")) {
+      errors.phone = "O telefone informado é inválido.";
+      isValidationError = true;
+      focusField = "customerPhone";
+    } else if (msg.includes("CPF informado é inválido") || msg.includes("CPF inválido")) {
+      errors.cpf = "O CPF informado é inválido.";
+      isValidationError = true;
+      focusField = "customerCpf";
+    } else if (msg.includes("nome do cliente é obrigatório") || msg.includes("Nome é obrigatório")) {
+      errors.name = "O nome do cliente é obrigatório.";
+      isValidationError = true;
+      focusField = "customerName";
+    }
+  }
+
+  return { errors, isValidationError, focusField };
 }

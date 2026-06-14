@@ -6,24 +6,33 @@ import {
   publicProcedure,
   createRateLimitMiddleware,
 } from "../../../_core/trpc.js";
-import { cartItems, carts, dishes, packages } from "../../../../drizzle/schema/index.js";
+import {
+  cartItems,
+  carts,
+  dishes,
+  packages,
+  prescriptionItems,
+  prescriptions,
+} from "../../../../drizzle/schema/index.js";
 import { eq, and, or, desc } from "drizzle-orm";
 import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 
-// 🎯 Lógica de Domínio e Sincronização
+// ðŸŽ¯ Lógica de Domínio e Sincronização
 import { syncCartState } from "./logic.js";
 import { validatePackageIntegrity } from "@shared/domain/packages/validator.js";
-import { 
-  mapToDatabaseNutrition, 
-  NutritionData 
+import {
+  mapToDatabaseNutrition,
+  NutritionData
 } from "@shared/domain/nutrition/nutrition.js";
 import { recalculateCartItem } from "../../../orders/logic/recalculateOrder.js";
+import { getDb } from "../../../db.js";
 import { safeInteger, safeNumber } from "../../../lib/safe-parse.js";
 
 // Importamos os tipos gerados pelo Drizzle para as colunas JSON
 type CartItemOptions = typeof cartItems.$inferInsert.options;
 type AppliedNutrition = typeof cartItems.$inferInsert.appliedNutrition;
+type DbType = Awaited<ReturnType<typeof getDb>>;
 
 const safeFloat = (v: unknown): number => {
   return safeNumber(v);
@@ -48,6 +57,105 @@ interface PackageOptionsPayload {
   [key: string]: unknown;
 }
 
+interface ValidatedPrescriptionCartSource {
+  prescriptionId: string;
+  prescriptionItemId: string;
+  discountPercentage: number;
+  fixedPrice: number;
+  unitPrice: number;
+}
+
+async function validatePrescriptionCartSource(
+  db: DbType,
+  options: PackageOptionsPayload,
+  userId: string | null,
+  dishId: string | null,
+) {
+  if (options.source !== "prescription") return null;
+
+  if (!userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Faça login para comprar itens da prescrição.",
+    });
+  }
+
+  const prescriptionId = typeof options.prescriptionId === "string" ? options.prescriptionId : "";
+  const prescriptionItemId =
+    typeof options.prescriptionItemId === "string" ? options.prescriptionItemId : "";
+
+  if (!prescriptionId || !prescriptionItemId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Item de prescrição sem identificação.",
+    });
+  }
+
+  const [prescription] = await db
+    .select()
+    .from(prescriptions)
+    .where(
+      and(
+        eq(prescriptions.id, prescriptionId),
+        eq(prescriptions.clientId, userId),
+        eq(prescriptions.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!prescription) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Prescrição não pertence ao cliente logado.",
+    });
+  }
+
+  const [prescriptionItem] = await db
+    .select()
+    .from(prescriptionItems)
+    .where(
+      and(
+        eq(prescriptionItems.id, prescriptionItemId),
+        eq(prescriptionItems.prescriptionId, prescriptionId),
+      ),
+    )
+    .limit(1);
+
+  if (!prescriptionItem) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Item da prescrição não encontrado.",
+    });
+  }
+
+  if (dishId && String(prescriptionItem.dishId) !== String(dishId)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Prato incompatível com a prescrição.",
+    });
+  }
+
+  const selectedSizeId = options.selectedSizeId ?? options.sizeId;
+  if (selectedSizeId && String(prescriptionItem.sizeId) !== String(selectedSizeId)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Tamanho incompatível com a prescrição.",
+    });
+  }
+
+  const fixedPrice = safeFloat(prescriptionItem.fixedPrice);
+  const discountPercentage = safeFloat(prescription.discountPercentage);
+  const unitPrice = Math.max(0, fixedPrice * (1 - discountPercentage / 100));
+
+  return {
+    prescriptionId,
+    prescriptionItemId,
+    discountPercentage,
+    fixedPrice,
+    unitPrice: Number(unitPrice.toFixed(2)),
+  } satisfies ValidatedPrescriptionCartSource;
+}
+
 function assertCartOwnership(
   cart: typeof carts.$inferSelect | undefined,
   userId: string | null,
@@ -67,7 +175,7 @@ function assertCartOwnership(
 
 export const cartItemsRouter = router({
   /**
-   * ✅ ADICIONAR ITEM (DISH OU PACKAGE)
+   * âœ… ADICIONAR ITEM (DISH OU PACKAGE)
    */
   addItem: publicProcedure
     .use(
@@ -83,9 +191,9 @@ export const cartItemsRouter = router({
         quantity: z.number().min(1),
         totalUnitPrice: z.number().optional().nullable(),
         optionsPayload: z.record(z.unknown()).optional().nullable(),
-        nutritionPayload: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional().nullable(), 
+        nutritionPayload: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional().nullable(),
         cartId: z.string().optional().nullable(),
-        guestSessionId: z.string().optional().nullable(), 
+        guestSessionId: z.string().optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = ctx.db;
@@ -97,8 +205,8 @@ export const cartItemsRouter = router({
       }
 
       const optionsClean = (input.optionsPayload ? { ...input.optionsPayload } : {}) as PackageOptionsPayload;
-      
-      // ✅ Captura a nutrição, suportando dados do frontend (camelCase ou snake_case)
+
+      // âœ… Captura a nutrição, suportando dados do frontend (camelCase ou snake_case)
       const rawNutrition = (input.nutritionPayload ?? optionsClean?.appliedNutrition ?? null) as Record<string, unknown> | null;
       if (optionsClean.appliedNutrition) delete optionsClean.appliedNutrition;
 
@@ -113,21 +221,27 @@ export const cartItemsRouter = router({
       const isPackage = !!(rawPackageId || optionsClean.isPackage);
       const finalDishId = !isPackage && rawDishId ? String(rawDishId) : null;
       const finalPackageId = isPackage && rawPackageId ? String(rawPackageId) : null;
+      const prescriptionSource = await validatePrescriptionCartSource(
+        db,
+        optionsClean,
+        userId,
+        finalDishId,
+      );
 
       let baseItem: BaseProductInfo | null = null;
-      
+
       if (finalPackageId) {
         const [pkg] = await db.select().from(packages).where(eq(packages.id, finalPackageId)).limit(1);
         if (pkg) {
           const pkgRef = pkg as Record<string, unknown>;
-          
+
           const basePriceValue = safeFloat(pkgRef.price ?? pkgRef.basePrice ?? pkgRef.base_price ?? 0);
           const salePriceValue = safeFloat(pkgRef.salePrice ?? pkgRef.sale_price ?? 0);
           const finalPrice = (salePriceValue > 0 && salePriceValue < basePriceValue) ? salePriceValue : basePriceValue;
 
-          baseItem = { 
-            name: pkg.name, 
-            price: finalPrice, 
+          baseItem = {
+            name: pkg.name,
+            price: finalPrice,
             imageUrl: pkg.imageUrl ?? null,
             minItems: safeInteger(pkg.numberOfOptions, 0),
             maxItems: safeInteger(pkg.numberOfOptions, 0)
@@ -136,7 +250,7 @@ export const cartItemsRouter = router({
       } else if (finalDishId) {
         const dishId = safeInteger(finalDishId, Number.NaN);
         if (!Number.isFinite(dishId)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Produto invÃ¡lido." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Produto inválido." });
         }
         const [dish] = await db.select().from(dishes).where(eq(dishes.id, dishId)).limit(1);
         if (dish) {
@@ -145,8 +259,8 @@ export const cartItemsRouter = router({
           const salePrice = safeFloat(dishRef.salePrice ?? 0);
           const finalPrice = (salePrice > 0 && salePrice < basePrice) ? salePrice : basePrice;
 
-          baseItem = { 
-            name: dish.name ?? "", 
+          baseItem = {
+            name: dish.name ?? "",
             price: finalPrice,
             imageUrl: dish.imageUrl ?? null,
             minItems: 0,
@@ -176,7 +290,7 @@ export const cartItemsRouter = router({
       const sessionCondition = userId ? eq(carts.userId, userId) : eq(carts.guestId, guestId!);
       const [existing] = await db.select().from(carts).where(
         and(
-          sessionCondition, 
+          sessionCondition,
           or(eq(carts.status, "open"), eq(carts.status, "active")),
           input.cartId ? eq(carts.id, input.cartId) : undefined
         )
@@ -190,7 +304,7 @@ export const cartItemsRouter = router({
         await db.insert(carts).values({
           id: currentCartId,
           userId,
-          guestId: userId ? null : guestId, 
+          guestId: userId ? null : guestId,
           status: "active",
         });
       }
@@ -203,23 +317,23 @@ export const cartItemsRouter = router({
         appliedNutrition: rawNutrition,
       });
 
-      const finalUnitPrice = authoritativeItem.unitPrice;
+      const finalUnitPrice = prescriptionSource?.unitPrice ?? authoritativeItem.unitPrice;
       const itemName = authoritativeItem.name;
 
-      // ✅ TRATAMENTO BLINDADO DA NUTRIÇÃO
+      // Tratamento blindado da nutricao
       let finalNutrition: Record<string, unknown> | null = null;
-      
+
       if (rawNutrition) {
         // Verifica suporte para camelCase ou snake_case
         const kcal = safeFloat(rawNutrition.energyKcal ?? rawNutrition.energy_kcal ?? 0);
-        
+
         if (kcal > 0) {
           // Extrai o itemsTrace para não ser perdido na conversão
           const itemsTrace = rawNutrition.itemsTrace ?? null;
-          
+
           // Mapeia para o padrão do banco
           const mappedDbNutrition = mapToDatabaseNutrition(rawNutrition as unknown as NutritionData);
-          
+
           finalNutrition = {
             ...mappedDbNutrition,
           };
@@ -234,15 +348,29 @@ export const cartItemsRouter = router({
       const newItem = {
         id: crypto.randomUUID(),
         cartId: currentCartId,
-        dishId: finalDishId, 
+        dishId: finalDishId,
         packageId: finalPackageId,
         quantity: input.quantity,
-        unitPrice: String(finalUnitPrice), 
+        unitPrice: String(finalUnitPrice),
         name: itemName,
-        imageUrl: baseItem.imageUrl, 
-        options: (Object.keys(authoritativeItem.options).length > 0 ? authoritativeItem.options : null) as CartItemOptions, 
+        imageUrl: baseItem.imageUrl,
+        options: (Object.keys(authoritativeItem.options).length > 0
+          ? {
+              ...authoritativeItem.options,
+              ...(prescriptionSource
+                ? {
+                    source: "prescription",
+                    prescriptionId: prescriptionSource.prescriptionId,
+                    prescriptionItemId: prescriptionSource.prescriptionItemId,
+                    prescriptionDiscountPercentage: prescriptionSource.discountPercentage,
+                    prescriptionFixedPrice: prescriptionSource.fixedPrice,
+                    prescriptionUnitPrice: prescriptionSource.unitPrice,
+                  }
+                : {}),
+            }
+          : null) as CartItemOptions,
         // Conversão final para o tipo do Drizzle (AppliedNutrition)
-        appliedNutrition: finalNutrition as unknown as AppliedNutrition, 
+        appliedNutrition: finalNutrition as unknown as AppliedNutrition,
       };
 
       await db.insert(cartItems).values(newItem);
@@ -252,7 +380,7 @@ export const cartItemsRouter = router({
     }),
 
   /**
-   * ✅ REMOVER ITEM
+   * âœ… REMOVER ITEM
    */
   removeItem: publicProcedure
     .input(z.object({ cartItemId: z.string() }))
@@ -275,12 +403,12 @@ export const cartItemsRouter = router({
     }),
 
   /**
-   * ✅ ATUALIZAR QUANTIDADE
+   * âœ… ATUALIZAR QUANTIDADE
    */
   updateQuantity: publicProcedure
-    .input(z.object({ 
-      cartItemId: z.string(), 
-      quantity: z.number().min(1) 
+    .input(z.object({
+      cartItemId: z.string(),
+      quantity: z.number().min(1)
     }))
     .mutation(async ({ input, ctx }) => {
       const db = ctx.db;

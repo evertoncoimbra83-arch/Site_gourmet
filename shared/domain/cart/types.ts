@@ -13,6 +13,7 @@ export interface DiscountRule {
   name: string;
   minQuantity: number;
   discountValue: number;
+  discountType: "percentage" | "fixed";
   isActive: boolean;
 }
 

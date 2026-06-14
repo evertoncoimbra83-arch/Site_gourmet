@@ -1,35 +1,24 @@
-// client/src/pages/checkout/logic/useCheckoutReadiness.ts
-//
-// Orquestrador independente de prontidão do checkout.
-// Avalia cada portão sequencialmente e expõe qual está bloqueando.
-// NÃO depende da máquina de estados — pode ser debugado isoladamente.
-
 import { useMemo } from "react";
 import { CheckoutViewModel } from "./CheckoutViewModel";
 
 export type ReadinessGate =
-  | "load"        // 1. Dados ainda carregando
-  | "customer"    // 2. Nome, CPF ou telefone inválido
-  | "logistics"   // 3. Endereço ou frete não resolvido
-  | "payment"     // 4. Método de pagamento não selecionado
-  | "machine"     // 5. Máquina de estados ainda não chegou em review_ready
-  | "terms"       // 6. Termos não aceitos
-  | "ready";      // ✅ Todos os portões passaram
+  | "load"
+  | "customer"
+  | "visitor"
+  | "logistics"
+  | "payment"
+  | "machine"
+  | "terms"
+  | "ready";
 
 export interface CheckoutReadiness {
-  /** Portão atual que está bloqueando. "ready" = pode finalizar. */
   gate: ReadinessGate;
-
-  /** true apenas quando gate === "ready" */
   isReady: boolean;
-
-  /** Mensagem amigável para exibir ao usuário */
   message: string;
-
-  /** Resultado de cada portão individualmente para debug */
   gates: {
     load: boolean;
     customer: boolean;
+    visitor: boolean;
     logistics: boolean;
     payment: boolean;
     machine: boolean;
@@ -44,13 +33,14 @@ interface Options {
 }
 
 const GATE_MESSAGES: Record<ReadinessGate, string> = {
-  load:      "Carregando dados do pedido...",
-  customer:  "Preencha seus dados (nome, CPF e telefone)",
+  load: "Carregando dados do pedido...",
+  customer: "Preencha seus dados (nome, CPF e telefone)",
+  visitor: "Finalize sua identificação como visitante para continuar",
   logistics: "Selecione um endereço de entrega ou retirada",
-  payment:   "Selecione um método de pagamento",
-  machine:   "Aguardando confirmação do pedido...",
-  terms:     "Aceite os termos para finalizar",
-  ready:     "Tudo certo! Clique para finalizar",
+  payment: "Selecione um método de pagamento",
+  machine: "Aguardando confirmação do pedido...",
+  terms: "Aceite os termos para finalizar",
+  ready: "Tudo certo! Clique para finalizar",
 };
 
 export function useCheckoutReadiness({
@@ -59,10 +49,8 @@ export function useCheckoutReadiness({
   acceptedTerms,
 }: Options): CheckoutReadiness {
   return useMemo(() => {
-    // --- PORTÃO 1: LOAD ---
     const loadOk = !viewModel.isLoading;
 
-    // --- PORTÃO 2: CUSTOMER ---
     const { customer } = viewModel;
     const customerOk =
       loadOk &&
@@ -70,39 +58,36 @@ export function useCheckoutReadiness({
       customer.isCPFValid &&
       customer.phone.length >= 10;
 
-    // --- PORTÃO 3: LOGISTICS ---
+    const visitorOk = customerOk && viewModel.session.isReady;
+
     const { logistics } = viewModel;
     const logisticsOk =
-      customerOk &&
+      visitorOk &&
       (logistics.type === "pickup"
         ? true
         : !!logistics.selectedAddressId &&
           logistics.canContinue &&
           !logistics.errorMessage);
 
-    // --- PORTÃO 4: PAYMENT ---
     const paymentOk = logisticsOk && !!viewModel.payment.selectedId;
-
-    // --- PORTÃO 5: MACHINE ---
     const machineOk = paymentOk && machineState === "review_ready";
-
-    // --- PORTÃO 6: TERMS ---
     const termsOk = machineOk && acceptedTerms;
 
-    // Determina o portão atual
     const gate: ReadinessGate = !loadOk
       ? "load"
       : !customerOk
-      ? "customer"
-      : !logisticsOk
-      ? "logistics"
-      : !paymentOk
-      ? "payment"
-      : !machineOk
-      ? "machine"
-      : !termsOk
-      ? "terms"
-      : "ready";
+        ? "customer"
+        : !visitorOk
+          ? "visitor"
+          : !logisticsOk
+            ? "logistics"
+            : !paymentOk
+              ? "payment"
+              : !machineOk
+                ? "machine"
+                : !termsOk
+                  ? "terms"
+                  : "ready";
 
     return {
       gate,
@@ -111,6 +96,7 @@ export function useCheckoutReadiness({
       gates: {
         load: loadOk,
         customer: customerOk,
+        visitor: visitorOk,
         logistics: logisticsOk,
         payment: paymentOk,
         machine: machineOk,
@@ -122,6 +108,7 @@ export function useCheckoutReadiness({
     viewModel.customer.name,
     viewModel.customer.isCPFValid,
     viewModel.customer.phone,
+    viewModel.session.isReady,
     viewModel.logistics.type,
     viewModel.logistics.selectedAddressId,
     viewModel.logistics.canContinue,

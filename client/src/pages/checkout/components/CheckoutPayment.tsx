@@ -1,7 +1,7 @@
 // client/src/pages/checkout/components/CheckoutPayment.tsx
 
 import React, { useState } from "react";
-import { 
+import {
   CreditCard, Banknote, Landmark, CircleDot, Circle,
   CircleDollarSign, Zap, Ticket, Loader2, ChevronDown, ShieldCheck, Edit2
 } from "lucide-react";
@@ -16,7 +16,7 @@ const IconMap: Record<string, React.ElementType> = {
   pix: Zap,
   cash: Banknote,
   bank: Landmark,
-  meal: Ticket, 
+  meal: Ticket,
   default: CircleDollarSign,
 };
 
@@ -55,7 +55,7 @@ const SelectedPaymentCard = ({ m, onChange, disabled }: { m: PaymentMethodUI; on
           )}
         </div>
       </div>
-      
+
       {!disabled && (
         <button
           onClick={onChange}
@@ -78,10 +78,12 @@ const PaymentRow = ({ m, isSelected, onSelect, disabled }: { m: PaymentMethodUI;
       type="button"
       disabled={disabled}
       data-testid="payment-method-option"
-      onClick={() => onSelect(m.id)} 
+      onClick={() => onSelect(m.id)}
       className={cn(
-        "w-full flex items-center p-5 transition-all duration-200 group text-left",
-        isSelected ? "bg-emerald-50/40" : "hover:bg-slate-50",
+        "w-full flex items-center p-5 rounded-2xl border-2 transition-all duration-200 group text-left",
+        isSelected
+          ? "border-emerald-500 bg-emerald-50/30 shadow-md shadow-emerald-500/5"
+          : "border-slate-100 bg-white hover:border-slate-200",
         disabled && "opacity-50 cursor-not-allowed"
       )}
     >
@@ -146,9 +148,9 @@ export default function CheckoutPayment() {
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
       {selectedMethod && viewMode === "compact" ? (
-        <SelectedPaymentCard 
-          m={selectedMethod} 
-          onChange={() => setViewMode("expand")} 
+        <SelectedPaymentCard
+          m={selectedMethod}
+          onChange={() => setViewMode("expand")}
           disabled={isLocked}
         />
       ) : (
@@ -161,28 +163,28 @@ export default function CheckoutPayment() {
             </div>
           </div>
 
-          <PaymentAccordionUI 
-            title="Padrão & Digitais" 
-            icon={<CircleDollarSign size={18} />} 
-            methods={standard as PaymentMethodUI[]} 
-            selectedId={payment.selectedId} 
-            onSelect={(id) => { 
-              actions.setPayment(id); 
-              setViewMode("compact"); 
-            }} 
+          <PaymentAccordionUI
+            title="Padrão & Digitais"
+            icon={<CircleDollarSign size={18} />}
+            methods={standard as PaymentMethodUI[]}
+            selectedId={payment.selectedId}
+            onSelect={(id) => {
+              actions.setPayment(id);
+              setViewMode("compact");
+            }}
             disabled={isLocked}
           />
-          
-          <PaymentAccordionUI 
-            title="Vales e Benefícios" 
-            icon={<Ticket size={18} />} 
-            methods={benefits as PaymentMethodUI[]} 
-            selectedId={payment.selectedId} 
-            onSelect={(id) => { 
-              actions.setPayment(id); 
-              setViewMode("compact"); 
-            }} 
-            isBenefit 
+
+          <PaymentAccordionUI
+            title="Vales e Benefícios"
+            icon={<Ticket size={18} />}
+            methods={benefits as PaymentMethodUI[]}
+            selectedId={payment.selectedId}
+            onSelect={(id) => {
+              actions.setPayment(id);
+              setViewMode("compact");
+            }}
+            isBenefit
             disabled={isLocked}
           />
         </div>
@@ -205,12 +207,12 @@ function PaymentAccordionUI({ title, icon, methods, selectedId, onSelect, isBene
 
   return (
     <div className={cn(
-      "overflow-hidden rounded-4xl border-2 transition-all", 
+      "overflow-hidden rounded-4xl border-2 transition-all",
       isOpen ? "bg-white border-slate-100 shadow-xl shadow-slate-200/40" : "bg-slate-50/50 border-transparent hover:border-slate-100"
     )}>
-      <button 
+      <button
         disabled={disabled}
-        onClick={() => setIsOpen(!isOpen)} 
+        onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between p-5"
       >
         <div className="flex items-center gap-3">
@@ -223,13 +225,13 @@ function PaymentAccordionUI({ title, icon, methods, selectedId, onSelect, isBene
       </button>
       <AnimatePresence>
         {isOpen && (
-          <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="overflow-hidden border-t border-slate-50">
+          <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="overflow-hidden border-t border-slate-50 p-4 space-y-3 bg-slate-50/20">
             {methods.map((m) => (
-              <PaymentRow 
-                key={m.id} 
-                m={m} 
-                isSelected={String(selectedId) === String(m.id)} 
-                onSelect={onSelect} 
+              <PaymentRow
+                key={m.id}
+                m={m}
+                isSelected={String(selectedId) === String(m.id)}
+                onSelect={onSelect}
                 disabled={disabled}
               />
             ))}

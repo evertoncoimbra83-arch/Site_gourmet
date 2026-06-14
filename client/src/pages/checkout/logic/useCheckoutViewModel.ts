@@ -7,7 +7,7 @@ import { trpc } from "@/_core/trpc";
 import { useCart } from "@/_core/CartContext";
 import { useCheckoutStore } from "@/_core/store/useCheckoutStore";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { validateCPF } from "@/lib/utils";
+import { isValidCpf, normalizeCpf } from "@shared/domain/checkout/cpf";
 
 import type { CheckoutViewModel, AddressItem } from "./CheckoutViewModel";
 import { CheckoutService } from "./checkoutService";
@@ -15,10 +15,10 @@ import { formatMoney } from "./checkout-helpers";
 import { useValidateShipping } from "./useValidateShipping";
 import { extractCustomerData } from "@shared/domain/checkout/customer";
 
-import { 
-  calculateDiscountValue, 
+import {
+  calculateDiscountValue,
   calculateGrandTotal,
-  normalizeGourmetOptions 
+  normalizeGourmetOptions
 } from "../../../../../shared/domain/math/pricing";
 
 interface StoreSettings {
@@ -74,29 +74,19 @@ export function useCheckoutViewModel(): CheckoutViewModel {
   const { data: addrRaw, isLoading: addrLoading } = trpc.store.addresses.list.useQuery(undefined, { enabled: !!authUser });
   const { data: paymentsRaw } = trpc.store.paymentMethods.list.useQuery();
 
-  const storeSettings = (storeSettingsRaw as StoreSettings) || {}; 
+  const storeSettings = (storeSettingsRaw as StoreSettings) || {};
   const addresses = useMemo(() => (addrRaw as AddressItem[]) || [], [addrRaw]);
   const paymentMethods = useMemo(() => (paymentsRaw as unknown as PaymentMethod[]) || [], [paymentsRaw]);
   const customerData = useMemo(() => extractCustomerData(authUser), [authUser]);
   const cartSubtotal = Number(cart.totals?.subtotal || 0);
 
-  const shippingValidation = useValidateShipping({
-    selectedAddressId: store.selectedAddressId,
-    selectedShippingType: store.selectedShippingType,
-    subtotal: cartSubtotal,
-    addresses,
-  });
-
-  const handleOrderSuccess = useCallback((orderId: string | number) => {
-    const cleanOrderId = String(orderId);
-    const completedCartId = cart.cartId ? String(cart.cartId) : "";
-    const successUrl = `/sucesso?orderId=${encodeURIComponent(cleanOrderId)}${completedCartId ? `&cartId=${encodeURIComponent(completedCartId)}` : ""}`;
+  const handleOrderSuccess = useCallback((result: { orderId: string | number; publicAccessToken?: string | null }) => {
+    const cleanOrderId = String(result.orderId);
+    const token = result.publicAccessToken || "";
+    const successUrl = `/sucesso?orderId=${encodeURIComponent(cleanOrderId)}${token ? `&token=${encodeURIComponent(token)}` : ""}`;
 
     setIsCompletingOrder(true);
-    navigate(successUrl, {
-      replace: true,
-      state: { orderId: cleanOrderId, cartId: completedCartId || null },
-    });
+    navigate(successUrl, { replace: true });
 
     setTimeout(() => {
       store.reset();
@@ -105,8 +95,8 @@ export function useCheckoutViewModel(): CheckoutViewModel {
   }, [cart, navigate, store]);
 
   const placeOrderMutation = trpc.store.checkout.placeOrder.useMutation({
-    onSuccess: (res: { orderId?: string | number } | undefined) => {
-      if (res?.orderId) handleOrderSuccess(res.orderId);
+    onSuccess: (res: { orderId?: string | number; publicAccessToken?: string | null } | undefined) => {
+      if (res?.orderId) handleOrderSuccess({ orderId: res.orderId, publicAccessToken: res.publicAccessToken });
     },
     onError: (err) => {
       setIsCompletingOrder(false);
@@ -114,44 +104,99 @@ export function useCheckoutViewModel(): CheckoutViewModel {
     },
   });
 
+  const isSubmitting = placeOrderMutation.isPending || isCompletingOrder;
+
+  // Load manualZipCode from localStorage exactly once upon mount as a stable bridge
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedCep = localStorage.getItem("cart-delivery-cep")?.replace(/\D/g, "");
+      if (savedCep && !store.manualZipCode) {
+        store.setField("manualZipCode", savedCep);
+      }
+    }
+  }, []);
+
+  const selectedAddress = useMemo(() =>
+    addresses.find((a) => String(a.id) === String(store.selectedAddressId)),
+    [addresses, store.selectedAddressId]
+  );
+
+  const currentZip = useMemo(() => {
+    if (selectedAddress) {
+      return selectedAddress.zipCode.replace(/\D/g, "");
+    }
+    return store.manualZipCode?.replace(/\D/g, "") || "";
+  }, [selectedAddress, store.manualZipCode]);
+
+  const shippingValidation = useValidateShipping({
+    selectedAddressId: store.selectedAddressId,
+    selectedShippingType: store.selectedShippingType,
+    subtotal: cartSubtotal,
+    addresses,
+    isSubmitting,
+    zipCode: currentZip,
+  });
+
   useEffect(() => {
     if (!storeHydrated) return;
 
     if (customerData && !addrLoading) {
       if (!store.customerName && customerData.name) store.setField("customerName" as never, customerData.name as never);
-      if (!store.customerCpf && customerData.cpf) store.setField("customerCpf" as never, customerData.cpf as never);
+      if (!store.customerCpf && isValidCpf(customerData.cpf)) {
+        store.setField("customerCpf" as never, normalizeCpf(customerData.cpf) as never);
+      }
       if (!store.customerPhone && customerData.phone) store.setField("customerPhone" as never, customerData.phone as never);
+      if (!store.customerEmail && customerData.email) store.setField("customerEmail" as never, customerData.email as never);
     }
   }, [customerData, store, addrLoading, storeHydrated]);
 
+  useEffect(() => {
+    if (!storeHydrated || addrLoading) return;
+    if (addresses.length > 0 && !store.selectedAddressId) {
+      store.setField("selectedAddressId", String(addresses[0].id));
+    }
+  }, [addresses, storeHydrated, addrLoading, store.selectedAddressId, store]);
+
   const viewModel = useMemo((): CheckoutViewModel => {
     const selectedMethod = paymentMethods.find(p => String(p.id) === String(store.selectedPaymentId));
-    const paymentDiscount = calculateDiscountValue(cartSubtotal, { 
-      type: 'percentage', 
-      value: Number(selectedMethod?.discountPercentage || 0) 
+    const paymentDiscount = calculateDiscountValue(cartSubtotal, {
+      type: 'percentage',
+      value: Number(selectedMethod?.discountPercentage || 0)
     });
 
     const shippingCost = store.selectedShippingType === "pickup" ? 0 : shippingValidation.shippingCost;
-    const totalDiscounts = paymentDiscount + 
-      Number(cart.totals?.loyaltyDiscount || 0) + 
-      Number(cart.totals?.autoDiscount || 0) + 
+    const totalDiscounts = paymentDiscount +
+      Number(cart.totals?.loyaltyDiscount || 0) +
+      Number(cart.totals?.autoDiscount || 0) +
       Number(cart.totals?.couponDiscount || 0);
-    
+
     const finalTotal = calculateGrandTotal(cartSubtotal, shippingCost, totalDiscounts);
     const minAmount = shippingValidation.minOrderValue || Number(storeSettings.generalMinOrderAmount || 50);
 
     const isBelowMin = store.selectedShippingType === "delivery" && cartSubtotal < minAmount;
-    const errorMessage = isBelowMin ? `Pedido mínimo: ${formatMoney(minAmount)}` : shippingValidation.isZipOutOfArea ? "CEP fora da área" : undefined;
+    const errorMessage = isBelowMin
+      ? `Pedido mínimo: ${formatMoney(minAmount)}`
+      : shippingValidation.isCityDenied
+        ? "Cidade fora da área de entrega"
+        : shippingValidation.isZipOutOfArea
+          ? "CEP fora da área"
+          : undefined;
 
     return {
       isLoading: !storeHydrated || authLoading || addrLoading,
       isSubmitting: placeOrderMutation.isPending || isCompletingOrder,
       currentStep: 1,
+      session: {
+        isReady: !!authUser?.id,
+        isLoading: authLoading || (!!authUser && addrLoading),
+        userId: authUser?.id ? String(authUser.id) : null,
+      },
       customer: {
         name: store.customerName,
-        cpf: store.customerCpf,
+        cpf: normalizeCpf(store.customerCpf),
         phone: store.customerPhone,
-        isCPFValid: validateCPF(store.customerCpf)
+        email: store.customerEmail,
+        isCPFValid: isValidCpf(store.customerCpf)
       },
       logistics: {
         type: store.selectedShippingType,
@@ -161,7 +206,8 @@ export function useCheckoutViewModel(): CheckoutViewModel {
         shippingCostFormatted: formatMoney(shippingCost),
         canContinue: store.selectedShippingType === "pickup" || (shippingValidation.canContinue && !isBelowMin),
         errorMessage,
-        canDeliver: !isBelowMin && !shippingValidation.isZipOutOfArea
+        canDeliver: !isBelowMin && !shippingValidation.isZipOutOfArea && (store.selectedShippingType === "pickup" || (!!currentZip && currentZip.length === 8)),
+        zipCode: currentZip
       },
       payment: {
         methods: paymentMethods.map(p => ({
@@ -174,7 +220,11 @@ export function useCheckoutViewModel(): CheckoutViewModel {
       summary: {
         items: cart.items.map(item => {
           const opts = normalizeGourmetOptions(item.options) as Record<string, unknown>;
-          
+          const rawOptions = (item.options || {}) as Record<string, unknown>;
+          const noAccMsg = typeof rawOptions.noAccompanimentsMessage === "string"
+            ? rawOptions.noAccompanimentsMessage.trim()
+            : "";
+
           return {
             id: String(item.id),
             name: item.name,
@@ -183,10 +233,12 @@ export function useCheckoutViewModel(): CheckoutViewModel {
             priceFormatted: formatMoney(item.price * item.quantity),
             displaySize: (opts.size as Record<string, unknown>)?.name as string || null,
             isPackage: item.itemType === "package",
+            hasNoAvailableAccompaniments: Boolean(rawOptions.hasNoAvailableAccompaniments && noAccMsg),
+            noAccompanimentsMessage: noAccMsg || undefined,
             packageMeals: (Array.isArray(opts.meals) ? opts.meals : []).map(m => {
               const meal = m as Record<string, unknown>;
-              const accs = (Array.isArray(meal.accompaniments) ? meal.accompaniments : 
-                            Array.isArray(meal.selectedAccompaniments) ? meal.selectedAccompaniments : 
+              const accs = (Array.isArray(meal.accompaniments) ? meal.accompaniments :
+                            Array.isArray(meal.selectedAccompaniments) ? meal.selectedAccompaniments :
                             []) as Record<string, unknown>[];
 
               return {
@@ -221,28 +273,29 @@ export function useCheckoutViewModel(): CheckoutViewModel {
         setPayment: (id) => store.setField("selectedPaymentId", id),
         setNotes: (n) => store.setField("notes", n),
         placeOrder: async () => {
-          if (!validateCPF(store.customerCpf)) {
+          if (!isValidCpf(store.customerCpf)) {
             toast.warning("CPF inválido");
             return;
           }
-          
+
           const payload = CheckoutService.preparePayload({
             cartId: cart.cartId || "",
             customerName: store.customerName,
-            customerCpf: store.customerCpf,
+            customerCpf: normalizeCpf(store.customerCpf),
             customerPhone: store.customerPhone,
+            customerEmail: store.customerEmail,
             selectedPaymentId: store.selectedPaymentId || "",
             selectedShippingType: store.selectedShippingType,
             selectedAddressId: store.selectedAddressId,
             usesLoyalty: !!cart.usesLoyalty,
             notes: store.notes
           });
-          
+
           await placeOrderMutation.mutateAsync(payload as never);
         }
       }
     };
-  }, [cart, store, authUser, addresses, paymentMethods, storeSettings, authLoading, addrLoading, placeOrderMutation, isCompletingOrder, cartSubtotal, shippingValidation, handleOrderSuccess, storeHydrated]);
+  }, [cart, store, authUser, addresses, paymentMethods, storeSettings, authLoading, addrLoading, placeOrderMutation, isCompletingOrder, cartSubtotal, shippingValidation, handleOrderSuccess, storeHydrated, currentZip]);
 
   return viewModel;
 }

@@ -1,11 +1,12 @@
 // server/orders/logic/recalculateOrder.ts
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { getDb } from "../../db.js";
 import {
   cartItems,
   carts,
   coupons,
+  couponUsage,
   discountRules,
   loyaltySettings,
   paymentMethods,
@@ -24,6 +25,15 @@ interface RawSelectedAcc {
   weight?: number | string;
   groupId?: string | number;
   groupName?: string;
+  minSelections?: number | string | null;
+  maxSelections?: number | string | null;
+  defaultGrammage?: number | string | null;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
+  energyKcal?: number | string;
+  proteins?: number | string;
+  carbs?: number | string;
+  fatTotal?: number | string;
 }
 
 interface RawSelectedMeal {
@@ -59,7 +69,7 @@ interface RecalculateCheckoutResult {
   cart: {
     id: string;
     couponCode: string | null;
-    couponId: number | null;
+    couponId: string | number | null;
     usesLoyalty: boolean;
   };
   items: AuthoritativeCartItem[];
@@ -87,6 +97,9 @@ interface RecalculateCartItemParams {
 
 type DbType = Awaited<ReturnType<typeof getDb>>;
 
+const NO_ACCOMPANIMENTS_FALLBACK =
+  "Este tamanho não possui acompanhamentos. O peso informado corresponde ao prato principal.";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -105,6 +118,24 @@ function toMeaningfulString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function sanitizeNoAccompanimentsMessage(value: unknown): string | null {
+  const text = toMeaningfulString(value);
+  if (!text) return null;
+  return text.replace(/<[^>]*>/g, "").trim().slice(0, 500) || null;
+}
+
+function hasAvailableAccompanimentOptions(
+  groups: Array<Record<string, unknown>>,
+): boolean {
+  return groups.some((group) => {
+    const options = Array.isArray(group.options) ? group.options : [];
+    return options.some((option) => {
+      const opt = option as Record<string, unknown>;
+      return opt.isNoAccompaniment !== true && opt.is_no_accompaniment !== true;
+    });
+  });
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {
@@ -291,6 +322,14 @@ async function recalculateSingleItem(
   const groups = Array.isArray(selectedSize.accompanimentGroups)
     ? (selectedSize.accompanimentGroups as Record<string, unknown>[])
     : [];
+  const hasNoAvailableAccompaniments = !hasAvailableAccompanimentOptions(groups);
+  const noAccompanimentsMessage = hasNoAvailableAccompaniments
+    ? sanitizeNoAccompanimentsMessage(
+        options.noAccompanimentsMessage ??
+          selectedSize.noAccompanimentsMessage ??
+          selectedSize.no_accompaniments_message,
+      ) || NO_ACCOMPANIMENTS_FALLBACK
+    : null;
   const selectedAccs = pickSelectedAccs(options);
   const authoritativeAccs: Array<Record<string, unknown>> = [];
   const counts = new Map<string, number>();
@@ -335,6 +374,25 @@ async function recalculateSingleItem(
       weight: selectedAcc.weight ?? matchedGroup.defaultGrammage ?? 100,
       groupId: matchedGroup.groupId ?? matchedGroup.id,
       groupName: String(matchedGroup.name || selectedAcc.groupName || ""),
+      minSelections: matchedGroup.minSelections ?? selectedAcc.minSelections ?? null,
+      maxSelections: matchedGroup.maxSelections ?? selectedAcc.maxSelections ?? null,
+      defaultGrammage: matchedGroup.defaultGrammage ?? selectedAcc.defaultGrammage ?? null,
+      isNoAccompaniment: Boolean(
+        selectedAcc.isNoAccompaniment ??
+          selectedAcc.is_no_accompaniment ??
+          matchedOption.isNoAccompaniment ??
+          matchedOption.is_no_accompaniment,
+      ),
+      is_no_accompaniment: Boolean(
+        selectedAcc.isNoAccompaniment ??
+          selectedAcc.is_no_accompaniment ??
+          matchedOption.isNoAccompaniment ??
+          matchedOption.is_no_accompaniment,
+      ),
+      energyKcal: selectedAcc.energyKcal ?? matchedOption.energyKcal ?? 0,
+      proteins: selectedAcc.proteins ?? matchedOption.proteins ?? 0,
+      carbs: selectedAcc.carbs ?? matchedOption.carbs ?? 0,
+      fatTotal: selectedAcc.fatTotal ?? matchedOption.fatTotal ?? 0,
       priceModifier: toNumber(matchedOption.priceModifier),
     });
   }
@@ -364,6 +422,13 @@ async function recalculateSingleItem(
       dishName: String(dish.name || "Prato"),
       selectedSizeId,
       selectedSizeName: String(selectedSize.name || options.selectedSizeName || "Padrão"),
+      mainDishWeight: toNumber(selectedSize.mainDishWeight ?? selectedSize.main_dish_weight),
+      ...(hasNoAvailableAccompaniments
+        ? {
+            hasNoAvailableAccompaniments: true,
+            noAccompanimentsMessage,
+          }
+        : {}),
       selectedAccs: authoritativeAccs,
     },
     appliedNutrition,
@@ -505,7 +570,13 @@ async function recalculatePackageItem(
   };
 }
 
-async function calculateCouponDiscount(db: DbType, couponCode: string | null, subtotal: number, autoDiscount: number) {
+async function calculateCouponDiscount(
+  db: DbType,
+  couponCode: string | null,
+  subtotal: number,
+  autoDiscount: number,
+  userId?: string | null
+) {
   if (!couponCode) {
     return { discount: 0, couponId: null };
   }
@@ -530,6 +601,19 @@ async function calculateCouponDiscount(db: DbType, couponCode: string | null, su
     return { discount: 0, couponId: null };
   }
 
+  if (userId && dbCoupon.maxUsesPerCustomer) {
+    const [userUsageRes] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(couponUsage)
+      .where(and(
+        eq(couponUsage.couponId, dbCoupon.id),
+        eq(couponUsage.userId, userId)
+      ));
+    if (safeNumber(userUsageRes.count) >= dbCoupon.maxUsesPerCustomer) {
+      return { discount: 0, couponId: null };
+    }
+  }
+
   const baseCalc = Math.max(0, subtotal - autoDiscount);
   const discountValue = toNumber(dbCoupon.discountValue);
   const isPercentage = String(dbCoupon.discountType || "")
@@ -544,8 +628,7 @@ async function calculateCouponDiscount(db: DbType, couponCode: string | null, su
 
   return {
     discount: roundMoney(Math.min(discount, baseCalc)),
-    couponId:
-      typeof dbCoupon.id === "number" ? dbCoupon.id : toNumber(dbCoupon.id, 0) || null,
+    couponId: dbCoupon.id,
   };
 }
 
@@ -733,27 +816,56 @@ export async function recalculateCheckoutFromCart(
   );
 
   const subtotal = roundMoney(pricing.subtotal);
-  const autoDiscount = roundMoney(pricing.discounts);
-  const autoDiscountName = pricing.appliedRule?.name || null;
 
-  const couponResult = await calculateCouponDiscount(
-    db,
-    cart.couponCode || null,
-    subtotal,
-    autoDiscount,
-  );
-  const couponDiscount = couponResult.discount;
+  let autoDiscount = 0;
+  let autoDiscountName: string | null = null;
+  let couponDiscount = 0;
+  let loyaltyDiscount = 0;
+  let pointsUsed = 0;
+  let couponId: number | string | null = null;
+
+  if (params.useLoyaltyPoints) {
+    // 1. Fidelidade vence: zera autoDiscount e couponDiscount
+    autoDiscount = 0;
+    autoDiscountName = null;
+    couponDiscount = 0;
+
+    const loyaltyBase = subtotal;
+    const loyaltyRes = await calculateLoyaltyDiscount(
+      db,
+      params.userId,
+      true,
+      loyaltyBase,
+    );
+    loyaltyDiscount = loyaltyRes.loyaltyDiscount;
+    pointsUsed = loyaltyRes.pointsUsed;
+  } else if (cart.couponCode) {
+    // 2. Cupom vence: zera autoDiscount e loyalty
+    autoDiscount = 0;
+    autoDiscountName = null;
+    loyaltyDiscount = 0;
+    pointsUsed = 0;
+
+    const couponResult = await calculateCouponDiscount(
+      db,
+      cart.couponCode,
+      subtotal,
+      0,
+      params.userId
+    );
+    couponDiscount = couponResult.discount;
+    couponId = couponResult.couponId;
+  } else {
+    // 3. Progressivo vence
+    autoDiscount = roundMoney(pricing.discounts);
+    autoDiscountName = pricing.appliedRule?.name || null;
+    couponDiscount = 0;
+    loyaltyDiscount = 0;
+    pointsUsed = 0;
+  }
 
   const paymentDiscount = roundMoney(
     subtotal * (toNumber(selectedPaymentMethod.discountPercentage) / 100),
-  );
-
-  const loyaltyBase = Math.max(0, subtotal - autoDiscount - couponDiscount);
-  const { loyaltyDiscount, pointsUsed } = await calculateLoyaltyDiscount(
-    db,
-    params.userId,
-    params.useLoyaltyPoints,
-    loyaltyBase,
   );
 
   const shippingCost = roundMoney(params.shippingCost);
@@ -767,7 +879,7 @@ export async function recalculateCheckoutFromCart(
     cart: {
       id: cart.id,
       couponCode: cart.couponCode || null,
-      couponId: couponResult.couponId,
+      couponId,
       usesLoyalty: Boolean(cart.usesLoyalty),
     },
     items,

@@ -38,7 +38,7 @@ export function CheckoutAddressForm({
   onSuccess,
   onCancel,
 }: CheckoutAddressFormProps) {
-  const { actions, machineState } = useCheckout();
+  const { actions, machineState, session } = useCheckout();
   const utils = trpc.useUtils();
 
   const {
@@ -49,7 +49,7 @@ export function CheckoutAddressForm({
 
   const [form, setForm] = useState<AddressFormData>({
     label: "",
-    zipCode: "",
+    zipCode: maskCep(localStorage.getItem("cart-delivery-cep") || ""),
     street: "",
     number: "",
     complement: "",
@@ -92,6 +92,21 @@ export function CheckoutAddressForm({
       onSuccess();
     },
     onError: (err) => {
+      if ((err as any).data?.code === "UNAUTHORIZED") {
+        toast.warning(
+          "Finalize sua identificação como visitante antes de cadastrar o endereço.",
+          {
+            description: "Você não precisa criar senha.",
+          },
+        );
+        window.dispatchEvent(
+          new CustomEvent("checkout-focus-error", {
+            detail: { field: "customerName", section: "customer" },
+          }),
+        );
+        return;
+      }
+
       toast.error("Erro ao salvar endereço", { description: err.message });
     },
   });
@@ -133,6 +148,21 @@ export function CheckoutAddressForm({
   }, [form.zipCode]);
 
   const handleSave = useCallback(async () => {
+    if (!session.isReady) {
+      toast.warning(
+        "Para cadastrar o endereço, finalize primeiro sua identificação como visitante.",
+        {
+          description: "Você não precisa criar senha.",
+        },
+      );
+      window.dispatchEvent(
+        new CustomEvent("checkout-focus-error", {
+          detail: { field: "customerName", section: "customer" },
+        }),
+      );
+      return;
+    }
+
     const cleanZipCode = form.zipCode.replace(/\D/g, "");
     const trimmedStreet = form.street.trim();
     const trimmedNumber = form.number.trim();
@@ -180,7 +210,7 @@ export function CheckoutAddressForm({
     } finally {
       setIsValidatingLogistics(false);
     }
-  }, [form, createAddressMutation, utils, actions]);
+  }, [form, createAddressMutation, utils, session.isReady]);
 
   const isBusy =
     createAddressMutation.isPending ||
@@ -188,6 +218,7 @@ export function CheckoutAddressForm({
     geoLoading ||
     isValidatingLogistics ||
     machineState === "submitting";
+  const isBlockedByGuestSession = !session.isReady;
 
   return (
     <div className="p-6 border-2 border-emerald-100 rounded-4xl bg-white shadow-2xl space-y-6 text-left relative">
@@ -214,6 +245,17 @@ export function CheckoutAddressForm({
       </div>
 
       <div className="grid grid-cols-4 gap-4">
+        {isBlockedByGuestSession && (
+          <div className="col-span-4 p-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-700">
+            <p className="text-[10px] font-black uppercase tracking-widest">
+              Finalize a identificação como visitante antes de cadastrar o endereço.
+            </p>
+            <p className="text-[10px] font-bold mt-1">
+              Você não precisa criar senha.
+            </p>
+          </div>
+        )}
+
         <div className="col-span-4 md:col-span-1 space-y-1.5">
           <Label className="text-[10px] font-black uppercase text-slate-400">
             CEP
@@ -340,7 +382,7 @@ export function CheckoutAddressForm({
         </Button>
         <Button
           onClick={handleSave}
-          disabled={isBusy}
+          disabled={isBusy || isBlockedByGuestSession}
           className="flex-2 bg-slate-900 hover:bg-emerald-600 text-white rounded-2xl h-14 font-black uppercase text-[10px] shadow-xl transition-all active:scale-95"
         >
           {createAddressMutation.isPending || isValidatingLogistics ? (

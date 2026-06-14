@@ -1,17 +1,25 @@
 // client/src/pages/checkout/context/CheckoutContext.tsx
 
-import React, { createContext, useContext, useReducer, useEffect, ReactNode, useMemo, useRef } from "react";
+import React, { createContext, useContext, useReducer, useEffect, ReactNode, useMemo, useRef, useState } from "react";
 import { useCheckoutViewModel } from "../logic/useCheckoutViewModel";
 import { CheckoutViewModel } from "../logic/CheckoutViewModel";
 import { checkoutMachine, initialMachineContext } from "../logic/checkoutMachine";
 import { CheckoutState } from "../logic/checkoutMachine.types";
 import * as Guards from "../logic/checkoutGuards";
 import { useCheckoutTracking } from "@/_core/hooks/useCheckoutTracking";
+import { useCheckoutReadiness, CheckoutReadiness } from "../logic/useCheckoutReadiness";
+import { getFirstCheckoutFocusIssue, CheckoutFocusIssue } from "@shared/domain/ux/checkoutFocus";
+import { appToast as toast } from "@/lib/app-toast";
 
 // ✅ Contrato unificado: Dados (VM) + Fluxo (Machine)
 interface CheckoutContextData extends CheckoutViewModel {
   machineState: CheckoutState;
   isBusy: boolean;
+  acceptedTerms: boolean;
+  setAcceptedTerms: (accepted: boolean) => void;
+  readiness: CheckoutReadiness;
+  firstIssue: CheckoutFocusIssue | null;
+  handleFinalizeClick: () => void;
 }
 
 const CheckoutContext = createContext<CheckoutContextData | undefined>(undefined);
@@ -19,11 +27,86 @@ const CheckoutContext = createContext<CheckoutContextData | undefined>(undefined
 export function CheckoutProvider({ children }: { children: ReactNode }) {
   // 1️⃣ Máquina de Estados (Cérebro do Fluxo)
   const [machine, dispatch] = useReducer(checkoutMachine, initialMachineContext);
-  
+
   // 2️⃣ ViewModel (Dados e Ações)
   const viewModel = useCheckoutViewModel();
+
+  // Termos Aceitos (Persiste nas transições de endereço/pagamento/frete)
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+
+  // Orquestrador de prontidão do checkout
+  const readiness = useCheckoutReadiness({ viewModel, machineState: machine.currentState, acceptedTerms });
+
+  // Detecção de primeiro erro impeditivo
+  const firstIssue = useMemo(
+    () =>
+      getFirstCheckoutFocusIssue({
+        hasItems: viewModel.summary.items.length > 0,
+        customerName: viewModel.customer.name,
+        customerPhone: viewModel.customer.phone,
+        customerCpf: viewModel.customer.cpf,
+        isCpfValid: viewModel.customer.isCPFValid,
+        guestSessionReady: viewModel.session.isReady,
+        shippingType: viewModel.logistics.type,
+        selectedAddressId: viewModel.logistics.selectedAddressId,
+        canDeliver: viewModel.logistics.canDeliver,
+        canContinueShipping: viewModel.logistics.canContinue,
+        shippingErrorMessage: viewModel.logistics.errorMessage,
+        selectedPaymentId: viewModel.payment.selectedId,
+        acceptedTerms,
+      }),
+    [
+      viewModel.summary.items.length,
+      viewModel.customer.name,
+      viewModel.customer.phone,
+      viewModel.customer.cpf,
+      viewModel.customer.isCPFValid,
+      viewModel.session.isReady,
+      viewModel.payment.selectedId,
+      viewModel.logistics.type,
+      viewModel.logistics.selectedAddressId,
+      viewModel.logistics.canDeliver,
+      viewModel.logistics.canContinue,
+      viewModel.logistics.errorMessage,
+      acceptedTerms,
+    ],
+  );
+
+  // Foca e rola até o campo com erro
+  const requestFocus = (issue: CheckoutFocusIssue) => {
+    window.dispatchEvent(
+      new CustomEvent("checkout-focus-error", {
+        detail: { field: issue.field, section: issue.section },
+      }),
+    );
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(
+        `[data-checkout-field="${issue.field}"]`,
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target
+        ?.querySelector<HTMLElement>("button,input,[tabindex]")
+        ?.focus({ preventScroll: true });
+    }, 100);
+  };
+
+  // Handler de finalização compartilhado (sem duplicação de lógica de submit)
+  const handleFinalizeClick = () => {
+    const isProcessing = machine.currentState === 'submitting' || viewModel.isSubmitting;
+    if (isProcessing || viewModel.isLoading) return;
+
+    if (firstIssue) {
+      toast.warning(firstIssue.message);
+      requestFocus(firstIssue);
+      return;
+    }
+
+    viewModel.actions.placeOrder();
+  };
+
   const trackedShippingKeysRef = useRef(new Set<string>());
   const trackedPaymentIdsRef = useRef(new Set<string>());
+  const lastValidatedRef = useRef<string | null>(null);
   const trackingCart = useMemo(
     () =>
       viewModel.summary.items.length > 0
@@ -54,6 +137,14 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
     const logisticsReady = Guards.isLogisticsReady(viewModel);
     const paymentReady = Guards.isPaymentReady(viewModel);
 
+    // Resoluções de CEP para a chave de validação
+    const currentValidationKey = [
+      viewModel.logistics.type,
+      viewModel.logistics.selectedAddressId || "manual",
+      viewModel.logistics.zipCode || "",
+      viewModel.summary.subtotal
+    ].join("|");
+
     // A. Sincronização de Carregamento Inicial
     if (viewModel.isLoading && currentState === 'idle') {
       dispatch({ type: 'LOAD_START' });
@@ -70,6 +161,11 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'LOAD_START' });
       dispatch({ type: 'LOAD_SUCCESS' });
       return;
+    }
+
+    // Reset de lastValidatedRef se a máquina for resetada ou recarregada
+    if (currentState === 'idle' || currentState === 'loading') {
+      lastValidatedRef.current = null;
     }
 
     // B. Monitoramento de Regressão (Segurança)
@@ -89,15 +185,24 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
     // C. Transições Automáticas de Logística (Endereço/Frete)
     if (currentState === 'customer_ready' || currentState === 'address_editing') {
       if (customerReady && (viewModel.logistics.selectedAddressId || viewModel.logistics.type === 'pickup')) {
-        dispatch({
-          type: 'ADDRESS_UPDATED',
-          payload: { addressId: viewModel.logistics.selectedAddressId }
-        });
-        return;
+
+        // Evita re-disparar se os parâmetros de validação não mudaram
+        const isSameConfig = lastValidatedRef.current === currentValidationKey;
+
+        if (currentState === 'customer_ready' || !isSameConfig) {
+          dispatch({
+            type: 'ADDRESS_UPDATED',
+            payload: { addressId: viewModel.logistics.selectedAddressId }
+          });
+          return;
+        }
       }
     }
 
     if (currentState === 'shipping_validating') {
+      // Grava a chave da configuração que está sendo validada
+      lastValidatedRef.current = currentValidationKey;
+
       if (logisticsReady) {
         dispatch({
           type: 'SHIPPING_VALIDATE_SUCCESS',
@@ -137,12 +242,16 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
     viewModel.customer.name,
     viewModel.customer.isCPFValid,
     viewModel.customer.phone,
+    viewModel.session.isReady,
     viewModel.logistics.selectedAddressId,
+    viewModel.logistics.addresses,
     viewModel.logistics.canContinue,
     viewModel.logistics.shippingCost,
     viewModel.logistics.type,        // ✅ FIX B2: escuta mudança pickup ↔ delivery
     viewModel.logistics.errorMessage, // ✅ garante que erro de frete dispara efeito
+    viewModel.logistics.zipCode,      // ✅ escuta alteração do CEP reativo
     viewModel.payment.selectedId,
+    viewModel.summary.subtotal,       // ✅ monitora subtotal do carrinho
     machine.currentState,
   ]);
 
@@ -190,7 +299,12 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
     isBusy: machine.isBusy || viewModel.isSubmitting,
     // Sincroniza indicadores de ocupado
     isLoading: machine.currentState === 'loading' || viewModel.isLoading,
-    isSubmitting: machine.currentState === 'submitting' || viewModel.isSubmitting
+    isSubmitting: machine.currentState === 'submitting' || viewModel.isSubmitting,
+    acceptedTerms,
+    setAcceptedTerms,
+    readiness,
+    firstIssue,
+    handleFinalizeClick,
   };
 
   return (

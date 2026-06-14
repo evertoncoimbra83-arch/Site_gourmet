@@ -10,6 +10,8 @@ import {
 import { getDb } from "../../../db.js";
 import { encrypt, normalizeDigits, piiHash } from "../../../encryption.js";
 import {
+  couponUsage,
+  coupons,
   loyaltyHistory,
   paymentMethods,
   userAddresses,
@@ -20,6 +22,7 @@ import { isValidCPF } from "../auth/auth.logic.js";
 import { loadAddressSnapshot } from "./address.js";
 import { createOrderWithItems, cleanupCheckoutCarts } from "./orders.js";
 import { paymentRouter } from "./payment.js";
+import { safeNumber } from "../../../lib/safe-parse.js";
 import { logger } from "../../../logger.js";
 
 type CreateOrderParams = Parameters<typeof createOrderWithItems>[0];
@@ -83,6 +86,7 @@ export const checkoutRouter = router({
         customerDocument: z.string().min(11, "CPF incompleto"),
         customerName: z.string().min(1, "Nome é obrigatório"),
         customerPhone: z.string().min(10, "Telefone inválido"),
+        customerEmail: z.string().email("E-mail inválido").optional().nullable(), // ✅ Aceita e-mail do visitante
         useLoyaltyPoints: z.boolean().default(false),
       }),
     )
@@ -100,6 +104,14 @@ export const checkoutRouter = router({
         return await db.transaction(async (tx) => {
           const castTx = tx as unknown as BaseTx;
           const finalAddressId = input.addressId ?? null;
+
+          const [userProfile] = await tx
+            .select()
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+
+          const isGuest = userProfile?.loginMethod === "guest";
 
           if (input.shippingType === "delivery") {
             if (!finalAddressId || finalAddressId === "guest") {
@@ -132,14 +144,14 @@ export const checkoutRouter = router({
             shippingType: input.shippingType,
             addressId: finalAddressId,
           });
-          const realShippingCost = Number(addressSnapRaw.price || 0);
+          const realShippingCost = safeNumber(addressSnapRaw.price || 0);
 
           const checkout = await recalculateCheckoutFromCart({
             userId,
             cartId,
             shippingCost: realShippingCost,
             paymentMethodId: String(input.paymentMethodId),
-            useLoyaltyPoints: input.useLoyaltyPoints,
+            useLoyaltyPoints: isGuest ? false : input.useLoyaltyPoints, // ✅ Força false se for visitante
           });
 
           const payMethod = await tx
@@ -149,7 +161,7 @@ export const checkoutRouter = router({
             .limit(1)
             .then((rows) => rows[0]);
 
-          const orderId = await createOrderWithItems({
+          const orderResult = await createOrderWithItems({
             tx: castTx,
             userId,
             input: {
@@ -157,6 +169,7 @@ export const checkoutRouter = router({
               customerName: cleanCustomerName,
               customerDocument: cleanCpf,
               customerPhone: cleanPhone,
+              customerEmail: input.customerEmail, // ✅ Repassa o e-mail do visitante
               notes: input.notes,
             },
             shippingCost: checkout.shippingCost,
@@ -180,17 +193,47 @@ export const checkoutRouter = router({
             payMethod,
             verifiedItems: checkout.items,
             finalNet: checkout.total,
+            isGuest,
           });
 
-          const cleanOrderId = String(orderId).replace(/[#\s]/g, "");
+          const cleanOrderId = String(orderResult.orderId).replace(/[#\s]/g, "");
 
-          if (checkout.pointsUsed > 0 || checkout.pointsEarned > 0) {
+          if (checkout.cart.couponCode) {
+            let finalCouponId = checkout.cart.couponId;
+            if (!finalCouponId) {
+              const [matchedCoupon] = await tx
+                .select({ id: coupons.id })
+                .from(coupons)
+                .where(eq(coupons.code, checkout.cart.couponCode.toUpperCase()))
+                .limit(1);
+              if (matchedCoupon) {
+                finalCouponId = matchedCoupon.id;
+              }
+            }
+            if (finalCouponId) {
+              try {
+                await tx.insert(couponUsage).values({
+                  couponId: String(finalCouponId),
+                  userId: userId,
+                  orderId: cleanOrderId,
+                  usedAt: new Date(),
+                } as any);
+              } catch (err) {
+                console.warn(
+                  `[CouponUsage Idempotency] Ignored duplicate coupon usage insertion for couponId ${finalCouponId} and orderId ${cleanOrderId}:`,
+                  err,
+                );
+              }
+            }
+          }
+
+          if (!isGuest && (checkout.pointsUsed > 0 || checkout.pointsEarned > 0)) {
             const [userProfile] = await tx
               .select()
               .from(users)
               .where(eq(users.id, userId))
               .limit(1);
-            const currentBalance = Number(userProfile?.availablePoints || 0);
+            const currentBalance = safeNumber(userProfile?.availablePoints || 0);
 
             if (checkout.pointsUsed > 0) {
               const finalPointsToRedeem = Math.min(
@@ -253,6 +296,7 @@ export const checkoutRouter = router({
           return {
             success: true,
             orderId: cleanOrderId,
+            publicAccessToken: orderResult.publicAccessToken || null,
             message: "Pedido criado com sucesso!",
           };
         });
@@ -264,7 +308,7 @@ export const checkoutRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message:
-            "Ocorreu um erro interno ao processar sua solicitação. Tente novamente.",
+            "Ocorreu um erro interno ao processar sua solicita��o. Tente novamente.",
         });
       }
     }),

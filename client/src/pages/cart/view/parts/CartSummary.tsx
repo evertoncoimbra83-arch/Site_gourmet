@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ShoppingBag,
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { trpc } from "@/_core/trpc";
 import { useGeolocationZip } from "@/_core/hooks/useGeolocationZip";
 import { safeNumber } from "@/lib/safe-parse";
+import { useCheckoutStore } from "@/_core/store/useCheckoutStore";
 
 interface CartSummaryProps {
   subtotal: number;
@@ -45,6 +46,7 @@ interface CartSummaryProps {
       maxDiscount: number;
     } | null;
   } | null;
+  onBlockStatusChange?: (isBelowMin: boolean, isOutOfArea: boolean, minOrderValue: number) => void;
 }
 
 interface ZipZoneResponse {
@@ -83,6 +85,7 @@ export function CartSummary({
   onShippingResult,
   isCalculatingShipping,
   loyaltyValidation,
+  onBlockStatusChange,
 }: CartSummaryProps) {
   const utils = trpc.useUtils();
   const [cep, setCep] = useState("");
@@ -106,6 +109,7 @@ export function CartSummary({
   } = useGeolocationZip();
 
   const isGlobalCalculating = isInternalCalculating || isCalculatingShipping;
+  const lastValidatedCepRef = useRef<string | null>(null);
 
   const validateZipCode = useCallback(
     async (targetCep: string) => {
@@ -118,6 +122,10 @@ export function CartSummary({
         return;
       }
 
+      if (lastValidatedCepRef.current === cleanCep) {
+        return;
+      }
+
       setIsInternalCalculating(true);
       setCepFeedback(null);
 
@@ -126,6 +134,9 @@ export function CartSummary({
           zipCode: cleanCep,
           storeSlug: "jundiai",
         })) as ZipZoneResponse;
+
+        lastValidatedCepRef.current = cleanCep;
+        useCheckoutStore.getState().setField("manualZipCode", cleanCep);
 
         if (res.isValid) {
           setCepFeedback({
@@ -163,11 +174,17 @@ export function CartSummary({
     setCep(formatted);
     void validateZipCode(formatted);
     setIsManualMode(true);
-  }, [validateZipCode]);
+  }, []);
 
   useEffect(() => {
     if (!geoCep) return;
-    const hasExistingCep = cep.replace(/\D/g, "").length === 8;
+    const cleanGeo = geoCep.replace(/\D/g, "");
+    const cleanCurrent = cep.replace(/\D/g, "");
+    if (cleanGeo === cleanCurrent) {
+      setGeoRequested(false);
+      return;
+    }
+    const hasExistingCep = cleanCurrent.length === 8;
     if (!geoRequested && (isManualMode || hasExistingCep)) return;
 
     const formatted = formatCep(geoCep);
@@ -321,6 +338,10 @@ export function CartSummary({
   const isOutOfArea = cepFeedback?.type === "warning";
   const shouldShowGeoError =
     !!geoError && !isGlobalCalculating && !geoLoading && !geoRequested;
+
+  useEffect(() => {
+    onBlockStatusChange?.(isBelowMinForDelivery, isOutOfArea, storeRules?.minOrderValue || 0);
+  }, [isBelowMinForDelivery, isOutOfArea, storeRules?.minOrderValue, onBlockStatusChange]);
 
   return (
     <div className="space-y-6 sticky top-24">

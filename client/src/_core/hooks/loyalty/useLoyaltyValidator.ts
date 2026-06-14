@@ -24,7 +24,7 @@ export function useLoyaltyValidator(
 ) {
   return useMemo(() => {
     const currentSubtotal = safeNumber(subtotal);
-    const currentPoints = safeNumber(userPoints);
+    const currentPoints = Math.max(0, safeNumber(userPoints));
 
     if (!settings) return { isValid: false, message: "Sincronizando...", discount: 0 };
     if (!settings.enabled) return { isValid: false, message: "Programa desativado", discount: 0 };
