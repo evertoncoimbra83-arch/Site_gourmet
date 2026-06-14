@@ -1,14 +1,14 @@
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "./db";
-import { getAccsWithNutrition } from "./accompaniments"; 
+import { getAccsWithNutrition } from "./accompaniments";
 
-import { 
-  dishes, 
-  dishSizes, 
-  sizeAccompanimentGroups, 
-  accompanimentGroups, 
+import {
+  dishes,
+  dishSizes,
+  sizeAccompanimentGroups,
+  accompanimentGroups,
   dishesToSizes
-} from "../drizzle/schema/catalog"; 
+} from "../drizzle/schema/catalog";
 
 /**
  * Busca detalhes completos de um prato, incluindo tamanhos, acompanhamentos e macros.
@@ -26,8 +26,8 @@ export async function getDishDetails(dishId: number) {
         slug: dishes.slug,
         description: dishes.description,
         imageUrl: dishes.imageUrl,
-        price: dishes.basePrice,      
-        salePrice: dishes.salePrice, 
+        price: dishes.basePrice,
+        salePrice: dishes.salePrice,
         categoryId: dishes.categoryId,
         isActive: dishes.isActive,
         show_nutrition: dishes.showNutrition,
@@ -45,7 +45,7 @@ export async function getDishDetails(dishId: number) {
       .from(dishes)
       .where(eq(dishes.id, dishId))
       .limit(1);
-    
+
     if (!dishRows || dishRows.length === 0) {
       return null;
     }
@@ -60,6 +60,7 @@ export async function getDishDetails(dishId: number) {
         price: dishSizes.price,
         priceModifier: dishSizes.priceModifier,
         mainDishWeight: dishSizes.mainDishWeight,
+        noAccompanimentsMessage: dishSizes.noAccompanimentsMessage,
         isActive: dishSizes.isActive,
         displayOrder: dishSizes.displayOrder
       })
@@ -92,8 +93,8 @@ export async function getDishDetails(dishId: number) {
 
           let itemsConfig: unknown[] = [];
           try {
-            itemsConfig = typeof group.itemsOrder === 'string' 
-              ? JSON.parse(group.itemsOrder) 
+            itemsConfig = typeof group.itemsOrder === 'string'
+              ? JSON.parse(group.itemsOrder)
               : (group.itemsOrder || []);
           } catch { itemsConfig = []; }
 
@@ -101,7 +102,7 @@ export async function getDishDetails(dishId: number) {
             const c = config as Record<string, unknown>;
             const optId = c?.optionId || c?.id || c?.group_id || c;
             const masterOpt = allOptions.find(opt => Number(opt.id) === Number(optId));
-            
+
             if (!masterOpt) return null;
 
             return {
@@ -130,13 +131,13 @@ export async function getDishDetails(dishId: number) {
           };
         }).filter(Boolean);
 
-        return { 
-          ...size, 
+        return {
+          ...size,
           id: Number(size.id),
           price: Number(size.price || 0),
           priceModifier: Number(size.priceModifier || 0),
           mainDishWeight: Number(size.mainDishWeight || 200),
-          accompanimentGroups: groupsWithOptions 
+          accompanimentGroups: groupsWithOptions
         };
       })
     );
@@ -154,7 +155,7 @@ export async function getDishDetails(dishId: number) {
       iron: Number(rawDish.iron || 0)
     };
 
-    return { 
+    return {
       ...rawDish,
       id: Number(rawDish.id),
       slug: rawDish.slug || String(rawDish.id),
@@ -162,8 +163,8 @@ export async function getDishDetails(dishId: number) {
       price: Number(rawDish.price || 0),
       salePrice: rawDish.salePrice ? Number(rawDish.salePrice) : null,
       showNutrition: !!rawDish.show_nutrition,
-      ingredients: rawDish.ingredients || "", 
-      
+      ingredients: rawDish.ingredients || "",
+
       energyKcal: Number(rawDish.energyKcal || 0),
       proteins: Number(rawDish.proteins || 0),
       carbs: Number(rawDish.carbs || 0),

@@ -2,7 +2,11 @@ import React, { useState } from "react"; // ✅ Adicionado React para resolver e
 import { Button } from "@/components/ui/button";
 import { ImagePlus, Trash2, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { normalizeImageUrl } from "@shared/utils/assets";
+import {
+  getImageFallback,
+  normalizeImageUrlForStorage,
+  resolveImageUrl,
+} from "@shared/utils/image-url";
 
 // ✅ Importação absoluta mantida conforme sua correção anterior
 import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
@@ -18,30 +22,25 @@ export default function ImagePicker({ label, value, onChange, className }: Image
   const [open, setOpen] = useState(false);
 
   const handleSelect = (url: string) => {
-    let cleanPath = url;
-    if (url.includes("/uploads/")) {
-        const parts = url.split("/uploads/");
-        cleanPath = `uploads/${parts[parts.length - 1]}`;
-    }
-    onChange(cleanPath);
+    onChange(normalizeImageUrlForStorage(url));
     setOpen(false);
   };
 
-  const previewUrl = normalizeImageUrl(value) || "";
+  const previewUrl = resolveImageUrl(value, "product");
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {label && <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{label}</span>}
-      
+
       <div className="relative group">
         {value ? (
           <div className="relative aspect-video w-full overflow-hidden rounded-xl border-2 border-slate-100 bg-slate-50 shadow-sm transition-all hover:border-emerald-500/50">
-            <img 
-              src={previewUrl} 
-              alt="Preview" 
+            <img
+              src={previewUrl}
+              alt="Preview"
               className="h-full w-full object-contain p-2"
-              onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => { 
-                e.currentTarget.style.display = 'none'; 
+              onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                e.currentTarget.src = getImageFallback("product");
               }}
             />
             <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 backdrop-blur-[2px]">

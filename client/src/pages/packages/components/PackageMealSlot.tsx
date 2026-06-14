@@ -42,12 +42,15 @@ interface PackageMealSlotProps {
   isLast: boolean;
   sizeWeight: number;
   actions: {
-    addMeal: (meal: { 
-      id: string; 
-      name: string; 
+    addMeal: (meal: {
+      id: string;
+      name: string;
       requiresAccompaniments: boolean;
       accompanimentGroups: AccompanimentGroupRule[];
       nutrition?: Record<string, unknown>;
+      dishRawData?: Record<string, unknown>;
+      sizeId?: string | number;
+      mainDishWeight?: number;
       slotIndex: number; // ✅ posição fixa no array
     }) => void;
     removeMeal: (index: number) => void;
@@ -70,14 +73,14 @@ export function PackageMealSlot({
         "rounded-4xl border-2 transition-all duration-500 overflow-hidden",
         isLocked
           ? "bg-slate-50 border-slate-100 opacity-60 cursor-not-allowed"
-          : isExpanded 
-            ? "bg-white border-emerald-500 shadow-2xl shadow-emerald-100 scale-[1.02] z-10" 
+          : isExpanded
+            ? "bg-white border-emerald-500 shadow-2xl shadow-emerald-100 scale-[1.02] z-10"
             : "bg-white border-slate-100 opacity-90 hover:opacity-100 hover:border-slate-200"
       )}
     >
       {/* Header do Slot */}
-      <div 
-        onClick={isLocked ? undefined : onExpand} 
+      <div
+        onClick={isLocked ? undefined : onExpand}
         className={cn(
           "p-6 flex justify-between items-center transition-colors duration-500",
           isLocked ? "cursor-not-allowed" : "cursor-pointer",
@@ -88,8 +91,8 @@ export function PackageMealSlot({
           {/* Círculo de Status Lateral */}
           <div className={cn(
             "h-12 w-12 rounded-2xl flex items-center justify-center font-black text-sm transition-all duration-500 shadow-inner",
-            hasDish 
-              ? "bg-emerald-500 text-white rotate-10" 
+            hasDish
+              ? "bg-emerald-500 text-white rotate-10"
               : isExpanded ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-300"
           )}>
             {hasDish ? <CheckCircle2 size={24} /> : index + 1}
@@ -103,7 +106,7 @@ export function PackageMealSlot({
               {slot.name || slot.label || `Marmita ${index + 1}`}
             </span>
 
-            <motion.h3 
+            <motion.h3
               layout="position"
               className={cn(
                 "font-black uppercase italic text-base tracking-tighter transition-colors",
@@ -118,7 +121,7 @@ export function PackageMealSlot({
         <div className="flex items-center gap-4">
           <AnimatePresence>
             {isExpanded && (
-              <motion.span 
+              <motion.span
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
@@ -131,7 +134,7 @@ export function PackageMealSlot({
 
           <div className="flex items-center gap-2">
             {hasDish && isExpanded && (
-              <button 
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   actions.removeMeal(index);
@@ -141,16 +144,16 @@ export function PackageMealSlot({
                 <X size={18} />
               </button>
             )}
-            
+
             {isLocked ? (
               <Lock size={16} className="text-slate-300" />
             ) : (
-              <ChevronDown 
-                size={20} 
+              <ChevronDown
+                size={20}
                 className={cn(
-                  "transition-transform duration-500", 
+                  "transition-transform duration-500",
                   isExpanded ? "rotate-180 text-emerald-600" : "text-slate-200"
-                )} 
+                )}
               />
             )}
           </div>
@@ -160,7 +163,7 @@ export function PackageMealSlot({
       {/* Conteúdo Expansível */}
       <AnimatePresence mode="wait">
         {isExpanded && (
-          <motion.div 
+          <motion.div
             key={hasDish ? "configurator" : "selector"}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -185,8 +188,8 @@ export function PackageMealSlot({
                         max: Number(sg.maxSelections ?? sg.group?.maxSelections ?? 1)
                       }));
 
-                      const nInfo = (dish as Record<string, unknown>).nutritional_info || 
-                                    (dish as Record<string, unknown>).nutritionalInfo || 
+                      const nInfo = (dish as Record<string, unknown>).nutritional_info ||
+                                    (dish as Record<string, unknown>).nutritionalInfo ||
                                     dish;
 
                       const parseValue = (v: unknown): number => {
@@ -206,6 +209,8 @@ export function PackageMealSlot({
                         requiresAccompaniments: hasGroups,
                         accompanimentGroups: rules,
                         slotIndex: index, // ✅ posição fixa
+                        dishRawData: dish as unknown as Record<string, unknown>,
+                        mainDishWeight: sizeWeight,
                         nutrition: {
                           energyKcal: safeExtract("kcal", "energy_kcal"),
                           proteins: safeExtract("proteins"),

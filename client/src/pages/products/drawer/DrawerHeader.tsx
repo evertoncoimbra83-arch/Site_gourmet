@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { SheetTitle } from "@/components/ui/sheet";
 import { ShoppingBag, X } from "lucide-react";
 import { MappedDish, DishSize } from "./../logic/types";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 interface DrawerHeaderProps {
   dish: MappedDish | null;
@@ -21,7 +22,14 @@ export function DrawerHeader({ dish, selectedSize, onClose }: DrawerHeaderProps)
       </div>
       <div className="relative w-full h-44 md:h-64 bg-slate-100">
         {dish?.imageUrl ? (
-          <img src={dish.imageUrl} className="w-full h-full object-cover" alt={dish.name} />
+          <img
+            src={resolveImageUrl(dish.imageUrl, "product")}
+            className="w-full h-full object-cover"
+            alt={dish.name}
+            onError={(event) => {
+              event.currentTarget.src = getImageFallback("product");
+            }}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-slate-500"><ShoppingBag size={40} /></div>
         )}

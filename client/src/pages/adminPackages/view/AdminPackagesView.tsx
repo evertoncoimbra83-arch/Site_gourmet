@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Loader2, Box, LayoutGrid, Search, X, Filter } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // ✅ Interface local estendida
 interface ExtendedAdminPackage extends AdminPackage {
@@ -19,12 +20,13 @@ interface ExtendedAdminPackage extends AdminPackage {
 export function AdminPackagesView() {
   const { state, actions, data, mutations } = useAdminPackages();
   const [searchTerm, setSearchTerm] = useState("");
+  const [packageToDelete, setPackageToDelete] = useState<string | number | null>(null);
 
   // 1. Filtro e Ordenação
   const filteredAndSortedPackages = useMemo(() => {
     const list = (data.packages as unknown as ExtendedAdminPackage[]) || [];
-    
-    const filtered = list.filter((pkg) => 
+
+    const filtered = list.filter((pkg) =>
       pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       pkg.category?.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -39,7 +41,7 @@ export function AdminPackagesView() {
   // 2. Mapeamento de dados para o Drawer
   const drawerData = useMemo(() => ({
     allDishes: data.allDishes || [],
-    allOptions: data.allOptions || [], 
+    allOptions: data.allOptions || [],
     allAccompanimentGroups: data.allAccompanimentGroups || [],
     allCategories: data.allCategories || [],
     allSizes: (data.allSizes || []).map(size => ({
@@ -60,7 +62,7 @@ export function AdminPackagesView() {
 
   return (
     <div className="space-y-6 md:space-y-10 animate-in fade-in duration-700 pb-24 px-4 md:px-0 text-left">
-      
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-center md:items-end gap-6 pt-4">
         <div className="space-y-2 w-full md:w-auto">
@@ -72,12 +74,12 @@ export function AdminPackagesView() {
             Pacotes <span className="text-orange-600">&</span> Kits.
           </h1>
         </div>
-        
-        <Button 
+
+        <Button
           onClick={actions.handleCreate}
           className="h-14 md:h-16 w-full md:w-auto px-10 rounded-2xl bg-slate-900 hover:bg-orange-600 text-white font-bold uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
         >
-          <Plus size={18} /> 
+          <Plus size={18} />
           Novo Pacote
         </Button>
       </header>
@@ -94,8 +96,8 @@ export function AdminPackagesView() {
               className="h-12 md:h-14 pl-12 pr-12 rounded-2xl border-none bg-white shadow-sm font-medium text-sm focus-visible:ring-2 focus-visible:ring-orange-500/20 outline-none transition-all"
             />
             {searchTerm && (
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setSearchTerm("")}
                 className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-red-500"
               >
@@ -103,7 +105,7 @@ export function AdminPackagesView() {
               </button>
             )}
           </div>
-          
+
           <div className="hidden md:flex gap-2">
             <div className="h-12 px-5 bg-white rounded-2xl flex items-center gap-3 text-slate-400 border border-slate-50 shadow-sm">
               <Filter size={14} />
@@ -122,12 +124,12 @@ export function AdminPackagesView() {
           </div>
         ) : filteredAndSortedPackages.length > 0 ? (
           filteredAndSortedPackages.map((pkg) => (
-            <PackageCard 
-              key={pkg.id} 
+            <PackageCard
+              key={pkg.id}
               // ✅ CORREÇÃO TS2741: Injetamos o `price` a partir do `base_price` para evitar quebra no Card e usamos ComponentProps para cast seguro.
-              pkg={{ ...pkg, price: pkg.base_price } as unknown as ComponentProps<typeof PackageCard>["pkg"]} 
+              pkg={{ ...pkg, price: pkg.base_price } as unknown as ComponentProps<typeof PackageCard>["pkg"]}
               onEdit={() => actions.handleEdit(pkg)}
-              onDelete={() => actions.handleDelete(pkg.id)}
+              onDelete={() => setPackageToDelete(pkg.id)}
               onToggleStatus={() => {
                 const currentStatus = pkg.isActive ? "active" : "hidden";
                 actions.handleToggleStatus(pkg.id, currentStatus);
@@ -143,22 +145,38 @@ export function AdminPackagesView() {
       </main>
 
       {/* DRAWER */}
-      <PackageDrawer 
-        open={state.isDialogOpen} 
+      <PackageDrawer
+        open={state.isDialogOpen}
         onClose={actions.closeDialog}
         // ✅ CORREÇÃO TS2322: Compatibiliza as diferenças sutis de nulidade (ex: null vs undefined em description)
         pkg={state.editingPackage as unknown as ComponentProps<typeof PackageDrawer>["pkg"]}
-        onSubmit={onFormSubmit} 
-        logic={{ 
-          state, 
+        onSubmit={onFormSubmit}
+        logic={{
+          state,
           // ✅ CORREÇÃO ESLINT: Remove o `any` e força o formato exato esperado pela interface do PackageDrawer
-          actions: actions as unknown as ComponentProps<typeof PackageDrawer>["logic"]["actions"], 
+          actions: actions as unknown as ComponentProps<typeof PackageDrawer>["logic"]["actions"],
           data: drawerData,
           mutations: {
             createMutation: mutations.createMutation,
             updateMutation: mutations.updateMutation
           }
         }}
+      />
+
+      <ConfirmDialog
+        open={packageToDelete !== null}
+        title="Excluir Pacote"
+        description="Deseja realmente excluir este pacote permanentemente?"
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (packageToDelete !== null) {
+            actions.handleDelete(packageToDelete);
+            setPackageToDelete(null);
+          }
+        }}
+        onCancel={() => setPackageToDelete(null)}
       />
     </div>
   );

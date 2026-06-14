@@ -1,7 +1,7 @@
 import { eq, inArray, asc, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { packages } from "../drizzle/schema/packages"; 
-import { dishes, accompanimentGroups, accompanimentOptions, dishSizes } from "../drizzle/schema/index"; 
+import { packages } from "../drizzle/schema/packages";
+import { dishes, accompanimentGroups, accompanimentOptions, dishSizes } from "../drizzle/schema/index";
 import { safeInteger, safeJsonParse, safeNumber } from "./lib/safe-parse";
 
 const toNum = (val: unknown): number => {
@@ -70,6 +70,7 @@ export async function getPackageById(idInput: string | number) {
           name: dishSizes.name,
           weight: sql<number>`main_dish_weight`,
           proteinWeight: sql<number>`main_dish_weight`,
+          noAccompanimentsMessage: dishSizes.noAccompanimentsMessage,
         }
       })
       .from(packages)

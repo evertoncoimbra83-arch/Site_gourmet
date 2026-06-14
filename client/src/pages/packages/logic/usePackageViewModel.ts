@@ -2,35 +2,65 @@
 
 import { useReducer, useState, useCallback, useMemo, useEffect } from "react";
 import { packageMachine, initialPackageContext } from "./packageMachine";
-import { 
-  PackageItem, 
-  PackageState, 
-  AccompanimentOption, 
-  AccompanimentGroupRule 
+import {
+  PackageItem,
+  PackageState,
+  AccompanimentOption,
+  AccompanimentGroupRule
 } from "./packageMachine.types";
 import { canSubmitPackage, isMealComplete } from "./packageGuards"; import { useCart } from "@/_core/CartContext";
 import { appToast as toast } from "@/lib/app-toast";
 
 // ✅ IMPORTAÇÕES DO DOMÍNIO
-import { 
-  NutritionData as AppliedNutrition, 
-  calculateMealNutrition, 
-  aggregateNutritionCollection
+import {
+  NutritionData as AppliedNutrition,
+  calculateMealNutritionCanonical,
+  aggregateNutritionCollection,
+  extractDishNutritionSource
 } from "@shared/domain/nutrition/nutrition";
 
 interface PackageData {
   id: string;
   name: string;
   capacity: number;
-  price?: number; 
-  image?: string; 
+  price?: number;
+  image?: string;
 }
 
 // ✅ Rastro nutricional detalhado por marmita (usado para etiquetas/cozinha)
 interface ItemTrace {
   dishId: string;
+  dishName: string;
+  sizeId?: string | number;
+  mainDishWeightUsed: number;
+  recipeWeightUsed: number;
   accompanimentIds: string[];
+  accompaniments: AccompanimentOption[];
+  skippedNoAccompanimentCount: number;
   nutrition: AppliedNutrition;
+}
+
+function calculatePackageItemNutrition(item: PackageItem) {
+  const dishSource = {
+    ...(item.nutrition || {}),
+    ...(item.dishRawData || {}),
+    mainDishWeight: item.mainDishWeight,
+  };
+
+  return calculateMealNutritionCanonical({
+    dish: extractDishNutritionSource(dishSource),
+    recipeWeight: (
+      item.dishRawData?.recipeWeight ??
+      item.dishRawData?.recipe_weight ??
+      item.dishRawData?.yieldWeight ??
+      item.dishRawData?.yield_weight
+    ) as number | string | null | undefined,
+    targetMainDishWeight: item.mainDishWeight,
+    composition: Array.isArray(item.dishRawData?.composition)
+      ? (item.dishRawData?.composition as Record<string, unknown>[])
+      : undefined,
+    accompaniments: item.selectedAccompaniments as unknown as Record<string, unknown>[],
+  });
 }
 
 export function usePackageViewModel(packageData: PackageData) {
@@ -67,6 +97,9 @@ export function usePackageViewModel(packageData: PackageData) {
     requiresAccompaniments: boolean;
     accompanimentGroups: AccompanimentGroupRule[];
     nutrition?: Record<string, unknown>;
+    dishRawData?: Record<string, unknown>;
+    sizeId?: string | number;
+    mainDishWeight?: number;
     slotIndex: number; // ✅ obrigatório agora
   }) => {
     const newItem = {
@@ -76,6 +109,9 @@ export function usePackageViewModel(packageData: PackageData) {
       accompanimentGroups: dish.accompanimentGroups,
       selectedAccompaniments: [],
       nutrition: dish.nutrition,
+      dishRawData: dish.dishRawData,
+      sizeId: dish.sizeId,
+      mainDishWeight: dish.mainDishWeight,
     } as PackageItem;
 
     setSlotItems(prev => {
@@ -119,11 +155,8 @@ export function usePackageViewModel(packageData: PackageData) {
    * não "vaze" para o cálculo da outra.
    */
   const aggregatedNutrition = useMemo(() => {
-    const mealsNutrition = selectedItems.map(item => 
-      calculateMealNutrition(
-        item as unknown as Record<string, unknown>, 
-        (item.selectedAccompaniments || []) as unknown as Record<string, unknown>[]
-      )
+    const mealsNutrition = selectedItems.map(item =>
+      calculatePackageItemNutrition(item).nutrition
     );
     return aggregateNutritionCollection(mealsNutrition);
   }, [selectedItems]);
@@ -137,28 +170,37 @@ export function usePackageViewModel(packageData: PackageData) {
     if (!canSubmit) return;
 
     dispatch({ type: 'SUBMIT_CART' });
-    
+
     try {
       // ✅ Montagem do Rastro com isolamento nutricional por item
-      const itemsTrace: ItemTrace[] = selectedItems.map((item) => ({
-        dishId: item.dishId,
-        accompanimentIds: item.selectedAccompaniments.map((acc) => String(acc.id)),
-        nutrition: calculateMealNutrition(
-          item as unknown as Record<string, unknown>, 
-          (item.selectedAccompaniments || []) as unknown as Record<string, unknown>[]
-        ),
-      }));
+      const itemsTrace: ItemTrace[] = selectedItems.map((item) => {
+        const calculated = calculatePackageItemNutrition(item);
+        return {
+          dishId: item.dishId,
+          dishName: item.dishName,
+          sizeId: item.sizeId,
+          mainDishWeightUsed: calculated.metadata.targetMainDishWeightUsed,
+          recipeWeightUsed: calculated.metadata.recipeWeightUsed,
+          accompanimentIds: item.selectedAccompaniments.map((acc) => String(acc.id)),
+          accompaniments: item.selectedAccompaniments,
+          skippedNoAccompanimentCount: calculated.metadata.skippedNoAccompanimentCount,
+          nutrition: calculated.nutrition,
+        };
+      });
 
       // ✅ Mapeamento das marmitas para o payload do carrinho
       const mealsForCart = selectedItems.map(it => ({
-        label: it.dishName, 
+        label: it.dishName,
         dishId: it.dishId,
         dishName: it.dishName,
         accompaniments: it.selectedAccompaniments.map(acc => ({
           id: acc.id,
           name: acc.name,
           weight: acc.weight,
-          groupId: acc.groupId
+          groupId: acc.groupId,
+          isNoAccompaniment: acc.isNoAccompaniment,
+          is_no_accompaniment: acc.is_no_accompaniment,
+          nutritionSkipped: Boolean(acc.isNoAccompaniment || acc.is_no_accompaniment),
         }))
       }));
 
@@ -167,9 +209,9 @@ export function usePackageViewModel(packageData: PackageData) {
         price: packageData.price || 0,
         quantity: 1,
         image: packageData.image || "",
-        itemType: "package", 
+        itemType: "package",
         // Consolida o trace individual + macros totais para o banco de dados
-        appliedNutrition: { itemsTrace, ...aggregatedNutrition } as unknown as AppliedNutrition, 
+        appliedNutrition: { itemsTrace, ...aggregatedNutrition } as unknown as AppliedNutrition,
         options: {
           _type: 'package_custom',
           packageId: packageData.id,
@@ -177,7 +219,7 @@ export function usePackageViewModel(packageData: PackageData) {
           meals: mealsForCart
         }
       });
-      
+
       toast.success("Combo adicionado com sucesso!");
       handleReset();
     } catch {
@@ -191,7 +233,7 @@ export function usePackageViewModel(packageData: PackageData) {
     items: slotItems, // array de tamanho fixo — null = slot vazio
     progress: packageData.capacity > 0 ? (selectedItems.length / packageData.capacity) * 100 : 0,
     canSubmit,
-    aggregatedNutrition, 
+    aggregatedNutrition,
     actions: { addMeal, removeMeal, updateAccompaniments, handleAddToCart, reset: handleReset }
   };
 }

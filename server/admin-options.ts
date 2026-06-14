@@ -9,9 +9,10 @@ export async function updateAccompanimentOption(id: number, data: Record<string,
   const payload: Partial<typeof accompanimentOptions.$inferInsert> = {
     name: data.name as string,
     isActive: Boolean(data.isActive), // Converte para true/false
+    isNoAccompaniment: Boolean(data.isNoAccompaniment ?? data.is_no_accompaniment ?? false),
     accompanimentCategoryId: (data.accompanimentCategoryId as number) || null,
     ingredients: (data.ingredients as string) || "",
-    
+
     // Nutricionais
     energyKcal: Number(data.energyKcal || 0),
     energyKj: String(data.energyKj || "0.00"),
@@ -19,7 +20,7 @@ export async function updateAccompanimentOption(id: number, data: Record<string,
     carbs: String(data.carbs || "0.00"),
     fatTotal: String(data.fatTotal || "0.00"),
     sodium: String(data.sodium || "0.00"),
-    
+
     // JSON da Composição
     nutritionalInfo: JSON.stringify(data.composition || []),
     showNutrition: !!data.showNutrition, // Garante valor booleano

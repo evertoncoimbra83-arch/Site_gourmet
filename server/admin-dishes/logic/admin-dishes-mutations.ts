@@ -1,14 +1,15 @@
-import { and, eq } from "drizzle-orm"; 
+import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { getDb } from "../../db"; 
-import { 
-  dishes, 
-  dishComposition, 
-  dishesToSizes, 
-  nutritionFacts 
+import { getDb } from "../../db";
+import {
+  dishes,
+  dishComposition,
+  dishesToSizes,
+  nutritionFacts
 } from "../../../drizzle/schema/index";
 import { generateSlug } from "./admin-dishes-types";
 import { safeInteger, safeNumber } from "../../lib/safe-parse";
+import { assertCloudinaryStorageUrl } from "@shared/utils/image-url";
 
 // --- TIPAGENS ---
 
@@ -88,6 +89,20 @@ function requirePrice(value: unknown, label: string): string {
   return price.toFixed(2);
 }
 
+function requireCloudinaryImageUrl(
+  value: string | null | undefined,
+  label = "Imagem do prato",
+): string | null {
+  try {
+    return assertCloudinaryStorageUrl(value, label);
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : `${label} invalida.`,
+    });
+  }
+}
+
 // --- MUTAÇÕES ---
 
 /**
@@ -101,7 +116,7 @@ export async function createDish(data: DishPayload) {
     name: data.name || "Novo Prato",
     slug: slug,
     description: data.description || null,
-    imageUrl: data.imageUrl || null,
+    imageUrl: requireCloudinaryImageUrl(data.imageUrl),
     basePrice: requirePrice(data.price, "PreÃ§o"),
     salePrice: data.salePrice ? requirePrice(data.salePrice, "PreÃ§o promocional") : null,
     categoryId: data.categoryId ? requireIntegerId(data.categoryId, "Categoria") : null,
@@ -141,7 +156,7 @@ export async function updateDish(id: string | number, data: DishPayload) {
       name: data.name,
       slug: data.slug || generateSlug(data.name),
       description: data.description,
-      imageUrl: data.imageUrl,
+      imageUrl: requireCloudinaryImageUrl(data.imageUrl),
       ingredients: data.ingredients,
       basePrice: requirePrice(data.price, "PreÃ§o"),
       salePrice: data.salePrice ? requirePrice(data.salePrice, "PreÃ§o promocional") : null,
@@ -151,7 +166,7 @@ export async function updateDish(id: string | number, data: DishPayload) {
       isVegetarian: data.isVegetarian ?? false,
       isGlutenFree: data.isGlutenFree ?? false,
       isLactoseFree: data.isLactoseFree ?? false,
-      
+
       // ✅ ATUALIZAÇÃO DAS COLUNAS (FONTE DA VERDADE)
       energyKcal: toDecimal(data.energyKcal),
       energyKj: toDecimal(data.energyKj),
@@ -168,8 +183,8 @@ export async function updateDish(id: string | number, data: DishPayload) {
 
       // ⚰️ MATANDO O LEGADO
       // Definimos como null para forçar o uso das colunas individuais no sistema
-      nutritionalInfo: null, 
-      
+      nutritionalInfo: null,
+
       updatedAt: new Date()
     };
 
@@ -220,7 +235,7 @@ export async function updateDish(id: string | number, data: DishPayload) {
         iron: toDecimal(data.iron)
       });
     }
-    
+
     return { success: true };
   });
 }
@@ -231,7 +246,7 @@ export async function updateDish(id: string | number, data: DishPayload) {
 export async function deleteDish(id: string | number) {
   const db = await getDb();
   const dishId = requireIntegerId(id, "Prato");
-  
+
   return await db.transaction(async (tx) => {
     await tx.delete(nutritionFacts).where(eq(nutritionFacts.dishId, dishId));
     await tx.delete(dishComposition).where(eq(dishComposition.dishId, dishId));
@@ -245,7 +260,7 @@ export async function toggleSizeLink(dishId: number, sizeId: number) {
   const db = await getDb();
   const dId = requireIntegerId(dishId, "Prato");
   const sId = requireIntegerId(sizeId, "Tamanho");
-  
+
   const existing = await db.select().from(dishesToSizes)
     .where(and(eq(dishesToSizes.dishId, dId), eq(dishesToSizes.sizeId, sId)))
     .limit(1);

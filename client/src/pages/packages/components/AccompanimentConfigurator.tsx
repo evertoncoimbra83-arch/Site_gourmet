@@ -1,5 +1,5 @@
 // client/src/pages/packages/components/AccompanimentConfigurator.tsx
-import React, { useMemo } from "react"; 
+import React, { useMemo } from "react";
 import { X, Scale, ChevronRight } from "lucide-react";
 
 import { usePackageAcc } from "../logic/usePackageAcc";
@@ -40,7 +40,7 @@ export function AccompanimentConfigurator({
   isLast,
   sizeWeight
 }: AccompanimentConfiguratorProps) {
-  
+
   const { accompanimentGroups, formattedSelections } = usePackageAcc({
     currentMealState: currentState,
     slot: slot,
@@ -49,14 +49,14 @@ export function AccompanimentConfigurator({
     allOptions: pkg.allowedAccompaniments as unknown as Record<string, unknown>[],
   });
 
-  const currentDish = useMemo(() => 
+  const currentDish = useMemo(() =>
     (slot.dishes || []).find((d) => String(d.id) === String(currentState?.dishId)),
     [slot.dishes, currentState?.dishId]
   );
 
   const handleToggle = (group: Group, optionId: string) => {
     let currentSelections = [...(currentState?.selectedAccompaniments || [])];
-    
+
     const existingIndex = currentSelections.findIndex(
       (acc) => String(acc.id) === String(optionId) && String(acc.groupId) === String(group.id)
     );
@@ -65,7 +65,7 @@ export function AccompanimentConfigurator({
       currentSelections.splice(existingIndex, 1);
     } else {
       const optionData = group.options.find((o) => String(o.id) === String(optionId));
-      
+
       if (optionData) {
         const optionMeta = optionData as unknown as Record<string, unknown>;
         const countInGroup = currentSelections.filter((a) => String(a.groupId) === String(group.id)).length;
@@ -96,6 +96,9 @@ export function AccompanimentConfigurator({
             optionMeta.nutritional_info ||
             optionMeta.nutrition ||
             null,
+          isNoAccompaniment: Boolean(optionMeta.isNoAccompaniment || optionMeta.is_no_accompaniment),
+          is_no_accompaniment: Boolean(optionMeta.isNoAccompaniment || optionMeta.is_no_accompaniment),
+          nutritionSkipped: Boolean(optionMeta.isNoAccompaniment || optionMeta.is_no_accompaniment),
         } as AccompanimentOption);
       }
     }
@@ -108,7 +111,7 @@ export function AccompanimentConfigurator({
 
   return (
     <div className="space-y-8 py-2 animate-in fade-in slide-in-from-bottom-3 duration-500">
-      
+
       {/* CARD DO PRATO SELECIONADO */}
       <div className="relative overflow-hidden bg-white border border-slate-200 rounded-[2rem] p-5 shadow-sm group">
         <div className="flex items-center justify-between relative z-10">
@@ -123,8 +126,8 @@ export function AccompanimentConfigurator({
               Porção base de {sizeWeight}g
             </span>
           </div>
-          
-          <button 
+
+          <button
             type="button"
             onClick={() => actions.removeMeal(index)}
             className="h-10 w-10 flex items-center justify-center bg-slate-50 text-slate-400 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all active:scale-90 shadow-sm"
@@ -132,17 +135,17 @@ export function AccompanimentConfigurator({
             <X size={18} />
           </button>
         </div>
-        
+
         <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity pointer-events-none">
           <Scale size={80} />
         </div>
       </div>
 
       {/* DASHBOARD NUTRICIONAL */}
-      <PackageNutritionDashboard 
-        dish={currentDish as Record<string, unknown>} 
-        selectedAccs={currentState?.selectedAccompaniments as unknown as Record<string, unknown>[]} 
-        defaultWeight={sizeWeight} 
+      <PackageNutritionDashboard
+        dish={currentDish as Record<string, unknown>}
+        selectedAccs={currentState?.selectedAccompaniments as unknown as Record<string, unknown>[]}
+        defaultWeight={sizeWeight}
       />
 
       {/* SELEÇÃO DE ACOMPANHAMENTOS */}
@@ -161,10 +164,10 @@ export function AccompanimentConfigurator({
               Escolha conforme as regras de cada grupo. Itens adicionais aparecem no card da opção.
             </p>
 
-            <AccompanimentSelector 
-              groups={typedGroups} 
-              selections={typedSelections} 
-              onToggle={handleToggle} 
+            <AccompanimentSelector
+              groups={typedGroups}
+              selections={typedSelections}
+              onToggle={handleToggle}
             />
           </>
         ) : (
@@ -179,7 +182,7 @@ export function AccompanimentConfigurator({
 
       {/* NAVEGAÇÃO */}
       {!isLast && (
-        <button 
+        <button
           type="button"
           onClick={onNext}
           className="group w-full h-16 bg-slate-950 hover:bg-emerald-600 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[11px] shadow-xl flex items-center justify-between px-8 transition-all active:scale-[0.98]"

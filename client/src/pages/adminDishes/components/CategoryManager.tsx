@@ -3,16 +3,16 @@ import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { toast } from "@/components/ui/use-toast"; 
+import { appToast as toast } from "@/lib/app-toast";
 import { Layers, Plus, Loader2, UtensilsCrossed, Tags } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Componentes internos
-import { CategoryDrawer } from "./CategoryDrawer"; 
-import { AccompanimentCategoryForm } from "./AccompanimentCategoryForm"; 
-import { CategoryList } from "./CategoryList"; 
+import { CategoryDrawer } from "./CategoryDrawer";
+import { AccompanimentCategoryForm } from "./AccompanimentCategoryForm";
+import { CategoryList } from "./CategoryList";
 
 // ✅ Interface unificada para garantir compatibilidade entre tabelas e formulários
 interface MenuCategory {
@@ -21,13 +21,13 @@ interface MenuCategory {
   iconKey?: string | null;
   color?: string | null;
   isActive: boolean | number;
-  displayOrder: number; 
+  displayOrder: number;
 }
 
 export function CategoryManager() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<MenuCategory | null>(null);
-  
+
   const utils = trpc.useUtils();
 
   /* --- QUERIES --- */
@@ -39,10 +39,7 @@ export function CategoryManager() {
     onSuccess: () => {
       utils.admin.categories.list.invalidate();
       // ✅ CORREÇÃO LINHA 45: Removido 'any', usado cast duplo para satisfazer o ESLint 8
-      toast({ 
-        title: "Sucesso", 
-        description: "Categoria atualizada!" 
-      } as unknown as Parameters<typeof toast>[0]);
+      toast.success("Categoria atualizada.");
     },
   });
 
@@ -94,17 +91,17 @@ export function CategoryManager() {
 
           <div className="grid gap-3">
             {(menuQuery.data as unknown as MenuCategory[])?.map((cat) => {
-              const IconComponent = cat.iconKey 
+              const IconComponent = cat.iconKey
                 ? (LucideIcons[cat.iconKey as keyof typeof LucideIcons] as React.ElementType) || Layers
                 : Layers;
 
               return (
                 <div key={cat.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 md:p-5 rounded-[1.8rem] bg-slate-50 border border-transparent hover:border-slate-200 transition-all group gap-4">
-                  
+
                   <div className="flex items-center gap-4 min-w-0 flex-1">
                     <div className={cn(
                       "w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center border transition-all",
-                      cat.color === 'emerald' ? 'text-emerald-500 bg-emerald-50 border-emerald-100' : 
+                      cat.color === 'emerald' ? 'text-emerald-500 bg-emerald-50 border-emerald-100' :
                       cat.color === 'red' ? 'text-red-500 bg-red-50 border-red-100' : 'text-slate-400 bg-white border-slate-100'
                     )}>
                       <IconComponent size={20} />
@@ -114,22 +111,22 @@ export function CategoryManager() {
 
                   <div className="flex flex-row items-center gap-2 w-full sm:w-auto justify-end">
                     <div className="flex items-center gap-2 bg-white px-3 h-10 rounded-xl border border-slate-100 shadow-sm shrink-0">
-                      <Switch 
-                        checked={Boolean(cat.isActive)} 
-                        onCheckedChange={(val) => upsertMenuCat.mutate({ 
-                          ...cat, 
+                      <Switch
+                        checked={Boolean(cat.isActive)}
+                        onCheckedChange={(val) => upsertMenuCat.mutate({
+                          ...cat,
                           id: Number(cat.id),
-                          isActive: val 
-                        } as unknown as Parameters<typeof upsertMenuCat.mutate>[0])} 
+                          isActive: val
+                        } as unknown as Parameters<typeof upsertMenuCat.mutate>[0])}
                         className="scale-75"
                       />
                       <Label className="text-[8px] font-black uppercase text-slate-400">Ativa</Label>
                     </div>
 
-                    <Button 
-                      onClick={() => handleEditMenuCat(cat)} 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      onClick={() => handleEditMenuCat(cat)}
+                      variant="ghost"
+                      size="sm"
                       className="h-10 px-4 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors shrink-0"
                     >
                       Editar
@@ -161,10 +158,10 @@ export function CategoryManager() {
         </div>
       </TabsContent>
 
-      <CategoryDrawer 
-        open={isDrawerOpen} 
-        onClose={() => setIsDrawerOpen(false)} 
-        category={selectedCategory as unknown as Parameters<typeof CategoryDrawer>[0]['category']} 
+      <CategoryDrawer
+        open={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        category={selectedCategory as unknown as Parameters<typeof CategoryDrawer>[0]['category']}
       />
     </Tabs>
   );

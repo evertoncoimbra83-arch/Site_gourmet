@@ -1,10 +1,11 @@
-import React from "react"; 
+import React, { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Loader2, Trash2, Info, HelpCircle } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import { appToast as toast } from "@/lib/app-toast"; 
+import { appToast as toast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // ✅ Interface alinhada
 interface CategoryItem {
@@ -17,6 +18,7 @@ interface CategoryItem {
 
 export function CategoryList() {
   const utils = trpc.useUtils();
+  const [categoryToDelete, setCategoryToDelete] = useState<CategoryItem | null>(null);
 
   // ✅ Busca a lista de categorias
   const { data: categories, isLoading } = trpc.admin.categories.list.useQuery();
@@ -59,7 +61,7 @@ export function CategoryList() {
         // ✅ Acesso seguro via keyof typeof LucideIcons
         const iconName = cat.iconKey as keyof typeof LucideIcons;
         const IconComponent = (LucideIcons[iconName] as React.ElementType) || HelpCircle;
-        
+
         const colorClasses: Record<string, string> = {
           red: "text-red-500 bg-red-50 border-red-100",
           amber: "text-amber-500 bg-amber-50 border-amber-100",
@@ -69,8 +71,8 @@ export function CategoryList() {
         };
 
         return (
-          <div 
-            key={cat.id} 
+          <div
+            key={cat.id}
             className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-[2rem] shadow-sm hover:shadow-md transition-all group overflow-hidden w-full"
           >
             <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -92,16 +94,11 @@ export function CategoryList() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0 ml-4">
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="icon"
                   disabled={deleteMutation.isPending}
-                  onClick={() => {
-                      if (window.confirm(`Excluir categoria "${cat.name}"?`)) {
-                        // Passamos o ID como número conforme o schema do Zod no backend
-                        deleteMutation.mutate({ id: Number(cat.id) });
-                      }
-                  }}
+                  onClick={() => setCategoryToDelete(cat)}
                   className="h-10 w-10 rounded-xl text-slate-200 hover:text-red-500 hover:bg-red-50 transition-colors"
                 >
                   {deleteMutation.isPending ? (
@@ -114,6 +111,23 @@ export function CategoryList() {
           </div>
         );
       })}
+
+      <ConfirmDialog
+        open={categoryToDelete !== null}
+        title="Excluir Categoria"
+        description={categoryToDelete ? `Deseja realmente excluir a categoria "${categoryToDelete.name}"?` : ""}
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          if (categoryToDelete) {
+            deleteMutation.mutate({ id: Number(categoryToDelete.id) });
+            setCategoryToDelete(null);
+          }
+        }}
+        onCancel={() => setCategoryToDelete(null)}
+      />
     </div>
   );
 }

@@ -64,6 +64,9 @@ export interface SelectedMeal {
     groupId: string | number;
     groupName: string;
     weight: number;
+    isNoAccompaniment?: boolean;
+    is_no_accompaniment?: boolean;
+    nutritionSkipped?: boolean;
   })[];
   mainDishWeight: number;
   nutrition: NutritionalInfo;
@@ -79,6 +82,7 @@ export function usePackageSelection(pkg: Package | null | undefined) {
     const nutrition = mapPackageMealNutrition(
       meal.dishData as Record<string, unknown>,
       meal.selectedAccompaniments as Record<string, unknown>[],
+      meal.mainDishWeight,
     );
     return { ...meal, nutrition: nutrition as unknown as NutritionalInfo };
   };
@@ -168,6 +172,9 @@ export function usePackageSelection(pkg: Package | null | undefined) {
           groupName: group.name,
           ingredients: option.ingredients || "",
           weight: safeNumber(group.defaultGrammage, 100),
+          isNoAccompaniment: Boolean(option.isNoAccompaniment || option.is_no_accompaniment),
+          is_no_accompaniment: Boolean(option.isNoAccompaniment || option.is_no_accompaniment),
+          nutritionSkipped: Boolean(option.isNoAccompaniment || option.is_no_accompaniment),
         };
 
         let newSelections: SelectedMeal["selectedAccompaniments"] = [];

@@ -1,28 +1,30 @@
 import { adminProcedure, router } from "../../_core/trpc";
-import { z } from "zod"; 
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 // ✅ 1. Query Functions
-import { 
-  getPaginatedDishes, 
-  getDishById, 
+import {
+  getPaginatedDishes,
+  getDishById,
   getLocalCategories,
   listAllSizes,
-  searchIngredients 
+  searchIngredients
 } from "../../admin-dishes/logic/admin-dishes-queries";
 
 // ✅ 2. Mutations
-import { 
-  createDish, 
-  updateDish, 
-  deleteDish, 
-  toggleSizeLink 
+import {
+  createDish,
+  updateDish,
+  deleteDish,
+  toggleSizeLink
 } from "../../admin-dishes/logic/admin-dishes-mutations";
 
 // ✅ 3. Imports auxiliares
 import { getDb } from "../../db";
 import { dishes } from "../../../drizzle/schema/index";
 import { eq } from "drizzle-orm";
+import { getActivePackagesUsingDish } from "../../packages-integrity";
+import { normalizeAdminDishesListParams } from "../../admin-dishes/logic/admin-dishes-types";
 
 /**
  * 🛠️ Tipagem Dinâmica para evitar 'any'
@@ -32,7 +34,7 @@ type CreateDishInput = Parameters<typeof createDish>[0];
 type UpdateDishInput = Parameters<typeof updateDish>[1];
 
 export const adminDishesRouter = router({
-  
+
   listCategories: adminProcedure.query(async () => {
     return await getLocalCategories();
   }),
@@ -44,19 +46,17 @@ export const adminDishesRouter = router({
   list: adminProcedure
     .input(z.object({
       page: z.number().default(1),
-      perPage: z.number().default(10),
+      perPage: z.number().optional(),
+      pageSize: z.number().optional(),
       search: z.string().optional(),
       categoryId: z.number().optional(),
       showInactive: z.boolean().optional(),
+      status: z.enum(["all", "active", "inactive"]).optional(),
+      sortBy: z.enum(["name", "createdAt", "updatedAt"]).optional(),
+      sortDir: z.enum(["asc", "desc"]).optional(),
     }))
     .query(async ({ input }) => {
-      return await getPaginatedDishes({
-        page: input.page,
-        limit: input.perPage,
-        search: input.search,
-        categoryId: input.categoryId,
-        showInactive: input.showInactive
-      });
+      return await getPaginatedDishes(normalizeAdminDishesListParams(input));
     }),
 
   getById: adminProcedure
@@ -81,22 +81,34 @@ export const adminDishesRouter = router({
     }),
 
   toggleActive: adminProcedure
-    .input(z.object({ 
-      id: z.number(), 
-      name: z.string().optional(), 
-      isActive: z.boolean() 
+    .input(z.object({
+      id: z.number(),
+      name: z.string().optional(),
+      isActive: z.boolean()
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (input.isActive === false) {
+        const blockingPackages = await getActivePackagesUsingDish(db, input.id);
+        if (blockingPackages.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Este prato está sendo usado nos pacotes: ${blockingPackages
+              .map((pkg) => pkg.name)
+              .join(", ")}. Remova-o dos pacotes antes de inativar.`,
+          });
+        }
+      }
+
       await db.update(dishes)
         .set({ isActive: input.isActive })
         .where(eq(dishes.id, input.id));
-      
-      return { 
-        success: true, 
-        message: input.isActive 
-          ? `Prato "${input.name || 'item'}" ativado para venda!` 
-          : `Prato "${input.name || 'item'}" pausado no cardápio.` 
+
+      return {
+        success: true,
+        message: input.isActive
+          ? `Prato "${input.name || 'item'}" ativado para venda!`
+          : `Prato "${input.name || 'item'}" pausado no cardápio.`
       };
     }),
 
@@ -119,10 +131,10 @@ export const adminDishesRouter = router({
     .mutation(async ({ input }) => {
       // ✅ Tipagem segura extraída da função original
       const result = await createDish(input as CreateDishInput);
-      return { 
-        success: true, 
+      return {
+        success: true,
         data: result,
-        message: `Prato "${input.name}" cadastrado com sucesso!` 
+        message: `Prato "${input.name}" cadastrado com sucesso!`
       };
     }),
 
@@ -141,16 +153,16 @@ export const adminDishesRouter = router({
       proteins: z.any().optional(),
       carbs: z.any().optional(),
       fatTotal: z.any().optional(),
-    }).passthrough()) 
+    }).passthrough())
     .mutation(async ({ input }) => {
       // ✅ Mapeamos o input para o tipo esperado pela mutation de update
       const { id, ...data } = input;
       const result = await updateDish(id, data as UpdateDishInput);
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         data: result,
-        message: `Alterações em "${input.name || 'Prato'}" salvas!` 
+        message: `Alterações em "${input.name || 'Prato'}" salvas!`
       };
     }),
 
@@ -162,12 +174,12 @@ export const adminDishesRouter = router({
     .mutation(async ({ input }) => {
       const id = typeof input === 'number' ? input : input.id;
       const name = typeof input === 'object' ? input.name : null;
-      
+
       await deleteDish(id);
-      
-      return { 
-        success: true, 
-        message: name ? `Prato "${name}" removido permanentemente.` : "Prato removido com sucesso." 
+
+      return {
+        success: true,
+        message: name ? `Prato "${name}" removido permanentemente.` : "Prato removido com sucesso."
       };
     }),
 
@@ -175,9 +187,9 @@ export const adminDishesRouter = router({
     .input(z.object({ dishId: z.number(), sizeId: z.number() }))
     .mutation(async ({ input }) => {
       await toggleSizeLink(input.dishId, input.sizeId);
-      return { 
-        success: true, 
-        message: "Disponibilidade de tamanho atualizada para este prato." 
+      return {
+        success: true,
+        message: "Disponibilidade de tamanho atualizada para este prato."
       };
     }),
 });

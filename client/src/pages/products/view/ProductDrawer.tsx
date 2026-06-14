@@ -2,7 +2,7 @@
 // Fix UX mobile: side="bottom" em mobile, side="right" em desktop (sm+)
 // Fix: padding inferior respeitando safe-area do iOS
 
-import React, { useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import {
   Sheet,
   SheetContent,
@@ -29,9 +29,9 @@ import { DishSize, AccOption } from "../logic/types";
 import { NutritionValues } from "@/_core/type/utils";
 
 // Componentes Refatorados
-import { NutritionInfo } from "../drawer/NutritionInfo"; 
+import { NutritionInfo } from "../drawer/NutritionInfo";
 import { SizeSelector } from "../drawer/SizeSelector";
-import { DrawerFooter } from "../drawer/DrawerFooter"; 
+import { DrawerFooter } from "../drawer/DrawerFooter";
 
 interface ProductDrawerProps {
   dishId: string | number | null;
@@ -76,11 +76,9 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
     handleAddToCart
   } = useProductDrawer(dishId, onClose);
 
-  const accompanimentsRef = useRef<HTMLDivElement>(null);
-
   const canAddToCart = useMemo(() => {
     const hasGroups = selectedSize?.accompanimentGroups && selectedSize.accompanimentGroups.length > 0;
-    if (!hasGroups) return !!selectedSize; 
+    if (!hasGroups) return !!selectedSize;
     return isAccompanimentsComplete;
   }, [selectedSize, isAccompanimentsComplete]);
 
@@ -111,9 +109,6 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
   const onSizeClick = (s: unknown) => {
     handleSizeSelect(s as DishSize);
-    setTimeout(() => {
-      accompanimentsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 150);
   };
 
   // Em mobile: sheet sobe do rodapé (bottom).
@@ -122,7 +117,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
   return (
     <Sheet open={!!dishId} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent 
+      <SheetContent
         side={sheetSide}
         data-testid="drawer-prato"
         className={cn(
@@ -136,7 +131,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
       >
         <SheetTitle className="sr-only">Configurar {dish?.name || "Prato"}</SheetTitle>
         <SheetDescription className="sr-only">Escolha o tamanho e os acompanhamentos do seu prato.</SheetDescription>
-        
+
         {/* Indicador de arrasto (só mobile) */}
         {isMobile && (
           <div className="flex justify-center pt-3 pb-1 shrink-0">
@@ -146,7 +141,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
         {/* Botão fechar (desktop) */}
         {!isMobile && (
-          <button 
+          <button
             onClick={onClose}
             className="absolute top-4 right-4 z-50 p-2.5 bg-black/40 backdrop-blur-md hover:bg-black/60 text-white rounded-full transition-all"
           >
@@ -156,7 +151,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
         {/* ÁREA ROLÁVEL PRINCIPAL */}
         <div className="flex-1 overflow-y-auto overscroll-contain no-scrollbar scroll-smooth">
-          
+
           {!isLoading && dish?.imageUrl && (
             <div className={cn(
               "relative w-full shrink-0",
@@ -168,7 +163,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
                 className="absolute inset-0 w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-black/10" />
-              
+
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <h2 className="text-xl md:text-3xl font-black tracking-tighter leading-none drop-shadow-md line-clamp-2">
                   {dish.name}
@@ -226,26 +221,24 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
                   )}
                 </div>
 
-                <SizeSelector 
-                  sizes={(dish?.sizes || []) as unknown as React.ComponentProps<typeof SizeSelector>["sizes"]} 
-                  selectedId={selectedSize?.id || null} 
-                  onSelect={onSizeClick} 
-                  selectedAccs={selectedAccs as AccOption[]} 
+                <SizeSelector
+                  sizes={(dish?.sizes || []) as unknown as React.ComponentProps<typeof SizeSelector>["sizes"]}
+                  selectedId={selectedSize?.id || null}
+                  onSelect={onSizeClick}
+                  selectedAccs={selectedAccs as AccOption[]}
                   onAddAcc={handleAccSelection}
                   onRemoveAcc={handleAccSelection}
                 />
 
-                {selectedSize?.accompanimentGroups && selectedSize.accompanimentGroups.length > 0 && (
-                  <div ref={accompanimentsRef} className="pt-2" tabIndex={-1} />
-                )}
+
               </div>
             )}
           </div>
         </div>
 
         {/* FOOTER FIXO */}
-        <div 
-          ref={footerRef} 
+        <div
+          ref={footerRef}
           className={cn(
             "bg-white border-t border-slate-100 shadow-[0_-30px_50px_-10px_rgba(0,0,0,0.1)] shrink-0 z-50",
             isMobile ? "rounded-t-none" : "rounded-t-4xl"
@@ -255,7 +248,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
         >
           {/* BARRA NUTRICIONAL */}
           {selectedSize && dish?.showNutrition && totalNutrition && (
-            <div 
+            <div
               className={cn(
                 "mx-4 md:mx-6 -mt-8 mb-4 relative z-10 rounded-3xl p-4 md:p-5 transition-all duration-300",
                 "bg-white/90 backdrop-blur-xl border border-white/70 shadow-xl",
@@ -291,9 +284,9 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
                   </div>
                 </div>
 
-                <button 
-                  type="button" 
-                  onClick={(e) => { e.stopPropagation(); setShowFullNutrition(!showFullNutrition); }} 
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShowFullNutrition(!showFullNutrition); }}
                   className="p-1.5 hover:bg-slate-100 rounded-full transition-colors shrink-0"
                 >
                   <ChevronDown className={cn("transition-transform duration-500 text-slate-400", showFullNutrition && "rotate-180 text-emerald-500")} size={18} />
@@ -302,16 +295,16 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
               <AnimatePresence>
                 {showFullNutrition && (
-                  <motion.div 
+                  <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
                     <div className="mt-5 pt-5 border-t border-slate-100">
-                      <NutritionInfo 
-                        data={totalNutrition as unknown as NutritionValues & Record<string, unknown>} 
-                        totalWeight={totalNutrition.yieldWeight} 
+                      <NutritionInfo
+                        data={totalNutrition as unknown as NutritionValues & Record<string, unknown>}
+                        totalWeight={totalNutrition.yieldWeight}
                       />
                       <div className="mt-3 flex justify-center items-center gap-1.5 text-slate-400">
                         <Info size={10} />
@@ -326,7 +319,7 @@ export default function ProductDrawer({ dishId, onClose }: ProductDrawerProps) {
 
           {/* BOTÕES DE COMPRA */}
           <div className="px-4 pb-5">
-            <DrawerFooter 
+            <DrawerFooter
               dishExists={!!dish}
               isComplete={canAddToCart}
               isAdding={isAdding}

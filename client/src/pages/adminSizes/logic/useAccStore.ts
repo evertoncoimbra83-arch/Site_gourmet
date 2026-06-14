@@ -6,6 +6,7 @@ import { safeNumber } from "@/lib/safe-parse";
 interface AccFormData {
   name: string;
   showNutrition: boolean;
+  isNoAccompaniment: boolean;
   ingredients: string;
   energyKcal: string;
   energyKj: string;
@@ -19,7 +20,7 @@ interface AccFormData {
   calcium: string;
   iron: string;
   // ✅ Ajustado para aceitar undefined, resolvendo o erro 2322
-  [key: string]: string | boolean | undefined; 
+  [key: string]: string | boolean | undefined;
 }
 
 interface CompositionItem {
@@ -60,10 +61,10 @@ interface CompositionItem {
 interface AccState {
   formData: AccFormData;
   composition: CompositionItem[];
-  portionGrammage: number; 
+  portionGrammage: number;
   setFormData: (data: Partial<AccFormData>) => void;
   // ✅ Substituído 'any[]' por tipo específico
-  setComposition: (data: Partial<CompositionItem>[]) => void; 
+  setComposition: (data: Partial<CompositionItem>[]) => void;
   setPortionGrammage: (grammage: number) => void;
   // ✅ Substituído 'any' por tipo específico
   addItem: (item: Partial<CompositionItem>) => void;
@@ -73,19 +74,20 @@ interface AccState {
 }
 
 const initialForm: AccFormData = {
-  name: "", 
+  name: "",
   showNutrition: false,
-  ingredients: "", 
-  energyKcal: "0",      
-  energyKj: "0",        
-  proteins: "0.00", 
-  carbs: "0.00", 
-  fatTotal: "0.00",    
-  sodium: "0", 
+  isNoAccompaniment: false,
+  ingredients: "",
+  energyKcal: "0",
+  energyKj: "0",
+  proteins: "0.00",
+  carbs: "0.00",
+  fatTotal: "0.00",
+  sodium: "0",
   fiber: "0.00",
-  fatSaturated: "0.00", 
-  fatTrans: "0.00",     
-  calcium: "0.00", 
+  fatSaturated: "0.00",
+  fatTrans: "0.00",
+  calcium: "0.00",
   iron: "0.00"
 };
 
@@ -99,7 +101,7 @@ export const useAccStore = create<AccState>((set, get) => ({
     // ✅ Agora compatível com a assinatura de índice da interface
     set({ formData: { ...current, ...data } });
   },
-  
+
   setComposition: (data) => {
     const parse = (v: string | number | undefined | null) => {
       const n = safeNumber(String(v || "0").replace(',', '.'));
@@ -129,7 +131,7 @@ export const useAccStore = create<AccState>((set, get) => ({
 
   setPortionGrammage: (grammage) => {
     set({ portionGrammage: safeNumber(grammage, 100) });
-    get().calculateTotals(); 
+    get().calculateTotals();
   },
 
   addItem: (item) => {
@@ -137,7 +139,7 @@ export const useAccStore = create<AccState>((set, get) => ({
       const n = safeNumber(String(v || "0").replace(',', '.'));
       return isNaN(n) ? 0 : n;
     };
-    
+
     const cleanItem: CompositionItem = {
       ...item,
       id: item.id || 0,
@@ -170,7 +172,7 @@ export const useAccStore = create<AccState>((set, get) => ({
 
     const rawTotals = composition.reduce((acc, curr) => {
       const q = safeNumber(String(curr.quantity || "0").replace(',', '.'));
-      const f = q / 100; 
+      const f = q / 100;
 
       return {
         kcal: acc.kcal + (curr.kcal * f),
@@ -189,7 +191,7 @@ export const useAccStore = create<AccState>((set, get) => ({
 
     const portionFactor = portionGrammage / 100;
 
-    set({ 
+    set({
       formData: {
         ...formData,
         energyKcal: Math.round(rawTotals.kcal * portionFactor).toString(),

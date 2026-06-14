@@ -1,10 +1,10 @@
 import { asc, eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
-import { 
-  dishSizes, 
-  sizeAccompanimentGroups, 
-  dishesToSizes 
+import {
+  dishSizes,
+  sizeAccompanimentGroups,
+  dishesToSizes
 } from "../drizzle/schema/index";
 import { safeInteger, safeJsonParse, safeNumber } from "./lib/safe-parse";
 
@@ -38,13 +38,14 @@ function ensureValidJson(data: unknown): number[] {
 export async function getAllDishSizes() {
   const db = await getDb();
   const result = await db.select().from(dishSizes).orderBy(asc(dishSizes.displayOrder));
-  
+
   return result.map((size) => ({
     ...size,
     id: safeInteger(size.id),
     isActive: Boolean(size.isActive),
     priceModifier: size.priceModifier || "0.00",
     mainDishWeight: size.mainDishWeight || "200.00",
+    noAccompanimentsMessage: size.noAccompanimentsMessage || "",
     groupsOrder: ensureValidJson(size.groupsOrder)
   }));
 }
@@ -68,6 +69,7 @@ export async function upsertDishSize(data: Record<string, unknown>) {
     color: (data.color as string) || "slate",
     isActive: Boolean(data.isActive),
     description: (data.description as string) || null,
+    noAccompanimentsMessage: (data.noAccompanimentsMessage as string) || null,
     groupsOrder: JSON.stringify(ensureValidJson(data.groupsOrder)),
     updatedAt: new Date(),
   };
@@ -81,19 +83,19 @@ export async function upsertDishSize(data: Record<string, unknown>) {
       displayOrder: 0,
       createdAt: new Date()
     };
-    
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [res]: any = await db.insert(dishSizes).values(insertPayload);
-    
+
     const insertId = res?.insertId || (Array.isArray(res) ? res[0]?.insertId : null);
-    
+
     return { success: true, id: insertId };
   }
 }
 
 export async function deleteDishSize(id: number) {
   const db = await getDb();
-  
+
   return await db.transaction(async (tx) => {
     await tx.delete(sizeAccompanimentGroups).where(eq(sizeAccompanimentGroups.sizeId, id));
     await tx.delete(dishesToSizes).where(eq(dishesToSizes.sizeId, id));

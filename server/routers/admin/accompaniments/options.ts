@@ -42,6 +42,8 @@ export const adminOptionsRouter = router({
           ingredients: z.string().optional().nullable(),
           composition: z.unknown().optional(),
           isActive: z.boolean().optional(),
+          isNoAccompaniment: z.boolean().optional(),
+          is_no_accompaniment: z.boolean().optional(),
           showNutrition: z.boolean().optional(),
           priceModifier: z.unknown().optional(),
         })
@@ -91,6 +93,7 @@ export const adminOptionsRouter = router({
         ingredients: data.ingredients || "",
         nutritionalInfo: nutritionalInfoString,
         isActive: data.isActive ?? true,
+        isNoAccompaniment: data.isNoAccompaniment ?? data.is_no_accompaniment ?? false,
         showNutrition: data.showNutrition ?? false,
         priceModifier: toRequiredDec(data.priceModifier || 0, "Preço adicional"),
         updatedAt: new Date(),

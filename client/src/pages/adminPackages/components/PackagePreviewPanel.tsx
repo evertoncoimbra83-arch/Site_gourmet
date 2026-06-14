@@ -3,6 +3,7 @@
 import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Package, CheckCircle2, ShoppingCart, Zap, Info } from "lucide-react";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 interface Slot {
   name: string;
@@ -27,15 +28,15 @@ interface PackagePreviewProps {
 export function PackagePreviewPanel({ data }: PackagePreviewProps) {
   const finalPrice = Number(data.sale_price || data.base_price || 0);
   const hasDiscount = Boolean(data.sale_price && Number(data.sale_price) < Number(data.base_price));
-  
+
   // Transforma a string de highlights em array
-  const highlightList = data.highlights 
-    ? data.highlights.split(",").map(h => h.trim()).filter(h => h !== "") 
+  const highlightList = data.highlights
+    ? data.highlights.split(",").map(h => h.trim()).filter(h => h !== "")
     : [];
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500 text-left">
-      
+
       {/* 1. PREVIEW NA VITRINE (CARD DO CLIENTE) */}
       <section className="space-y-4">
         <div className="flex items-center gap-2 px-1">
@@ -47,7 +48,14 @@ export function PackagePreviewPanel({ data }: PackagePreviewProps) {
           {/* Imagem */}
           <div className="relative h-48 bg-slate-100 overflow-hidden">
             {data.image_url ? (
-              <img src={data.image_url} alt="Preview" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+              <img
+                src={resolveImageUrl(data.image_url, "package")}
+                alt="Preview"
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                onError={(event) => {
+                  event.currentTarget.src = getImageFallback("package");
+                }}
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-slate-300">
                 <Package size={48} strokeWidth={1} />

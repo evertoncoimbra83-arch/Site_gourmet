@@ -9,6 +9,8 @@ interface OptionItem {
   isActive?: boolean;
   show_nutrition?: boolean;
   showNutrition?: boolean;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
   nutritionalInfo?: string | unknown[];
   nutritional_info?: string | unknown[];
   energyKcal?: string | number;
@@ -33,12 +35,12 @@ interface OptionItem {
  */
 export function useAdminOptionsTab() {
   const utils = trpc.useUtils();
-  
+
   // Queries
   const query = trpc.admin.accompaniments.options.listAll.useQuery(undefined, {
-    staleTime: 1000 * 60 * 5, 
+    staleTime: 1000 * 60 * 5,
   });
-  
+
   const categoriesQuery = trpc.admin.accompaniments.categories.list.useQuery();
 
   // Mutations
@@ -52,22 +54,29 @@ export function useAdminOptionsTab() {
    * ✅ NORMALIZAÇÃO REFORÇADA (Tipagem explícita)
    */
   const normalizePayload = (originalItem: Partial<OptionItem>, overrides: Partial<OptionItem> = {}) => {
-    const rawComposition = overrides.composition 
-      ?? originalItem.composition 
-      ?? originalItem.nutritionalInfo 
-      ?? originalItem.nutritional_info 
+    const rawComposition = overrides.composition
+      ?? originalItem.composition
+      ?? originalItem.nutritionalInfo
+      ?? originalItem.nutritional_info
       ?? [];
 
     return {
       id: originalItem.id ? Number(originalItem.id) : undefined,
       name: overrides.name ?? originalItem.name,
-      
-      accompanimentCategoryId: overrides.accompanimentCategoryId !== undefined 
+
+      accompanimentCategoryId: overrides.accompanimentCategoryId !== undefined
         ? (overrides.accompanimentCategoryId ? Number(overrides.accompanimentCategoryId) : null)
         : (originalItem.accompanimentCategoryId ? Number(originalItem.accompanimentCategoryId) : null),
 
       isActive: Boolean(overrides.isActive ?? originalItem.isActive ?? true),
       showNutrition: Boolean(overrides.showNutrition ?? originalItem.showNutrition ?? false),
+      isNoAccompaniment: Boolean(
+        overrides.isNoAccompaniment ??
+        overrides.is_no_accompaniment ??
+        originalItem.isNoAccompaniment ??
+        originalItem.is_no_accompaniment ??
+        false
+      ),
 
       energyKcal: Number(overrides.energyKcal ?? originalItem.energyKcal ?? 0),
       energyKj: Number(overrides.energyKj ?? originalItem.energyKj ?? 0),
@@ -80,7 +89,7 @@ export function useAdminOptionsTab() {
       sodium: Number(overrides.sodium ?? originalItem.sodium ?? 0),
       calcium: Number(overrides.calcium ?? originalItem.calcium ?? 0),
       iron: Number(overrides.iron ?? originalItem.iron ?? 0),
-      
+
       ingredients: overrides.ingredients ?? originalItem.ingredients ?? "",
       composition: rawComposition,
       priceModifier: String(overrides.priceModifier ?? originalItem.priceModifier ?? "0.00"),
@@ -90,13 +99,13 @@ export function useAdminOptionsTab() {
   return {
     items: (query.data as OptionItem[])?.map(item => ({
       ...item,
-      categoryLabel: item.categoryName || "Sem Categoria" 
+      categoryLabel: item.categoryName || "Sem Categoria"
     })) || [],
-    
+
     categories: categoriesQuery.data || [],
     isLoading: query.isLoading || categoriesQuery.isLoading,
     isRefetching: query.isRefetching,
-    
+
     actions: {
       updateCategory: (itemId: number, catId: number | null) => {
         const item = (query.data as OptionItem[] || []).find(i => Number(i.id) === Number(itemId));

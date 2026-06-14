@@ -1,13 +1,14 @@
 // e:/IA/projects/Site_React/client/src/pages/adminSizes/components/AccGroup.tsx
 
-import React, { useState } from "react"; 
+import React, { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
-import { Apple, Tag, Activity, Trash2, Loader2, Plus, ChevronDown } from "lucide-react"; 
+import { Apple, Tag, Activity, Trash2, Loader2, Plus, ChevronDown } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
-import { AccDrawer } from "./AccDrawer"; 
+import { AccDrawer } from "./AccDrawer";
 import { cn } from "@/lib/utils";
 import * as Icons from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // --- INTERFACES ---
 
@@ -23,13 +24,15 @@ interface Accompaniment {
   id: number;
   name: string;
   accompanimentCategoryId?: number | null;
-  energyKcal?: string | number | null; 
-  nutritionalInfo?: string | CompositionItem[] | null; 
+  energyKcal?: string | number | null;
+  nutritionalInfo?: string | CompositionItem[] | null;
   iconKey?: string | null;
   isActive?: boolean;
-  show_nutrition?: boolean | null; 
-  showNutrition?: boolean | null;   
-  [key: string]: unknown; 
+  show_nutrition?: boolean | null;
+  showNutrition?: boolean | null;
+  isNoAccompaniment?: boolean | null;
+  is_no_accompaniment?: boolean | null;
+  [key: string]: unknown;
 }
 
 interface AccompanimentCategory {
@@ -40,12 +43,13 @@ interface AccompanimentCategory {
 export function AccGroup() {
   const [selectedItem, setSelectedItem] = useState<Accompaniment | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  
+  const [itemToDelete, setItemToDelete] = useState<Accompaniment | null>(null);
+
   const utils = trpc.useUtils();
 
   const { data: rawItems, isLoading } = trpc.admin.accompaniments.options.listAll.useQuery();
   const items = rawItems as Accompaniment[] | undefined;
-  
+
   const { data: categories } = trpc.admin.accompaniments.categories.list.useQuery();
 
   const upsert = trpc.admin.accompaniments.options.upsert.useMutation({
@@ -76,7 +80,7 @@ export function AccGroup() {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-left">Gestão de Insumos e Acompanhamentos</p>
         </div>
 
-        <Button 
+        <Button
           type="button"
           onClick={() => { setSelectedItem(null); setIsDrawerOpen(true); }}
           className="bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-widest h-12 px-6 rounded-2xl shadow-lg shadow-emerald-200 transition-all active:scale-95 flex gap-2 border-none text-center"
@@ -88,14 +92,14 @@ export function AccGroup() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
         {items?.map((item) => {
-          const composition: CompositionItem[] = typeof item.nutritionalInfo === 'string' 
-            ? JSON.parse(item.nutritionalInfo || "[]") 
+          const composition: CompositionItem[] = typeof item.nutritionalInfo === 'string'
+            ? JSON.parse(item.nutritionalInfo || "[]")
             : (Array.isArray(item.nutritionalInfo) ? (item.nutritionalInfo as unknown as CompositionItem[]) : []);
 
           const hasNutrition = !!(Number(item.energyKcal || 0) > 0 || composition.length > 0);
-          
-          const IconComponent = item.iconKey && item.iconKey in Icons 
-            ? (Icons[item.iconKey as IconName] as React.ElementType) 
+
+          const IconComponent = item.iconKey && item.iconKey in Icons
+            ? (Icons[item.iconKey as IconName] as React.ElementType)
             : null;
 
           return (
@@ -112,19 +116,17 @@ export function AccGroup() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button 
-                    variant="ghost" size="icon" 
+                  <Button
+                    variant="ghost" size="icon"
                     onClick={() => { setSelectedItem(item); setIsDrawerOpen(true); }}
                     className={cn("h-9 w-9 rounded-xl transition-colors", hasNutrition ? "text-emerald-500 bg-emerald-50 hover:bg-emerald-100" : "text-slate-300 hover:bg-slate-50")}
                   >
                     <Activity size={18} />
                   </Button>
-                  <Button 
+                  <Button
                     variant="ghost" size="icon"
                     onClick={() => {
-                      if (window.confirm(`Excluir permanentemente "${item.name}"?`)) {
-                        deleteMutation.mutate({ id: item.id });
-                      }
+                      setItemToDelete(item);
                     }}
                     className="h-9 w-9 rounded-xl text-red-200 hover:text-red-500 hover:bg-red-50 transition-colors"
                   >
@@ -136,23 +138,24 @@ export function AccGroup() {
               <div className="space-y-1.5 text-left">
                 <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1 text-left">Categoria</label>
                 <div className="relative text-left">
-                  <select 
+                  <select
                     value={item.accompanimentCategoryId || ""}
                     onChange={(e) => {
                       const catId = e.target.value ? Number(e.target.value) : null;
-                      
+
                       const payload = {
                         ...item,
                         accompanimentCategoryId: catId,
                         isActive: item.isActive ?? true,
                         show_nutrition: !!(item.showNutrition || item.show_nutrition),
                         showNutrition: !!(item.showNutrition || item.show_nutrition),
+                        isNoAccompaniment: !!(item.isNoAccompaniment || item.is_no_accompaniment),
                         composition: composition,
                         energyKcal: item.energyKcal ?? 0,
                       };
 
                       // ✅ FIX ESLint: O cast para Parameters evita o erro "Unexpected any"
-                      upsert.mutate(payload as unknown as Parameters<typeof upsert.mutate>[0]); 
+                      upsert.mutate(payload as unknown as Parameters<typeof upsert.mutate>[0]);
                     }}
                     className="w-full bg-slate-50 border-none rounded-2xl h-10 text-[11px] font-bold text-slate-600 px-4 outline-none cursor-pointer appearance-none focus:ring-2 focus:ring-emerald-500/20 transition-all text-left"
                   >
@@ -177,16 +180,34 @@ export function AccGroup() {
       </div>
 
       {/* ✅ FIX 2719: Removendo o `null` de todas as propriedades conflitantes ao passar para o Drawer */}
-      <AccDrawer 
-        open={isDrawerOpen} 
-        onClose={() => setIsDrawerOpen(false)} 
+      <AccDrawer
+        open={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
         acc={selectedItem ? {
           ...selectedItem,
           energyKcal: selectedItem.energyKcal ?? undefined,
           showNutrition: selectedItem.showNutrition ?? undefined,
           show_nutrition: selectedItem.show_nutrition ?? undefined,
+          isNoAccompaniment: selectedItem.isNoAccompaniment ?? selectedItem.is_no_accompaniment ?? undefined,
+          is_no_accompaniment: selectedItem.is_no_accompaniment ?? selectedItem.isNoAccompaniment ?? undefined,
           nutritionalInfo: selectedItem.nutritionalInfo ?? undefined
-        } : null} 
+        } : null}
+      />
+
+      <ConfirmDialog
+        open={itemToDelete !== null}
+        title="Excluir Item Master"
+        description={itemToDelete ? `Deseja realmente excluir permanentemente "${itemToDelete.name}"?` : ""}
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (itemToDelete) {
+            deleteMutation.mutate({ id: itemToDelete.id });
+            setItemToDelete(null);
+          }
+        }}
+        onCancel={() => setItemToDelete(null)}
       />
     </div>
   );

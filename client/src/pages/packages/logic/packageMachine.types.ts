@@ -10,6 +10,9 @@ export interface AccompanimentOption extends Record<string, unknown> {
   groupName: string;
   priceModifier: number;
   weight: number;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
+  nutritionSkipped?: boolean;
 }
 
 /**
@@ -29,9 +32,11 @@ export interface PackageItem {
   dishId: string;
   dishName: string;
   requiresAccompaniments: boolean;
-  dishRawData?: Record<string, unknown>; 
+  dishRawData?: Record<string, unknown>;
+  sizeId?: string | number;
+  mainDishWeight?: number;
   // Tornado obrigatório (pode ser []) para facilitar a iteração nos Guards
-  accompanimentGroups: AccompanimentGroupRule[]; 
+  accompanimentGroups: AccompanimentGroupRule[];
   selectedAccompaniments: AccompanimentOption[];
   nutrition?: Record<string, unknown>;
 }
@@ -39,17 +44,17 @@ export interface PackageItem {
 /**
  * Estados possíveis do fluxo de montagem do pacote
  */
-export type PackageState = 
-  | 'idle' 
-  | 'selecting_meals' 
-  | 'configuring_items' 
-  | 'ready' 
+export type PackageState =
+  | 'idle'
+  | 'selecting_meals'
+  | 'configuring_items'
+  | 'ready'
   | 'adding_to_cart';
 
 /**
  * Eventos que disparam transições na Máquina de Estados
  */
-export type PackageEvent = 
+export type PackageEvent =
   | { type: 'START_SELECTION'; payload: { capacity: number } }
   | { type: 'ADD_MEAL'; payload: { item: PackageItem } }
   | { type: 'REMOVE_MEAL'; payload: { index: number } }

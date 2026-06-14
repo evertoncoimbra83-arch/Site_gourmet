@@ -23,7 +23,7 @@ interface MealItemProps {
     dishId?: string;
     dishName?: string;
     selectedAccompaniments: AccompanimentOption[];
-    requiresAccompaniments?: boolean; 
+    requiresAccompaniments?: boolean;
   } | undefined;
   isExpanded: boolean;
   onExpand: (index: number) => void;
@@ -42,11 +42,11 @@ interface MealItemProps {
   };
   actions: {
     removeMeal: (index: number) => void;
-    addMeal: (meal: { 
-      id: string; 
-      name: string; 
-      requiresAccompaniments: boolean; 
-      accompanimentGroups: AccompanimentGroupRule[] 
+    addMeal: (meal: {
+      id: string;
+      name: string;
+      requiresAccompaniments: boolean;
+      accompanimentGroups: AccompanimentGroupRule[]
     }) => void;
     updateAccompaniments: (index: number, accs: AccompanimentOption[]) => void;
   };
@@ -65,7 +65,7 @@ interface AccGroupNormalization {
 export function PackageMealItem({
   index, slot, currentItemState, isExpanded, onExpand, onNext, isLast, pkg, actions, sizeWeight
 }: MealItemProps) {
-  
+
   const hookArgs = {
     currentMealState: currentItemState,
     groups: (slot.groups || []) as Array<{ id: string | number; customLabel: string | null }>,
@@ -77,18 +77,18 @@ export function PackageMealItem({
     hookArgs as unknown as Parameters<typeof usePackageAcc>[0]
   );
 
-  const isCompleted = currentItemState 
+  const isCompleted = currentItemState
     ? isMealComplete({
         ...currentItemState,
         requiresAccompaniments: accompanimentGroups.length > 0
-      } as PackageItem) 
+      } as PackageItem)
     : false;
 
   const allowedDishes = (slot.dishes || []) as Record<string, unknown>[];
   const currentDishRaw = allowedDishes.find((d) => String(d.id) === currentItemState?.dishId);
 
   // Filtramos os pratos: se tiver um selecionado, só mostra ele.
-  const visibleDishes = currentItemState?.dishId 
+  const visibleDishes = currentItemState?.dishId
     ? allowedDishes.filter(d => String(d.id) === currentItemState.dishId)
     : allowedDishes;
 
@@ -116,10 +116,10 @@ export function PackageMealItem({
 
       <AnimatePresence>
         {isExpanded && (
-          <motion.div 
-            initial={{ height: 0, opacity: 0 }} 
-            animate={{ height: "auto", opacity: 1 }} 
-            exit={{ height: 0, opacity: 0 }} 
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-slate-50 bg-slate-50/30"
           >
             <div className="p-5 space-y-6">
@@ -132,7 +132,7 @@ export function PackageMealItem({
                 <div className="grid grid-cols-1 gap-2">
                   <AnimatePresence mode="popLayout">
                     {visibleDishes.map((dish) => (
-                      <motion.div 
+                      <motion.div
                         layout
                         key={String(dish.id)}
                         initial={{ opacity: 0, scale: 0.95 }}
@@ -147,19 +147,19 @@ export function PackageMealItem({
                               accompanimentGroups: accompanimentGroups.map((g) => {
                                 const groupData = g as unknown as AccGroupNormalization;
                                 return {
-                                  id: String(groupData.id), 
-                                  name: String(groupData.name), 
-                                  min: Number(groupData.minSelections ?? groupData.min_selections ?? 0), 
+                                  id: String(groupData.id),
+                                  name: String(groupData.name),
+                                  min: Number(groupData.minSelections ?? groupData.min_selections ?? 0),
                                   max: Number(groupData.maxSelections ?? groupData.max_selections ?? 1)
                                 };
                               })
                             });
                           }
-                        }} 
+                        }}
                         className={cn(
                           "p-4 rounded-2xl transition-all flex justify-between items-center group/item",
-                          currentItemState?.dishId 
-                            ? "bg-emerald-600 border-2 border-emerald-500 shadow-lg cursor-default" 
+                          currentItemState?.dishId
+                            ? "bg-emerald-600 border-2 border-emerald-500 shadow-lg cursor-default"
                             : "bg-white border-2 border-slate-100 cursor-pointer hover:border-emerald-300"
                         )}
                       >
@@ -169,10 +169,10 @@ export function PackageMealItem({
                         )}>
                           {String(dish.name)}
                         </span>
-                        
+
                         {currentItemState?.dishId ? (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); actions.removeMeal(index); }} 
+                          <button
+                            onClick={(e) => { e.stopPropagation(); actions.removeMeal(index); }}
                             className="bg-white/20 hover:bg-white/30 text-white p-1.5 rounded-lg transition-colors"
                           >
                             <X size={14} />
@@ -189,7 +189,7 @@ export function PackageMealItem({
               {/* ACOMPANHAMENTOS: Só aparecem após o prato ser selecionado */}
               <AnimatePresence>
                 {currentItemState?.dishId && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-6"
@@ -197,13 +197,13 @@ export function PackageMealItem({
                     {accompanimentGroups.length > 0 && (
                       <div className="space-y-4 pt-4 border-t border-slate-200">
                         <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Acompanhamentos</h4>
-                        <AccompanimentSelector 
-                          groups={accompanimentGroups as unknown as Group[]} 
-                          selections={formattedSelections as unknown as Record<number, Option[]>} 
+                        <AccompanimentSelector
+                          groups={accompanimentGroups as unknown as Group[]}
+                          selections={formattedSelections as unknown as Record<number, Option[]>}
                           onToggle={(group: Group, optionId: string) => {
                             let currentSelections = [...currentItemState.selectedAccompaniments];
                             const existingIndex = currentSelections.findIndex(acc => String(acc.id) === String(optionId) && String(acc.groupId) === String(group.id));
-                            
+
                             if (existingIndex > -1) {
                               currentSelections.splice(existingIndex, 1);
                             } else {
@@ -219,29 +219,32 @@ export function PackageMealItem({
                                     return;
                                   }
                                 }
-                                
-                                currentSelections.push({ 
-                                  ...optionData, 
-                                  id: String(optionData.id), 
-                                  name: String(optionData.name), 
-                                  groupId: String(group.id), 
-                                  groupName: String(group.name), 
-                                  weight: Number(optionData.weight || optionData.defaultGrammage || 100) 
+
+                                currentSelections.push({
+                                  ...optionData,
+                                  id: String(optionData.id),
+                                  name: String(optionData.name),
+                                  groupId: String(group.id),
+                                  groupName: String(group.name),
+                                  weight: Number(optionData.weight || optionData.defaultGrammage || 100),
+                                  isNoAccompaniment: Boolean(optionData.isNoAccompaniment || optionData.is_no_accompaniment),
+                                  is_no_accompaniment: Boolean(optionData.isNoAccompaniment || optionData.is_no_accompaniment),
+                                  nutritionSkipped: Boolean(optionData.isNoAccompaniment || optionData.is_no_accompaniment),
                                 } as AccompanimentOption);
                               }
                             }
                             actions.updateAccompaniments(index, currentSelections);
-                          }} 
+                          }}
                         />
                       </div>
                     )}
 
                     {/* DASHBOARD NUTRICIONAL: Agora no final, como rodapé da marmita */}
                     <div className="pt-4 border-t border-slate-200">
-                       <PackageNutritionDashboard 
-                        dish={currentDishRaw} 
-                        selectedAccs={currentItemState.selectedAccompaniments as unknown as Record<string, unknown>[]} 
-                        defaultWeight={sizeWeight} 
+                       <PackageNutritionDashboard
+                        dish={currentDishRaw}
+                        selectedAccs={currentItemState.selectedAccompaniments as unknown as Record<string, unknown>[]}
+                        defaultWeight={sizeWeight}
                       />
                     </div>
 

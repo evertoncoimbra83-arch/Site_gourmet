@@ -1,16 +1,16 @@
 import { and, asc, count, desc, eq, like, sql } from "drizzle-orm";
-import { getDb } from "../../db"; 
+import { getDb } from "../../db";
 import { mapDishRowToAdmin, GetPaginatedDishesParams } from "./admin-dishes-types";
 
-import { 
+import {
   nutritionFacts,
-  dishes, 
-  categories, 
-  dishSizes, 
-  dishesToSizes, 
-  dishComposition, 
-  ingredients 
-} from "../../../drizzle/schema/index"; 
+  dishes,
+  categories,
+  dishSizes,
+  dishesToSizes,
+  dishComposition,
+  ingredients
+} from "../../../drizzle/schema/index";
 
 // --- INTERFACES DE LINHA (DB ROWS) ---
 
@@ -39,7 +39,7 @@ interface DishAdminRow {
   isGlutenFree: number;
   isLactoseFree: number;
   categoryName: string | null;
-  [key: string]: unknown; 
+  [key: string]: unknown;
 }
 
 /**
@@ -56,7 +56,7 @@ export async function getLocalCategories() {
 export async function searchIngredients(query: string) {
   const db = await getDb();
   if (!query || query.length < 2) return [];
-  
+
   try {
     const results = await db
       .select({
@@ -64,13 +64,13 @@ export async function searchIngredients(query: string) {
         name: ingredients.name,
         category: ingredients.category,
         unit: ingredients.unit,
-        yieldFactor: sql<string>`ingredients.yield_factor`, 
+        yieldFactor: sql<string>`ingredients.yield_factor`,
         energyKcal: nutritionFacts.energyKcal,
         energyKj: nutritionFacts.energyKj,
-        proteins: nutritionFacts.proteins,            
-        carbs: nutritionFacts.carbs,         
-        fatTotal: nutritionFacts.fatTotal,               
-        sodium: nutritionFacts.sodium               
+        proteins: nutritionFacts.proteins,
+        carbs: nutritionFacts.carbs,
+        fatTotal: nutritionFacts.fatTotal,
+        sodium: nutritionFacts.sodium
       })
       .from(ingredients)
       .leftJoin(
@@ -102,20 +102,20 @@ export async function searchIngredients(query: string) {
  * ✅ 3. BUSCA DETALHADA DO PRATO (GetById)
  */
 export async function getDishById(id: string | number) {
-  const db = await getDb(); 
+  const db = await getDb();
   const dishId = Number(id);
 
   try {
     const rows = await db.select({
-      id: dishes.id, 
-      name: dishes.name, 
-      slug: dishes.slug, 
+      id: dishes.id,
+      name: dishes.name,
+      slug: dishes.slug,
       description: dishes.description,
-      imageUrl: dishes.imageUrl, 
-      price: dishes.basePrice, 
+      imageUrl: dishes.imageUrl,
+      price: dishes.basePrice,
       salePrice: dishes.salePrice,
-      categoryId: dishes.categoryId, 
-      isActive: dishes.isActive, 
+      categoryId: dishes.categoryId,
+      isActive: dishes.isActive,
       ingredients: dishes.ingredients,
       show_nutrition: dishes.showNutrition,
       isVegetarian: sql<number>`COALESCE(dishes.is_vegetarian, 0)`,
@@ -139,7 +139,7 @@ export async function getDishById(id: string | number) {
     const compositionItems = await db.select()
       .from(dishComposition)
       .where(eq(dishComposition.dishId, dishId)) as CompositionWithIngredient[];
-    
+
     const enrichedComposition = await Promise.all((compositionItems || []).map(async (item) => {
         if (item.ingredientId) {
             const [data] = await db.select({
@@ -181,8 +181,8 @@ export async function getDishById(id: string | number) {
     }));
 
     const rawSizes = await db.select({
-      id: dishSizes.id, 
-      name: dishSizes.name, 
+      id: dishSizes.id,
+      name: dishSizes.name,
       priceModifier: dishSizes.priceModifier,
       isActive: dishSizes.isActive
     })
@@ -190,8 +190,8 @@ export async function getDishById(id: string | number) {
     .innerJoin(dishesToSizes, eq(dishSizes.id, dishesToSizes.sizeId))
     .where(eq(dishesToSizes.dishId, dishId));
 
-    return { 
-      ...mappedBase, 
+    return {
+      ...mappedBase,
       energyKcal: Number(nutrition[0]?.energyKcal || 0),
       energyKj: Number(nutrition[0]?.energyKj || 0),
       proteins: Number(nutrition[0]?.proteins || 0),
@@ -199,16 +199,16 @@ export async function getDishById(id: string | number) {
       fatTotal: Number(nutrition[0]?.fatTotal || 0),
       fiber: Number(nutrition[0]?.fiber || 0),
       sodium: Number(nutrition[0]?.sodium || 0),
-      sizes: rawSizes || [], 
-      composition: enrichedComposition.map((c) => ({ 
+      sizes: rawSizes || [],
+      composition: enrichedComposition.map((c) => ({
         ...c,
         name: (c.ingredientName as string || 'Sem nome'),
         quantity: Number(c.quantity || 0)
-      })) 
+      }))
     };
 
-  } catch (error: unknown) { 
-    throw new Error(`Erro ao carregar prato: ${error instanceof Error ? error.message : 'Desconhecido'}`); 
+  } catch (error: unknown) {
+    throw new Error(`Erro ao carregar prato: ${error instanceof Error ? error.message : 'Desconhecido'}`);
   }
 }
 
@@ -222,19 +222,34 @@ export async function getPaginatedDishes(params: GetPaginatedDishesParams) {
 
   if (params.search) conditions.push(like(dishes.name, `%${params.search}%`));
   if (params.categoryId) conditions.push(eq(dishes.categoryId, params.categoryId));
-  if (!params.showInactive) conditions.push(eq(dishes.isActive, true));
+  if (params.status === "inactive") {
+    conditions.push(eq(dishes.isActive, false));
+  } else if (params.status === "active" || !params.showInactive) {
+    conditions.push(eq(dishes.isActive, true));
+  }
 
   const whereExpr = conditions.length ? and(...conditions) : undefined;
   const [totalResult] = await db.select({ value: count() }).from(dishes).where(whereExpr);
-  
+  const total = Number(totalResult?.value ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / params.limit));
+  const orderColumn =
+    params.sortBy === "name"
+      ? dishes.name
+      : params.sortBy === "createdAt"
+        ? dishes.createdAt
+        : dishes.updatedAt;
+  const orderExpr = params.sortDir === "asc" ? asc(orderColumn) : desc(orderColumn);
+
   const rows = await db.select({
-    id: dishes.id, 
-    name: dishes.name, 
-    price: dishes.basePrice, 
-    salePrice: dishes.salePrice, 
-    categoryId: dishes.categoryId, 
-    isActive: dishes.isActive, 
-    imageUrl: dishes.imageUrl, 
+    id: dishes.id,
+    name: dishes.name,
+    price: dishes.basePrice,
+    salePrice: dishes.salePrice,
+    categoryId: dishes.categoryId,
+    isActive: dishes.isActive,
+    imageUrl: dishes.imageUrl,
+    createdAt: dishes.createdAt,
+    updatedAt: dishes.updatedAt,
     categoryName: categories.name,
     // Preenchimento de campos obrigatórios da interface para evitar bugs no map
     slug: sql<string>`''`,
@@ -245,18 +260,25 @@ export async function getPaginatedDishes(params: GetPaginatedDishesParams) {
     isGlutenFree: sql<number>`0`,
     isLactoseFree: sql<number>`0`,
   }).from(dishes).leftJoin(categories, eq(dishes.categoryId, categories.id))
-  .where(whereExpr).orderBy(desc(dishes.id)).limit(params.limit).offset(offset) as DishAdminRow[];
+  .where(whereExpr).orderBy(orderExpr).limit(params.limit).offset(offset) as DishAdminRow[];
 
   const dataWithSizes = await Promise.all(rows.map(async (row) => {
     const linkedSizes = await db.select({ id: dishSizes.id }).from(dishesToSizes)
       .innerJoin(dishSizes, eq(dishesToSizes.sizeId, dishSizes.id))
       .where(eq(dishesToSizes.dishId, row.id));
-    
+
     const mapped = mapDishRowToAdmin(row) || {};
     return { ...mapped, sizes: linkedSizes };
   }));
 
-  return { data: dataWithSizes, total: Number(totalResult?.value ?? 0) };
+  return {
+    data: dataWithSizes,
+    items: dataWithSizes,
+    total,
+    page: params.page,
+    pageSize: params.limit,
+    totalPages,
+  };
 }
 
 export async function listAllSizes() {

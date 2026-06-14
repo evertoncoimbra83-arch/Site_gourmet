@@ -2,7 +2,8 @@
 // Barrel de nutrição para pacotes — usa o shared domain como fonte de verdade
 
 import {
-  calculateMealNutrition,
+  calculateMealNutritionCanonical,
+  extractDishNutritionSource,
   NutritionData,
 } from "../../../../../shared/domain/nutrition/nutrition";
 
@@ -13,8 +14,28 @@ import {
 export function mapPackageMealNutrition(
   dish: Record<string, unknown> | null | undefined,
   selectedAccs: Record<string, unknown>[] = [],
+  targetMainDishWeight?: number | string | null,
 ): NutritionData {
-  return calculateMealNutrition(dish, selectedAccs);
+  const dishNutritionSource = extractDishNutritionSource(dish);
+
+  return calculateMealNutritionCanonical({
+    dish: dishNutritionSource,
+    recipeWeight: (dish?.recipeWeight ?? dish?.recipe_weight ?? dish?.yieldWeight ?? dish?.yield_weight) as
+      | number
+      | string
+      | null
+      | undefined,
+    targetMainDishWeight:
+      (targetMainDishWeight ?? dish?.mainDishWeight ?? dish?.main_dish_weight ?? dish?.weight) as
+        | number
+        | string
+        | null
+        | undefined,
+    composition: Array.isArray(dish?.composition)
+      ? (dish?.composition as Record<string, unknown>[])
+      : undefined,
+    accompaniments: selectedAccs,
+  }).nutrition;
 }
 
 interface MealForTotals {

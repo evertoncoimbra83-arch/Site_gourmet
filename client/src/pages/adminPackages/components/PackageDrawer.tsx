@@ -5,10 +5,10 @@ import { useForm } from "react-hook-form";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { MediaPickerModal } from "@/components/MediaPickerModal"; 
-import { 
-  Save, Layout, Loader2, Package as PackageIcon, 
-  Box, Settings2, Wand2, Eye, AlertCircle, CheckCircle2 
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
+import { normalizeImageUrlForStorage } from "@shared/utils/image-url";import {
+  Save, Layout, Loader2, Package as PackageIcon,
+  Box, Settings2, Wand2, Eye, AlertCircle, CheckCircle2
 } from "lucide-react";
 import { appToast as toast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
@@ -61,27 +61,27 @@ export interface PackageDrawerProps {
       reorderSlots: (startIndex: number, endIndex: number) => void;
       duplicateSlot: (index: number) => void;
       updateSlotSize: (index: number, sizeId: string | number | undefined) => void;
-      loadSlots: (slots: { slots: GeneratedSlot[] }) => void; 
+      loadSlots: (slots: { slots: GeneratedSlot[] }) => void;
       closeDialog: () => void;
     };
     data: {
       allDishes: AdminDish[];
-      allOptions: { id: string | number; name: string }[]; 
+      allOptions: { id: string | number; name: string }[];
       allSizes: { id: string | number; name: string; defaultMainWeight?: number }[];
-      allCategories: DbCategory[]; 
-      topDishes?: { dishId: number; name: string }[]; 
+      allCategories: DbCategory[];
+      topDishes?: { dishId: number; name: string }[];
     };
     mutations: { createMutation: { isPending: boolean }; updateMutation: { isPending: boolean }; };
   };
 }
 
 export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDrawerProps) {
-  const { register, handleSubmit, reset, setValue, watch } = useForm<PackageFormData>(); 
+  const { register, handleSubmit, reset, setValue, watch } = useForm<PackageFormData>();
   const [showAutoGenerator, setShowAutoGenerator] = useState(false);
   const [activeTab, setActiveTab] = useState("geral");
   const [isMediaOpen, setIsMediaOpen] = useState(false);
   const [isPresetOpen, setIsPresetOpen] = useState(false);
-  
+
   const formData = watch();
   const basePriceValue = watch("base_price");
 
@@ -100,13 +100,13 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
       }))
     }));
   }, [logic.state.config.slots]);
-  
+
   const { clearDraft } = usePackageDraft(
-    open, 
-    !!pkg, 
-    formData, 
+    open,
+    !!pkg,
+    formData,
     sanitizedSlots as unknown as GeneratedSlot[], // ✅ Trocado any por cast seguro
-    reset, 
+    reset,
     (slots) => logic.actions.loadSlots({ slots: slots as GeneratedSlot[] })
   );
 
@@ -121,7 +121,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
 
   const handleOnGenerated = (newSlots: GeneratedSlot[]) => {
     if (newSlots.length > 0) {
-      logic.actions.loadSlots({ slots: newSlots }); 
+      logic.actions.loadSlots({ slots: newSlots });
       setValue("number_of_options", newSlots.length);
       setShowAutoGenerator(false);
       setActiveTab("estrutura");
@@ -145,9 +145,9 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
       if (pkg) {
         reset({
           name: pkg.name || "", slug: pkg.slug || "", description: pkg.description || "",
-          highlights: pkg.highlights || "", category: pkg.category || "Todos", 
+          highlights: pkg.highlights || "", category: pkg.category || "Todos",
           is_popular: Boolean(pkg.isPopular),
-          base_price: String(pkg.base_price || pkg.price || "0.00"), 
+          base_price: String(pkg.base_price || pkg.price || "0.00"),
           sale_price: String(pkg.salePrice || pkg.sale_price || ""),
           image_url: pkg.imageUrl || pkg.image_url || "",
           number_of_options: pkg.numberOfOptions || pkg.number_of_options || 10,
@@ -157,10 +157,10 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
           status: pkg.status || "active"
         });
       } else {
-        reset({ 
+        reset({
           name: "", slug: "", description: "", highlights: "", category: "Todos", is_popular: false,
-          base_price: "0.00", sale_price: "", image_url: "", number_of_options: 10, 
-          display_order: 0, size_id: "", isActive: true, status: "active" 
+          base_price: "0.00", sale_price: "", image_url: "", number_of_options: 10,
+          display_order: 0, size_id: "", isActive: true, status: "active"
         });
       }
       setActiveTab("geral");
@@ -170,7 +170,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
   return (
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent side="right" className="w-full sm:max-w-4xl p-0 border-none bg-white flex flex-col h-screen outline-none shadow-2xl text-left">
-        
+
         <div className="px-8 py-6 border-b border-slate-100 shrink-0 bg-white">
           <SheetHeader className="text-left">
             <div className="flex items-center justify-between">
@@ -220,7 +220,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-8 text-left">
             <form id="pkg-form" onSubmit={handleSubmit(handleFormSubmit)} className="pb-12 text-left">
-              
+
               <TabsContent value="geral" className="m-0 focus-visible:ring-0">
                 <PackageDrawerGeral register={register} watch={watch} setValue={setValue} setIsMediaOpen={setIsMediaOpen} categories={categoryNames} />
               </TabsContent>
@@ -238,19 +238,19 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
 
                 {showAutoGenerator && (
                   <div className="mb-8">
-                    <PackageAutoGenerator 
-                      categories={allCategories} 
-                      allOptions={logic.data.allOptions} 
-                      allSizes={logic.data.allSizes || []} 
-                      allDishes={logic.data.allDishes} 
+                    <PackageAutoGenerator
+                      categories={allCategories}
+                      allOptions={logic.data.allOptions}
+                      allSizes={logic.data.allSizes || []}
+                      allDishes={logic.data.allDishes}
                       onGenerated={handleOnGenerated}
                     />
                   </div>
                 )}
 
-                <PackageDrawerSlots 
+                <PackageDrawerSlots
                   logic={logic as any} // ✅ Cast temporário necessário pela complexidade do logic action
-                  selectedSizeId={formData.size_id || ""} 
+                  selectedSizeId={formData.size_id || ""}
                 />
               </TabsContent>
 
@@ -259,7 +259,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
               </TabsContent>
 
               <TabsContent value="preview" className="m-0 focus-visible:ring-0">
-                <PackagePreviewPanel 
+                <PackagePreviewPanel
                   data={{
                     name: formData.name,
                     description: formData.description || "",
@@ -270,7 +270,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
                     highlights: formData.highlights || "",
                     number_of_options: Number(formData.number_of_options || 0),
                     slots: sanitizedSlots as unknown as GeneratedSlot[] // ✅ Tipado
-                  }} 
+                  }}
                 />
               </TabsContent>
             </form>
@@ -304,7 +304,7 @@ export function PackageDrawer({ open, onClose, pkg, onSubmit, logic }: PackageDr
           </div>
         </div>
 
-        <MediaPickerModal open={isMediaOpen} onClose={() => setIsMediaOpen(false)} onSelect={(url) => { setValue("image_url", url, { shouldDirty: true }); setIsMediaOpen(false); }} />
+        <MediaLibraryDrawer open={isMediaOpen} onClose={() => setIsMediaOpen(false)} onSelect={(url) => { setValue("image_url", normalizeImageUrlForStorage(url), { shouldDirty: true }); setIsMediaOpen(false); }} initialFolder="banners" />
         <PackagePresetSelector open={isPresetOpen} onOpenChange={setIsPresetOpen} onSelect={handleApplyPreset} />
       </SheetContent>
     </Sheet>

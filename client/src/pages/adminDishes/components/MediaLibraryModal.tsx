@@ -9,7 +9,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CheckCircle2, ChevronLeft, Folder, ImageOff, Loader2 } from "lucide-react";
-import { normalizeImageUrl } from "@shared/utils/assets"; // ✅ substitui getFullUrl com localhost hardcoded
+import {
+  getImageFallback,
+  normalizeImageUrlForStorage,
+  resolveImageUrl,
+} from "@shared/utils/image-url";
 
 interface MediaItem {
   id: string | number;
@@ -129,15 +133,15 @@ export default function MediaLibraryModal({
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {(media as MediaItem[])?.map((item) => {
-                  const imageUrl = item.url || item.filePath || "";
+                  const imageUrl = item.url || "";
                   // ✅ normalizeImageUrl em vez de getFullUrl com localhost hardcoded
-                  const fullUrl = normalizeImageUrl(imageUrl) || "";
+                  const fullUrl = resolveImageUrl(imageUrl, "product");
                   const isSelected = selectedUrl === imageUrl;
 
                   return (
                     <div
                       key={item.id}
-                      onClick={() => onSelect(imageUrl)}
+                      onClick={() => onSelect(normalizeImageUrlForStorage(imageUrl))}
                       className={`relative aspect-square cursor-pointer overflow-hidden rounded-[1.8rem] border-4 transition-all duration-300 ${
                         isSelected
                           ? "scale-95 border-emerald-600 shadow-lg"
@@ -149,7 +153,7 @@ export default function MediaLibraryModal({
                         className={`h-full w-full object-cover ${isSelected ? "brightness-75" : ""}`}
                         alt={item.originalFilename || "Midia"}
                         onError={(event: React.SyntheticEvent<HTMLImageElement>) => {
-                          event.currentTarget.src = "https://placehold.co/400x400?text=Erro+URL";
+                          event.currentTarget.src = getImageFallback("product");
                         }}
                       />
                       <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-700 shadow-sm">

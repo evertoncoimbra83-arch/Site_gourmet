@@ -1,18 +1,19 @@
 // e:/IA/projects/Site_React/client/src/pages/adminSizes/components/AccDrawer.tsx
 
 import React, { useEffect, useState } from "react";
-import { 
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription 
-} from "@/components/ui/sheet"; 
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea"; 
-import { Calculator, Loader2, ChevronDown, LayoutGrid, Info } from "lucide-react"; 
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calculator, Loader2, ChevronDown, LayoutGrid, Info } from "lucide-react";
 import { trpc } from "@/_core/trpc";
-import { appToast as toast } from "@/lib/app-toast"; 
+import { appToast as toast } from "@/lib/app-toast";
 import { useAccStore } from "@/pages/adminSizes/logic/useAccStore";
-import { AccNutriTab } from "../components/AccNutriTab"; 
+import { AccNutriTab } from "../components/AccNutriTab";
 
 // --- INTERFACES ---
 
@@ -23,6 +24,8 @@ interface Accompaniment {
   accompaniment_category_id?: number | string | null;
   showNutrition?: boolean;
   show_nutrition?: boolean;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
   ingredients?: string;
   energyKcal?: string | number;
   energyKj?: string | number;
@@ -82,13 +85,14 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
     if (acc) {
       const currentCatId = acc.accompanimentCategoryId ?? acc.accompaniment_category_id ?? null;
       setSelectedCatId(currentCatId ? Number(currentCatId) : null);
-      
+
       setFormData({
         name: acc.name || "",
         show_nutrition: !!(acc.showNutrition || acc.show_nutrition),
         showNutrition: !!(acc.showNutrition || acc.show_nutrition),
+        isNoAccompaniment: !!(acc.isNoAccompaniment || acc.is_no_accompaniment),
         ingredients: acc.ingredients || "",
-        
+
         energyKcal: String(acc.energyKcal ?? 0),
         energyKj: String(acc.energyKj ?? "0"),
         proteins: String(acc.proteins ?? "0.00"),
@@ -110,8 +114,8 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
         } else {
           setComposition([]);
         }
-      } catch { 
-        setComposition([]); 
+      } catch {
+        setComposition([]);
       }
     }
   }, [acc, open, setFormData, setComposition, reset]);
@@ -125,11 +129,11 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
     }
 
     upsertOption.mutate({
-      ...formData, 
+      ...formData,
       id: acc?.id ? Number(acc.id) : undefined,
       name: finalName.trim(),
-      composition: composition || [], 
-      accompanimentCategoryId: selectedCatId, 
+      composition: composition || [],
+      accompanimentCategoryId: selectedCatId,
       isActive: acc?.isActive ?? true,
     });
   };
@@ -153,9 +157,9 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
             <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2 text-left">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-left">Nome do Item Master</Label>
-              <Input 
-                className="h-12 rounded-xl bg-slate-50 border-none font-black text-lg text-slate-700 italic focus-visible:ring-2 focus-visible:ring-emerald-500 text-left" 
-                value={formData.name || ""} 
+              <Input
+                className="h-12 rounded-xl bg-slate-50 border-none font-black text-lg text-slate-700 italic focus-visible:ring-2 focus-visible:ring-emerald-500 text-left"
+                value={formData.name || ""}
                 onChange={(e) => setFormData({ name: e.target.value })}
               />
             </div>
@@ -165,9 +169,9 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
                 <LayoutGrid size={12} /> Categoria Master
               </Label>
               <div className="relative text-left">
-                <select 
+                <select
                   disabled={loadingCats}
-                  value={selectedCatId ?? ""} 
+                  value={selectedCatId ?? ""}
                   onChange={(e) => setSelectedCatId(e.target.value ? Number(e.target.value) : null)}
                   className="w-full h-12 rounded-xl bg-slate-50 border-none font-black text-xs uppercase tracking-wider text-slate-600 appearance-none px-4 cursor-pointer focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 text-left"
                 >
@@ -185,6 +189,49 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
 
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6 text-left">
              {/* ✅ FIX 2322: Removido a prop optionId, pois a tab já lê o contexto pelo useAccStore */}
+             <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-3 text-left">
+                <label className="flex items-start gap-3 cursor-pointer text-left">
+                  <Checkbox
+                    checked={!!formData.isNoAccompaniment}
+                    onCheckedChange={(checked) => {
+                      const isChecked = checked === true;
+                      setFormData({
+                        isNoAccompaniment: isChecked,
+                        ...(isChecked
+                          ? {
+                              energyKcal: "0",
+                              energyKj: "0",
+                              proteins: "0.00",
+                              carbs: "0.00",
+                              fatTotal: "0.00",
+                              sodium: "0",
+                              fiber: "0.00",
+                              fatSaturated: "0.00",
+                              fatTrans: "0.00",
+                              calcium: "0.00",
+                              iron: "0.00",
+                            }
+                          : {}),
+                      });
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span className="space-y-1 text-left">
+                    <span className="block text-[10px] font-black uppercase tracking-widest text-slate-700 text-left">
+                      É opção 'sem acompanhamento'?
+                    </span>
+                    <span className="block text-[11px] font-semibold leading-relaxed text-slate-500 text-left">
+                      Marque quando esta opção representar a ausência de acompanhamento. Ela aparecerá para o cliente, mas não somará peso nem valores nutricionais.
+                    </span>
+                  </span>
+                </label>
+                {formData.isNoAccompaniment && (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3 text-left">
+                    Esta opção será ignorada no cálculo nutricional.
+                  </p>
+                )}
+             </div>
+
              <AccNutriTab />
 
              <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-3 text-left">
@@ -192,11 +239,11 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
                   <Info size={14} className="text-emerald-500" />
                   <Label className="text-[10px] font-black uppercase tracking-widest text-left">Ingredientes (Texto do Rótulo)</Label>
                 </div>
-                <Textarea 
-                  className="rounded-2xl bg-slate-50 border-none font-medium text-xs min-h-30 p-4 resize-none focus-visible:ring-2 focus-visible:ring-emerald-500 transition-all text-left" 
-                  placeholder="Liste os ingredientes para a etiqueta..." 
-                  value={formData.ingredients || ""} 
-                  onChange={(e) => setFormData({ ingredients: e.target.value })} 
+                <Textarea
+                  className="rounded-2xl bg-slate-50 border-none font-medium text-xs min-h-30 p-4 resize-none focus-visible:ring-2 focus-visible:ring-emerald-500 transition-all text-left"
+                  placeholder="Liste os ingredientes para a etiqueta..."
+                  value={formData.ingredients || ""}
+                  onChange={(e) => setFormData({ ingredients: e.target.value })}
                 />
                 <p className="text-[9px] text-slate-400 font-bold uppercase px-2 italic text-center">
                   Este campo aceita edição manual para ajustes finos no rótulo.
@@ -209,10 +256,10 @@ export function AccDrawer({ open, onClose, acc }: AccDrawerProps) {
           <Button type="button" variant="ghost" onClick={onClose} className="flex-1 h-16 rounded-2xl font-black text-[11px] uppercase text-slate-400 text-center">
             Cancelar
           </Button>
-          <Button 
+          <Button
             type="button"
-            disabled={upsertOption.isPending} 
-            className="flex-2 h-16 rounded-2xl bg-slate-950 hover:bg-emerald-600 text-white font-black text-[12px] uppercase shadow-xl flex items-center justify-center gap-2 text-center" 
+            disabled={upsertOption.isPending}
+            className="flex-2 h-16 rounded-2xl bg-slate-950 hover:bg-emerald-600 text-white font-black text-[12px] uppercase shadow-xl flex items-center justify-center gap-2 text-center"
             onClick={handleSave}
           >
             {upsertOption.isPending ? <Loader2 className="animate-spin" /> : 'Salvar Ficha Técnica'}

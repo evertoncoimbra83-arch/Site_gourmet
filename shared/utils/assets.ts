@@ -1,10 +1,15 @@
 // shared/utils/assets.ts
+import { resolveImageUrl } from "./image-url";
+
+export {
+  getImageFallback,
+  isCloudinaryUrl,
+  isLegacyFilename,
+  isLegacyImageReference,
+  isLocalUploadUrl,
+  normalizeImageUrlForStorage,
+} from "./image-url";
+
 export function normalizeImageUrl(path: string | null | undefined): string {
-  if (!path) return "/placeholder-dish.png";
-  if (path.startsWith("http")) return path;
-  
-  const baseUrl = (import.meta.env?.VITE_API_URL || "http://localhost:3001").replace(/\/$/, "");
-  const cleanPath = path.replace(/^\/+/, '').replace(/^uploads\//, '');
-  
-  return `${baseUrl}/uploads/${cleanPath}`;
+  return resolveImageUrl(path, "generic");
 }

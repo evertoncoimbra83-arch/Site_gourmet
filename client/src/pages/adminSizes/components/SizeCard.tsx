@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { 
-  GripVertical, ChevronDown, Layers, 
+import {
+  GripVertical, ChevronDown, Layers,
   Trash2, MessageSquare, Save,
   Copy, Plus, X
 } from "lucide-react";
-import { 
-  Cube, Package, Tag, 
-  CaretRight, CaretDoubleRight, ArrowCircleRight, 
+import {
+  Cube, Package, Tag,
+  CaretRight, CaretDoubleRight, ArrowCircleRight,
   TrendUp, ArrowUp, List, Hash, Icon
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -52,7 +52,7 @@ interface SizeCardProps {
   onToggleExpand: () => void;
   onUpdate: (id: number, data: Partial<SizeData>) => void;
   onDelete: (id: number) => void;
-  onDuplicate: (size: SizeData) => void; 
+  onDuplicate: (size: SizeData) => void;
   onToggleLink: (sizeId: number, groupId: number) => Promise<void>;
   innerRef?: React.Ref<HTMLDivElement>;
   draggableProps?: Record<string, unknown>;
@@ -60,15 +60,15 @@ interface SizeCardProps {
 }
 
 const AVAILABLE_ICONS: { key: string; icon: Icon }[] = [
-  { key: "Cube", icon: Cube }, 
+  { key: "Cube", icon: Cube },
   { key: "Package", icon: Package },
-  { key: "Box", icon: Package }, 
+  { key: "Box", icon: Package },
   { key: "CaretRight", icon: CaretRight },
   { key: "CaretDoubleRight", icon: CaretDoubleRight },
   { key: "ArrowRight", icon: ArrowCircleRight },
   { key: "ArrowUp", icon: ArrowUp },
   { key: "TrendUp", icon: TrendUp },
-  { key: "Tag", icon: Tag }, 
+  { key: "Tag", icon: Tag },
   { key: "List", icon: List },
   { key: "Hash", icon: Hash },
 ];
@@ -81,12 +81,12 @@ const COLORS = [
   { name: "Rose", value: "rose", bg: "bg-rose-500", light: "bg-rose-100", text: "text-rose-600" },
 ];
 
-export function SizeCard({ 
-  size, groups = [], linkedIds = [], isExpanded, onToggleExpand, 
+export function SizeCard({
+  size, groups = [], linkedIds = [], isExpanded, onToggleExpand,
   onUpdate, onDelete, onDuplicate, onToggleLink, innerRef,
-  draggableProps, dragHandleProps 
+  draggableProps, dragHandleProps
 }: SizeCardProps) {
-  
+
   const [localSize, setLocalSize] = useState<SizeData>(size);
 
   useEffect(() => {
@@ -113,7 +113,7 @@ export function SizeCard({
 
   const handleInstantUpdate = <K extends keyof SizeData>(field: K, value: SizeData[K]) => {
     const updated = { ...localSize, [field]: value };
-    setLocalSize(updated); 
+    setLocalSize(updated);
     persistUpdate(updated);
   };
 
@@ -170,7 +170,7 @@ export function SizeCard({
               <div className={cn("p-2.5 md:p-3 rounded-xl shrink-0 shadow-sm", currentColorObj.light, currentColorObj.text)}>
                 <IconComponent size={20} weight="duotone" />
               </div>
-              
+
               <div className="flex flex-col min-w-0 text-left">
                 <span className="font-black text-[12px] md:text-sm uppercase text-slate-700 italic truncate leading-none mb-1 text-left">
                   {localSize.name}
@@ -178,7 +178,7 @@ export function SizeCard({
                 <div className="flex items-center gap-1.5 text-[8px] md:text-[10px] font-bold uppercase tracking-tight text-left">
                   <span className="text-slate-400 whitespace-nowrap">{localSize.weight || '0g'}</span>
                   <span className="h-1 w-1 rounded-full bg-slate-200 shrink-0" />
-                  <span className="text-emerald-500 italic whitespace-nowrap">{localSize.mainDishWeight}g Prot.</span>
+                  <span className="text-emerald-500 italic whitespace-nowrap">Prato principal: {localSize.mainDishWeight}g</span>
                   {linkedIds.length > 0 && (
                     <span className="hidden xs:flex items-center gap-1 text-slate-300 ml-1">
                       <Layers size={10} /> {linkedIds.length}
@@ -195,7 +195,7 @@ export function SizeCard({
             "flex items-center px-2 py-1.5 rounded-xl border transition-all",
             localSize.isActive ? "bg-emerald-50 border-emerald-100" : "bg-slate-100 border-slate-200"
           )}>
-            <Switch 
+            <Switch
               checked={!!localSize.isActive}
               onCheckedChange={(checked) => handleInstantUpdate("isActive", checked)}
               className="scale-75 md:scale-90 data-[state=checked]:bg-emerald-500"
@@ -205,7 +205,7 @@ export function SizeCard({
           <Button type="button" size="icon" variant="ghost" onClick={onToggleExpand} className={cn("h-9 w-9 md:h-10 md:w-10 rounded-xl", isExpanded && "bg-emerald-50 text-emerald-600")}>
             <ChevronDown className={cn("transition-transform duration-500", isExpanded && "rotate-180")} size={18} />
           </Button>
-          
+
           <div className="hidden lg:flex items-center gap-1">
             <Button type="button" size="icon" variant="ghost" onClick={() => onDuplicate(localSize)} className="h-10 w-10 text-slate-300 hover:text-blue-500"><Copy size={16} /></Button>
             <Button type="button" size="icon" variant="ghost" onClick={() => onDelete(size.id)} className="h-10 w-10 text-slate-300 hover:text-red-500"><Trash2 size={18} /></Button>
@@ -216,14 +216,14 @@ export function SizeCard({
       {/* CONTEÚDO EXPANDIDO */}
       {isExpanded && (
         <div className="px-5 md:px-10 pb-8 pt-4 border-t border-slate-50 bg-slate-50/30 space-y-8 animate-in fade-in slide-in-from-top-4 text-left">
-          
+
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 md:gap-6 text-left">
             <div className="space-y-1 text-left">
               <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Nome do Tamanho</label>
-              <Input 
-                value={localSize.name ?? ""} 
-                onChange={(e) => setLocalSize({...localSize, name: e.target.value})} 
-                className="h-10 rounded-xl text-xs font-black uppercase italic tracking-tighter" 
+              <Input
+                value={localSize.name ?? ""}
+                onChange={(e) => setLocalSize({...localSize, name: e.target.value})}
+                className="h-10 rounded-xl text-xs font-black uppercase italic tracking-tighter"
                 placeholder="Ex: GRANDE"
               />
             </div>
@@ -236,8 +236,11 @@ export function SizeCard({
               <Input type="number" value={String(localSize.priceModifier ?? "")} onChange={(e) => setLocalSize({...localSize, priceModifier: e.target.value})} className="h-10 rounded-xl text-xs font-bold" />
             </div>
             <div className="space-y-1 text-left">
-              <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Proteína (g)</label>
+              <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Peso do Prato Principal (g)</label>
               <Input type="number" value={String(localSize.mainDishWeight ?? "")} onChange={(e) => setLocalSize({...localSize, mainDishWeight: e.target.value})} className="h-10 rounded-xl text-xs font-bold" />
+              <p className="px-1 text-[8px] font-bold uppercase leading-snug text-slate-400">
+                Peso fisico da porcao principal. Usado no calculo nutricional proporcional; nao representa proteina nutricional.
+              </p>
             </div>
             <div className="space-y-1 text-left">
               <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Label Peso</label>

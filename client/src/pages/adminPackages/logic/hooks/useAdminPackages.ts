@@ -201,20 +201,20 @@ export function useAdminPackages() {
       }
     });
 
-    // Usamos o adapter oficial para garantir que todos os campos de CandidateDish 
+    // Usamos o adapter oficial para garantir que todos os campos de CandidateDish
     // (nutrição, sizeIds, etc) sejam preenchidos corretamente.
 const candidates = mapAdminDishesToCandidates(rawDishes as AdminDishForGenerator[]);
 
     return candidates.map(candidate => {
       const idStr = String(candidate.categoryId);
-      const mappedCategoryName = candidate.categoryId && catMap.has(idStr) 
-        ? catMap.get(idStr)! 
+      const mappedCategoryName = candidate.categoryId && catMap.has(idStr)
+        ? catMap.get(idStr)!
         : (candidate.categoryName || "Sem Categoria");
 
-      return { 
-        ...candidate, 
+      return {
+        ...candidate,
         categoryName: mappedCategoryName,
-        category: mappedCategoryName 
+        category: mappedCategoryName
       };
     });
   }, [rawDishes, allCategories]);
@@ -434,20 +434,18 @@ const candidates = mapAdminDishesToCandidates(rawDishes as AdminDishForGenerator
         toggleStatusMutation.mutate({ id: String(id), status: newStatus });
       },
       handleDelete: (id: number | string) => {
-        if (confirm("Excluir pacote?")) {
-          deleteMutation.mutate({ id: String(id) });
-        }
+        deleteMutation.mutate({ id: String(id) });
       },
       addSlot: () =>
         setConfig((prev) => ({
           slots: [
             ...prev.slots,
-            { 
-              name: `Marmita ${prev.slots.length + 1}`, 
-              dishIds: [], 
-              groups: [], 
+            {
+              name: `Marmita ${prev.slots.length + 1}`,
+              dishIds: [],
+              groups: [],
               sizeId: "",
-              reasons: [] 
+              reasons: []
             },
           ],
         })),

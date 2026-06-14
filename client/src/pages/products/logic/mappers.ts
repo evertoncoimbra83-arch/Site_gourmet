@@ -39,7 +39,7 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
 
     return {
       energyKcal: kcal,
-      energyKj: kj || (kcal * 4.184), 
+      energyKj: kj || (kcal * 4.184),
       proteins: num(source.proteins ?? source.protein),
       carbs: num(source.carbs ?? source.carbohydrates),
       fatTotal: num(source.fatTotal ?? source.fat_total ?? source.fats),
@@ -62,7 +62,7 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
     id: Number(dish.id),
     name: String(dish.name || ""),
     description: String(dish.description || ""),
-    imageUrl: String(dish.imageUrl || dish.image_url || ""), 
+    imageUrl: String(dish.imageUrl || dish.image_url || ""),
     price: Number(dish.price || dish.basePrice || 0),
     salePrice: (dish.salePrice || dish.sale_price) ? Number(dish.salePrice || dish.sale_price) : null,
     showNutrition,
@@ -77,9 +77,36 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
 
     sizes: sizesRaw
       .filter((s, idx, self) => idx === self.findIndex(t => t.id === s.id))
-      .sort((a, b) => num(a.displayOrder ?? a.display_order) - num(b.displayOrder ?? b.display_order))
+      .sort((a, b) => {
+        const orderA = a.displayOrder ?? a.display_order ?? a.sortOrder ?? a.sort_order ?? a.order ?? a.position;
+        const orderB = b.displayOrder ?? b.display_order ?? b.sortOrder ?? b.sort_order ?? b.order ?? b.position;
+        if (orderA !== undefined && orderB !== undefined && Number(orderA) !== Number(orderB)) {
+          return Number(orderA) - Number(orderB);
+        }
+        const extractGrams = (sizeObj: any) => {
+          const w = sizeObj.mainDishWeight ?? sizeObj.main_dish_weight ?? sizeObj.weight;
+          if (w !== undefined && w !== null && !isNaN(Number(w))) {
+            return Number(w);
+          }
+          const nameStr = String(sizeObj.name || "");
+          const match = nameStr.match(/(\d+)\s*(g|gr|grama|kg)/i);
+          if (match) {
+            let val = parseInt(match[1], 10);
+            if (match[2].toLowerCase() === "kg") val *= 1000;
+            return val;
+          }
+          const numMatch = nameStr.match(/(\d+)/);
+          return numMatch ? parseInt(numMatch[1], 10) : 0;
+        };
+        const gramsA = extractGrams(a);
+        const gramsB = extractGrams(b);
+        if (gramsA !== gramsB) {
+          return gramsA - gramsB;
+        }
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      })
       .map((size) => {
-        const gOrder = Array.isArray(size.groupsOrder) ? size.groupsOrder as number[] : 
+        const gOrder = Array.isArray(size.groupsOrder) ? size.groupsOrder as number[] :
                       (typeof size.groups_order === 'string' ? (JSON.parse(size.groups_order || "[]") as number[]) : (size.groups_order as number[] || []));
 
         const rawGroups = (size.accompanimentGroups || size.groups || []) as DbRow[];
@@ -92,9 +119,10 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
           iconKey: String(size.iconKey || size.icon_key || "Box"),
           weight: String(size.weight || ""),
           main_dish_weight: num(size.mainDishWeight ?? size.main_dish_weight ?? 200),
-          groupsOrder: gOrder, 
+          noAccompanimentsMessage: String((size.noAccompanimentsMessage ?? size.no_accompaniments_message) || ""),
+          groupsOrder: gOrder,
 
-          accompanimentGroups: Array.isArray(rawGroups) 
+          accompanimentGroups: Array.isArray(rawGroups)
             ? rawGroups
                 .filter((g, idx, self) => {
                   const currentId = g.groupId || g.id;
@@ -108,7 +136,7 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
                   return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
                 })
                 .map((group) => {
-                  const itemsOrder = Array.isArray(group.itemsOrder) ? group.itemsOrder as number[] : 
+                  const itemsOrder = Array.isArray(group.itemsOrder) ? group.itemsOrder as number[] :
                                     (typeof group.items_order === 'string' ? (JSON.parse(group.items_order || "[]") as number[]) : (group.items_order as number[] || []));
 
                   const groupOptions = (Array.isArray(group.options) ? group.options : []) as DbRow[];
@@ -121,7 +149,7 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
                     maxSelections: num(group.maxSelections || group.max_selections || 1),
                     minSelections: num(group.minSelections || group.min_selections || 0),
                     required: Boolean(group.isRequired || group.is_required || num(group.minSelections || group.min_selections) > 0),
-                    
+
                     options: groupOptions
                       .filter((opt, idx, self) => opt && idx === self.findIndex(t => t && t.id === opt.id))
                       .map((opt) => {
@@ -135,7 +163,9 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
                           iconKey: String(opt.iconKey || opt.icon_key || category?.iconKey || "Box"),
                           categoryColor: String(opt.categoryColor || category?.color || "slate"),
                           show_nutrition: Boolean(opt.show_nutrition || opt.showNutrition),
-                          
+                          isNoAccompaniment: Boolean(opt.isNoAccompaniment || opt.is_no_accompaniment),
+                          is_no_accompaniment: Boolean(opt.isNoAccompaniment || opt.is_no_accompaniment),
+
                           ...optNutrition,
                           kcal: optNutrition.energyKcal,
                           fats: optNutrition.fatTotal,
@@ -149,7 +179,7 @@ export function mapDishFromDb(dish: DbRow | null | undefined) {
                       })
                   };
                 })
-            : [] 
+            : []
         };
       }),
   };

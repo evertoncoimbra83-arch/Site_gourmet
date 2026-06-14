@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { trpc } from "@/_core/trpc";
-import { useProducts } from "./useProducts"; 
+import { useProducts } from "./useProducts";
 import { usePrescriptionCart } from "@/_core/hooks/usePrescriptionCart";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { safeNumber } from "@/lib/safe-parse";
@@ -43,7 +43,7 @@ export function useProductsLogic() {
   const { state, actions } = useProducts();
   const [searchParams, setSearchParams] = useSearchParams();
   const intentionallyClosedPratoRef = useRef<string | null>(null);
-  const { user } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
   const { prescription, handleAddDietToCart } = usePrescriptionCart();
 
   const isDietMode = searchParams.get("modo") === "dieta";
@@ -51,15 +51,19 @@ export function useProductsLogic() {
   const categoryQuery = searchParams.get("category");
   const isAdmin = isAdminRole(user?.role);
 
-  const { data: plans } = trpc.nutri.getMyPrescription.useQuery();
-  const { data: dashboardScans } = trpc.nutri.getDashboard.useQuery();
+  const { data: plans } = trpc.nutri.getMyPrescription.useQuery(undefined, {
+    enabled: !authLoading && isAuthenticated
+  });
+  const { data: dashboardScans } = trpc.nutri.getDashboard.useQuery(undefined, {
+    enabled: !authLoading && isAuthenticated
+  });
 
   // 1. Lógica de Scan Ativo (Gourmet AI) - Tipado
   const activeAiScan = useMemo(() => {
     if (!dashboardScans || !Array.isArray(dashboardScans)) return undefined;
     return (dashboardScans as AiScanData[]).find((scan) => {
       return (
-        scan.status !== 'deleted' && 
+        scan.status !== 'deleted' &&
         (scan.type === 'ai_scan' || 'suggestedData' in scan || 'suggested_data' in scan)
       );
     });
@@ -69,7 +73,7 @@ export function useProductsLogic() {
   const recommendedDishIds = useMemo(() => {
     const currentPresc = prescription as PrescriptionPlan[] | undefined;
     if (!currentPresc || !Array.isArray(currentPresc)) return [];
-    
+
     const ids: string[] = [];
     try {
       currentPresc.forEach((plan) => {
@@ -94,7 +98,7 @@ export function useProductsLogic() {
         const matchesCategory = !state.selectedCategory || Number(p.categoryId) === Number(state.selectedCategory);
         const matchesSearch = !state.search || p.name.toLowerCase().includes(state.search.toLowerCase());
         const matchesDiet = isDietMode ? recommendedDishIds.includes(String(p.id)) : true;
-        
+
         return p.isActive && matchesCategory && matchesSearch && matchesDiet;
       })
       .sort((a, b) => {
@@ -149,7 +153,7 @@ export function useProductsLogic() {
     if (pratoQuery && !state.selectedDishId) {
       if (intentionallyClosedPratoRef.current === pratoQuery) return;
       const products = state.products as unknown as ProductData[];
-      const dish = products.find((p) => 
+      const dish = products.find((p) =>
         String(p.slug) === pratoQuery || String(p.id) === pratoQuery
       );
       if (dish) actions.setSelectedDishId(Number(dish.id));

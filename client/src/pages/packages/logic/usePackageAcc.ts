@@ -63,6 +63,8 @@ export function usePackageAcc({ currentMealState, slot, allOptions = [] }: UsePa
         groupName: gName,
         priceModifier: Number(opt.priceModifier || opt.price_modifier || 0),
         weight: Number(opt.weight || opt.defaultGrammage || 100),
+        isNoAccompaniment: Boolean(opt.isNoAccompaniment || opt.is_no_accompaniment),
+        is_no_accompaniment: Boolean(opt.isNoAccompaniment || opt.is_no_accompaniment),
       } as AccompanimentOption));
 
       return {

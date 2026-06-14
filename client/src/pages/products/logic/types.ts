@@ -9,6 +9,8 @@ export interface AccOption {
   groupId: string | number;
   iconKey?: string;
   categoryColor?: string;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
 }
 
 export interface AccGroup {
@@ -28,6 +30,7 @@ export interface DishSize {
   priceModifier: number;
   main_dish_weight?: number;
   mainDishWeight?: number;
+  noAccompanimentsMessage?: string;
   accompanimentGroups: AccGroup[];
   displayOrder?: number;
 }

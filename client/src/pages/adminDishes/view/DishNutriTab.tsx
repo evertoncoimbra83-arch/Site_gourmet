@@ -3,11 +3,11 @@ import { useDishStore } from "../logic/useDishStore";
 import { Button } from "@/components/ui/button";
 import { NutriField } from "./NutriField";
 import { trpc } from "@/_core/trpc";
-import { 
-  RefreshCw, Zap, Beef, Wheat, Droplets, Info, 
+import {
+  RefreshCw, Zap, Beef, Wheat, Droplets, Info,
   Activity, Trash2, Scale, Search, Plus, Loader2,
   Bone, Magnet} from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { appToast as toast } from "@/lib/app-toast";
 import { motion, AnimatePresence } from "framer-motion";
 
 // --- INTERFACES CORRIGIDAS ---
@@ -42,20 +42,19 @@ interface DishCompositionItem extends Omit<Ingredient, 'id'> {
 }
 
 export function DishNutriTab() {
-  const { 
-    formData, 
+  const {
+    formData,
     setFormData,
-    composition, 
-    addIngredientToComposition, 
-    removeIngredient, 
-    updateIngredientQuantity 
+    composition,
+    addIngredientToComposition,
+    removeIngredient,
+    updateIngredientQuantity
   } = useDishStore();
-  
-  const { toast } = useToast();
+
   const [searchTerm, setSearchTerm] = useState("");
 
   const { data: searchResults, isFetching: isSearching } = trpc.admin.dishes.searchIngredients.useQuery(
-    { query: searchTerm }, 
+    { query: searchTerm },
     { enabled: searchTerm.length > 2 }
   );
 
@@ -67,10 +66,10 @@ export function DishNutriTab() {
     );
 
     if (isDuplicate) {
-      toast("Aviso: Este insumo já está na composição.");
-      return; 
+      toast.warning("Este insumo ja esta na composicao.");
+      return;
     }
-    
+
     const cleanItem = {
       ingredientId: Number(ing.id),
       ingredientName: ing.name,
@@ -90,35 +89,35 @@ export function DishNutriTab() {
 
     addIngredientToComposition(cleanItem, 100);
     setSearchTerm("");
-    toast(`Sucesso: ${ing.name} adicionado.`);
+    toast.success(`${ing.name} adicionado.`);
   };
 
   const handleRecalculate = () => {
     const currentComposition = (composition as unknown) as DishCompositionItem[];
 
     if (currentComposition.length === 0) {
-      toast("Erro: Adicione ingredientes antes de calcular.");
+      toast.warning("Adicione ingredientes antes de calcular.");
       return;
     }
 
     type NutritionKeys = keyof Omit<DishCompositionItem, 'ingredientId' | 'ingredientName' | 'quantity' | 'name'>;
-    
+
     const nutriKeys: NutritionKeys[] = [
-      "energyKcal", "energyKj", "proteins", "carbs", 
-      "fatTotal", "fatSaturated", "fatTrans", 
+      "energyKcal", "energyKj", "proteins", "carbs",
+      "fatTotal", "fatSaturated", "fatTrans",
       "fiber", "sodium", "calcium", "iron"
     ];
 
     const totals = currentComposition.reduce((acc, item) => {
       const q = Number(item.quantity || 0);
       const ratio = q / 100;
-      
+
       const newAcc = { ...acc };
       nutriKeys.forEach(key => {
         const itemValue = Number(item[key] || 0);
         newAcc[key] = (newAcc[key] || 0) + (itemValue * ratio);
       });
-      
+
       return newAcc;
     }, {} as Record<string, number>);
 
@@ -143,7 +142,7 @@ export function DishNutriTab() {
       composition: technicalComposition
     });
 
-    toast(`Cálculo concluído para ${currentComposition.length} itens.`);
+    toast.success(`Calculo concluido para ${currentComposition.length} itens.`);
   };
 
   return (
@@ -154,26 +153,26 @@ export function DishNutriTab() {
             <Scale className="text-slate-400" size={18} />
             <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-700 italic">Ficha Técnica</h4>
           </div>
-          <Button 
-            onClick={handleRecalculate} 
-            variant="ghost" 
+          <Button
+            onClick={handleRecalculate}
+            variant="ghost"
             className="h-8 rounded-full text-emerald-600 text-[9px] font-black uppercase gap-2 hover:bg-emerald-50 px-4 transition-colors"
-          > 
+          >
             <RefreshCw size={12} /> Recalcular
           </Button>
         </div>
 
         <div className="relative z-60">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-          <input 
-            className="w-full bg-slate-50 border-none rounded-2xl pl-10 h-11 text-xs text-slate-600 font-medium outline-none focus:ring-2 focus:ring-emerald-500/20" 
-            placeholder="Pesquisar..." 
-            value={searchTerm} 
-            onChange={(e) => setSearchTerm(e.target.value)} 
+          <input
+            className="w-full bg-slate-50 border-none rounded-2xl pl-10 h-11 text-xs text-slate-600 font-medium outline-none focus:ring-2 focus:ring-emerald-500/20"
+            placeholder="Pesquisar..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
           <AnimatePresence>
             {searchTerm.length > 2 && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
@@ -214,16 +213,16 @@ export function DishNutriTab() {
                   </p>
               </div>
               <div className="flex items-center gap-2 bg-white rounded-xl p-1 shadow-sm border border-slate-100">
-                <input 
-                  type="number" 
-                  className="w-14 h-7 bg-transparent text-center font-black text-slate-700 border-none text-xs outline-none" 
-                  value={item.quantity} 
-                  onChange={e => updateIngredientQuantity(idx, e.target.value)} 
+                <input
+                  type="number"
+                  className="w-14 h-7 bg-transparent text-center font-black text-slate-700 border-none text-xs outline-none"
+                  value={item.quantity}
+                  onChange={e => updateIngredientQuantity(idx, e.target.value)}
                 />
                 <span className="text-[9px] font-bold text-slate-400 pr-2 italic uppercase">g</span>
               </div>
-              <button 
-                className="text-slate-300 hover:text-red-500 p-2 transition-colors" 
+              <button
+                className="text-slate-300 hover:text-red-500 p-2 transition-colors"
                 onClick={() => removeIngredient(idx)}
               >
                 <Trash2 size={14} />

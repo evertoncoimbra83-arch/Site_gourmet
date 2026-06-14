@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import { ArrowRight, CheckCircle2, Star, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 // Interface rigorosa para refletir o Schema do Drizzle
 export interface PackageCardData {
@@ -29,12 +30,12 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
   const mealCount = Number(pkg.numberOfOptions || 0);
   const basePrice = Number(pkg.price || 0);
   const salePrice = pkg.salePrice ? Number(pkg.salePrice) : null;
-  
+
   const currentPrice = salePrice && salePrice > 0 ? salePrice : basePrice;
   const pricePerMeal = mealCount > 0 ? currentPrice / mealCount : 0;
   const isPopular = pkg.isPopular === true || pkg.isPopular === 1;
-  
-  const money = (v: number) => 
+
+  const money = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
   // ✅ Lógica Dinâmica para Highlights (Bullets) vindo do DB
@@ -42,7 +43,7 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
     if (Array.isArray(pkg.highlights) && pkg.highlights.length > 0) {
       return pkg.highlights;
     }
-    
+
     if (typeof pkg.highlights === 'string' && pkg.highlights.trim() !== '') {
       return pkg.highlights.split(',').map(h => h.trim());
     }
@@ -71,9 +72,12 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
       <div className={cn("relative w-full overflow-hidden shrink-0", isPopular ? "h-52 mt-8" : "h-52")}>
         {pkg.imageUrl && pkg.imageUrl.trim() !== "" ? (
           <img
-            src={pkg.imageUrl}
+            src={resolveImageUrl(pkg.imageUrl, "package")}
             alt={pkg.name}
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+            onError={(event) => {
+              event.currentTarget.src = getImageFallback("package");
+            }}
           />
         ) : (
           /* ✅ Lettering — exibido quando não há foto */
@@ -128,7 +132,7 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
             </div>
           </div>
         )}
-        
+
         {/* Label de Intenção (Ex: Emagrecimento) */}
         {pkg.intentLabel && (
           <div className="absolute bottom-4 left-4 bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">
@@ -146,12 +150,12 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
               {mealCount} Refeições
             </span>
           </div>
-          
+
           {/* Título do Pacote */}
           <h3 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-[0.9] mb-4">
             {pkg.name}
           </h3>
-          
+
           {/* Descrição Dinâmica */}
           <p className="text-xs text-slate-500 font-medium leading-relaxed mb-6 line-clamp-3">
             {pkg.description || "Combine os sabores que você mais gosta em um plano nutricional completo e equilibrado para sua rotina."}
@@ -184,7 +188,7 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
                 )}
               </div>
             </div>
-            
+
             <div className="inline-flex shrink-0">
               <span className="bg-emerald-50 text-emerald-600 px-3 py-2 rounded-xl border border-emerald-100 text-[10px] font-black uppercase tracking-tighter whitespace-nowrap">
                 {money(pricePerMeal)} / un
@@ -192,7 +196,7 @@ export function PackageCard({ pkg, onSelect }: PackageCardProps) {
             </div>
           </div>
 
-          <Button 
+          <Button
             onClick={() => onSelect(pkg.id)}
             className={cn(
               "w-full h-16 rounded-[1.5rem] font-black uppercase tracking-[0.15em] text-[11px] transition-all active:scale-[0.98] group-hover:shadow-xl flex items-center justify-center gap-2",

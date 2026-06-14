@@ -16,6 +16,12 @@ import {
 import { nanoid } from "nanoid";
 import { logAction } from "../../db/lib/audit.js";
 import { safeJsonParse, safeNumber } from "../../lib/safe-parse.js";
+import {
+  getPackageIntegrityReport,
+  parsePackageConfig,
+  validateAdminPackageConfig,
+} from "../../packages-integrity.js";
+import { assertCloudinaryStorageUrl } from "@shared/utils/image-url";
 
 const packageConfigSchema = z.object({
   slots: z.array(z.object({
@@ -44,6 +50,34 @@ const requireMoneyString = (value: unknown, label: string): string => {
     throw new TRPCError({ code: "BAD_REQUEST", message: `${label} invÃ¡lido.` });
   }
   return amount.toFixed(2);
+};
+
+const requireCloudinaryImageUrl = (
+  value: string | null | undefined,
+  label = "Imagem do pacote",
+): string => {
+  try {
+    return assertCloudinaryStorageUrl(value, label) || "";
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : `${label} invalida.`,
+    });
+  }
+};
+
+const assertValidPackageConfig = async (
+  db: Awaited<ReturnType<typeof getDb>>,
+  input: { config: PackageConfig; sizeId: number; isActive?: boolean },
+) => {
+  const validation = await validateAdminPackageConfig(db, input);
+  if (!validation.isValid) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: validation.errors.join(" "),
+    });
+  }
+  return validation;
 };
 
 export const adminPackagesRouter = router({
@@ -160,6 +194,8 @@ export const adminPackagesRouter = router({
     return result.map(opt => ({
       id: String(opt.id),
       name: opt.name,
+      isNoAccompaniment: Boolean(opt.isNoAccompaniment),
+      is_no_accompaniment: Boolean(opt.isNoAccompaniment),
       // @ts-ignore
       price: safeNumber(opt.basePrice ?? opt.price),
     }));
@@ -174,6 +210,27 @@ export const adminPackagesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const targetId = String(input.id);
+      if (input.status === "active") {
+        const [targetPackage] = await db
+          .select()
+          .from(packages)
+          .where(eq(packages.id, targetId))
+          .limit(1);
+
+        if (!targetPackage) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Pacote nao encontrado.",
+          });
+        }
+
+        await assertValidPackageConfig(db, {
+          config: parsePackageConfig(targetPackage.config) as PackageConfig,
+          sizeId: Number(targetPackage.sizeId),
+          isActive: true,
+        });
+      }
+
       await db.update(packages)
         .set({ status: input.status, isActive: input.status === "active" })
         .where(eq(packages.id, targetId));
@@ -205,6 +262,11 @@ export const adminPackagesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       try {
+        const validation = await assertValidPackageConfig(db, {
+          config: input.config,
+          sizeId: input.size_id,
+          isActive: input.isActive,
+        });
         const newId = nanoid();
         const valuesToInsert: typeof packages.$inferInsert = {
           name: input.name,
@@ -214,7 +276,7 @@ export const adminPackagesRouter = router({
           highlights: input.highlights || "",
           category: input.category || "",
           isPopular: input.is_popular,
-          imageUrl: input.image_url || "",
+          imageUrl: requireCloudinaryImageUrl(input.image_url),
           salePrice: input.sale_price ? requireMoneyString(input.sale_price, "Preço promocional") : null,
           displayOrder: input.display_order,
           numberOfOptions: input.number_of_options,
@@ -230,8 +292,9 @@ export const adminPackagesRouter = router({
           entityId: newId,
           new: { name: input.name },
         });
-        return { success: true, id: newId };
+        return { success: true, id: newId, warnings: validation.warnings };
       } catch (error: unknown) {
+        if (error instanceof TRPCError) throw error;
         const err = error as { sqlMessage?: string };
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.sqlMessage || "Erro ao salvar." });
       }
@@ -261,6 +324,11 @@ export const adminPackagesRouter = router({
       const { id, ...data } = input;
       const targetId = String(id);
       try {
+        const validation = await assertValidPackageConfig(db, {
+          config: data.config,
+          sizeId: data.size_id,
+          isActive: data.isActive,
+        });
         await db.update(packages).set({
           name: data.name,
           slug: data.slug,
@@ -268,7 +336,7 @@ export const adminPackagesRouter = router({
           highlights: data.highlights,
           category: data.category,
           isPopular: data.is_popular,
-          imageUrl: data.image_url,
+          imageUrl: requireCloudinaryImageUrl(data.image_url),
           price: requireMoneyString(data.base_price, "PreÃ§o"),
           salePrice: data.sale_price ? requireMoneyString(data.sale_price, "PreÃ§o promocional") : null,
           displayOrder: data.display_order,
@@ -283,8 +351,9 @@ export const adminPackagesRouter = router({
           entityId: targetId,
           new: { name: data.name },
         });
-        return { success: true };
+        return { success: true, warnings: validation.warnings };
       } catch (error: unknown) {
+        if (error instanceof TRPCError) throw error;
         const err = error as { sqlMessage?: string };
         throw new TRPCError({ code: "BAD_REQUEST", message: err.sqlMessage || "Erro ao atualizar." });
       }
@@ -298,4 +367,9 @@ export const adminPackagesRouter = router({
       await db.delete(packages).where(eq(packages.id, String(input.id)));
       return { success: true };
     }),
+
+  integrityCheck: adminProcedure.query(async () => {
+    const db = await getDb();
+    return getPackageIntegrityReport(db);
+  }),
 });

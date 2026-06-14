@@ -1,53 +1,56 @@
-import React, { useEffect, useState } from "react";
-import { Sheet, SheetContent, SheetTitle, SheetHeader, SheetDescription } from "@/components/ui/sheet"; 
+import React, { useEffect, useMemo, useState } from "react";
+import { Sheet, SheetContent, SheetTitle, SheetHeader, SheetDescription } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { 
+import {
   Leaf, WheatOff, MilkOff, Tag, Layers, Loader2, Eye, EyeOff, PieChart, Image as ImageIcon, Camera,
-  Scale
-} from "lucide-react"; 
+  Scale, Info
+} from "lucide-react";
 import { trpc } from "@/_core/trpc";
 import { cn } from "@/lib/utils";
-import { appToast as toast } from "@/lib/app-toast"; 
+import { appToast as toast } from "@/lib/app-toast";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
+import { inferRecipeWeightFromComposition } from "@shared/domain/nutrition/nutrition";
 
 import { useDishStore } from "../logic/useDishStore";
 import { DishNutriTab } from "../view/DishNutriTab";
 import { NutriField } from "../view/NutriField";
-import { NutritionInfo } from "@/pages/products/drawer/NutritionInfo"; 
-import { MediaPickerModal } from "@/components/MediaPickerModal"; 
+import { NutritionInfo } from "@/pages/products/drawer/NutritionInfo";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 
 // --- INTERFACES ---
 interface ToggleBadgeProps {
-  label: string; 
-  active: boolean; 
-  onClick: () => void; 
+  label: string;
+  active: boolean;
+  onClick: () => void;
   icon: React.ElementType;
 }
 
-interface SizeItem { 
-  id: number | string; 
-  name: string; 
-  weight?: string; 
-  priceModifier?: number | string; 
+interface SizeItem {
+  id: number | string;
+  name: string;
+  weight?: string;
+  mainDishWeight?: number | string;
+  priceModifier?: number | string;
 }
 
-interface LinkedSize { 
-  id: number | string; 
-  sizeId?: number | string; 
+interface LinkedSize {
+  id: number | string;
+  sizeId?: number | string;
 }
 
 interface DishDrawerProps {
   open: boolean;
   onClose: () => void;
-  dish: Record<string, unknown> | null; 
+  dish: Record<string, unknown> | null;
   onSubmit: (payload: Record<string, unknown>) => Promise<void> | void;
   categories: Array<{ id: string | number; name: string }>;
   defaultTab?: string;
-  autoOpenMedia?: boolean; 
+  autoOpenMedia?: boolean;
 }
 
 // 🛡️ SOLUÇÃO DEFINITIVA DE TIPAGEM (Fase 3 & 5)
@@ -97,30 +100,30 @@ const ToggleBadge = ({ label, active, onClick, icon: Icon }: ToggleBadgeProps) =
   </div>
 );
 
-export function DishDrawer({ 
-  open, 
-  onClose, 
-  dish, 
-  onSubmit, 
-  categories, 
+export function DishDrawer({
+  open,
+  onClose,
+  dish,
+  onSubmit,
+  categories,
   defaultTab = "geral",
-  autoOpenMedia = false 
+  autoOpenMedia = false
 }: DishDrawerProps) {
-  
+
   // 🔥 APLICAÇÃO DO CAST: Resolve os erros de 'unknown' nas linhas 53 e 54
-  const { 
-    formData, 
-    setFormData, 
-    composition, 
-    setComposition, 
-    reset 
+  const {
+    formData,
+    setFormData,
+    composition,
+    setComposition,
+    reset
   } = useDishStore() as unknown as TypedDishStore;
 
   const utils = trpc.useUtils();
-  
+
   const [localIngredients, setLocalIngredients] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false); 
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
 
   useEffect(() => {
     if (open && autoOpenMedia) {
@@ -134,14 +137,14 @@ export function DishDrawer({
         const textValue = (dish.ingredients as string) || "";
         const rawStatus = dish.show_nutrition !== undefined ? dish.show_nutrition : dish.showNutrition;
         const showNutriStatus = rawStatus === true || rawStatus === 1 || String(rawStatus) === "true";
-        
-        setFormData({ 
-          ...dish, 
-          show_nutrition: showNutriStatus, 
-          showNutrition: showNutriStatus, 
-          ingredients: textValue 
+
+        setFormData({
+          ...dish,
+          show_nutrition: showNutriStatus,
+          showNutrition: showNutriStatus,
+          ingredients: textValue
         } as unknown as Partial<DishFormValues>);
-        
+
         setLocalIngredients(textValue);
         setComposition(Array.isArray(dish.composition) ? (dish.composition as Record<string, unknown>[]) : []);
       } else {
@@ -151,10 +154,31 @@ export function DishDrawer({
         }
       }
     }
-  }, [dish, open, formData.id, setFormData, setComposition, reset]); 
+  }, [dish, open, formData.id, setFormData, setComposition, reset]);
 
   const { data: allSizes } = trpc.admin.dishes.listSizes.useQuery(undefined, { enabled: open });
-  
+
+  const nutritionDiagnostics = useMemo(() => {
+    const inferred = inferRecipeWeightFromComposition(
+      composition as Record<string, unknown>[],
+    );
+    const linkedSizes = (formData.sizes as unknown as LinkedSize[]) || [];
+    const selectedSize = (allSizes as unknown as SizeItem[] | undefined)?.find((size) =>
+      linkedSizes.some(
+        (s) => Number(s.id) === Number(size.id) || Number(s.sizeId) === Number(size.id),
+      ),
+    );
+
+    return {
+      recipeWeight: inferred.recipeWeight,
+      usedFallback: inferred.usedFallback,
+      compositionItemsCount: inferred.compositionItemsCount,
+      selectedMainDishWeight:
+        selectedSize?.mainDishWeight ?? selectedSize?.weight ?? "nao vinculado",
+      source: inferred.usedFallback ? "fallback seguro" : "ficha tecnica",
+    };
+  }, [allSizes, composition, formData.sizes]);
+
   const toggleSize = trpc.admin.dishes.toggleSizeLink.useMutation({
     onSuccess: () => {
       utils.admin.dishes.list.invalidate();
@@ -166,7 +190,7 @@ export function DishDrawer({
   const isDataLoading = dish && formData.id !== dish.id && open;
 
   const handleFinalSubmit = async () => {
-    if (isSubmitting) return; 
+    if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       const compArray = (composition as Record<string, unknown>[]) || [];
@@ -196,9 +220,9 @@ export function DishDrawer({
         iron: Number(formData.iron || 0),
 
         show_nutrition: Boolean(formData.showNutrition),
-        showNutrition: Boolean(formData.showNutrition), 
-        ingredients: localIngredients, 
-        composition: validComposition 
+        showNutrition: Boolean(formData.showNutrition),
+        ingredients: localIngredients,
+        composition: validComposition
       };
 
       await onSubmit(payload as Record<string, unknown>);
@@ -239,13 +263,24 @@ export function DishDrawer({
             <TabsContent value="geral" className="m-0 space-y-8 outline-none">
               <div className="space-y-3">
                 <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Foto do Cardápio</Label>
-                <div 
-                  onClick={() => setIsMediaModalOpen(true)} 
+                <div
+                  onClick={() => setIsMediaModalOpen(true)}
                   className="group relative w-full h-56 bg-slate-50 rounded-4xl border-2 border-dashed border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-500 transition-all shadow-inner flex items-center justify-center"
                 >
                   {formData.imageUrl ? (
                     <>
-                      <img src={formData.imageUrl as string} className="w-full h-full object-cover transition-transform group-hover:scale-105" alt="Preview" />
+                      <img
+                        src={resolveImageUrl(formData.imageUrl as string, "product")}
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                        alt="Preview"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          if (!target.dataset.fallbackApplied) {
+                            target.dataset.fallbackApplied = "true";
+                            target.src = getImageFallback("product");
+                          }
+                        }}
+                      />
                       <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
                         <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-xl translate-y-2 group-hover:translate-y-0 transition-transform">
                           <Camera size={14} className="text-emerald-600" />
@@ -317,20 +352,42 @@ export function DishDrawer({
 
             <TabsContent value="nutricao" className="m-0 space-y-10 outline-none pb-10">
                 <DishNutriTab />
-                
+
+                <div className="rounded-3xl border border-emerald-100 bg-emerald-50/60 p-5 text-left">
+                  <div className="mb-4 flex items-center gap-2 text-emerald-700">
+                    <Info size={16} />
+                    <h4 className="text-[11px] font-black uppercase tracking-widest">
+                      Como a nutricao deste prato e calculada
+                    </h4>
+                  </div>
+                  <ul className="space-y-2 text-[11px] font-bold leading-relaxed text-slate-600">
+                    <li>Os macros do prato vem da ficha tecnica cadastrada com ingredientes.</li>
+                    <li>O peso do prato principal vem do cadastro de tamanhos.</li>
+                    <li>O sistema ajusta os macros proporcionalmente ao peso escolhido.</li>
+                    <li>Acompanhamentos sao somados separadamente conforme a gramagem do grupo.</li>
+                    <li>Se o prato nao tiver composicao, sera usado um fallback seguro de peso.</li>
+                  </ul>
+                  <div className="mt-4 grid grid-cols-2 gap-3 border-t border-emerald-100 pt-4 text-[9px] font-black uppercase tracking-widest text-slate-500 md:grid-cols-4">
+                    <span>Peso receita: {nutritionDiagnostics.recipeWeight}g</span>
+                    <span>Tamanho: {nutritionDiagnostics.selectedMainDishWeight}g</span>
+                    <span>Itens: {nutritionDiagnostics.compositionItemsCount}</span>
+                    <span>Origem: {nutritionDiagnostics.source}</span>
+                  </div>
+                </div>
+
                 <div className="space-y-3 px-1">
                   <div className="flex items-center gap-2 text-slate-700">
                     <Scale className="text-slate-400" size={16} />
                     <Label className="text-[11px] font-black uppercase tracking-widest italic">Ingredientes (Texto do Rótulo)</Label>
                   </div>
-                  <Textarea 
-                    className="rounded-3xl bg-white border-2 border-slate-100 font-medium text-xs min-h-35 p-5 resize-none focus:border-emerald-500 transition-all shadow-sm" 
-                    placeholder="Os ingredientes aparecerão aqui automaticamente..." 
-                    value={localIngredients} 
+                  <Textarea
+                    className="rounded-3xl bg-white border-2 border-slate-100 font-medium text-xs min-h-35 p-5 resize-none focus:border-emerald-500 transition-all shadow-sm"
+                    placeholder="Os ingredientes aparecerão aqui automaticamente..."
+                    value={localIngredients}
                     onChange={e => {
                       setLocalIngredients(e.target.value);
                       setFormData({ ingredients: e.target.value });
-                    }} 
+                    }}
                   />
                 </div>
 
@@ -369,12 +426,12 @@ export function DishDrawer({
                               {size.weight} • + R$ {Number(size.priceModifier || 0).toFixed(2)}
                             </span>
                           </div>
-                          <Switch 
-                            checked={!!isLinked} 
+                          <Switch
+                            checked={!!isLinked}
                             onCheckedChange={() => {
                               if (!dish?.id) return toast.error("Salve o prato primeiro.");
                               toggleSize.mutate({ dishId: Number(dish.id), sizeId: Number(size.id) });
-                            }} 
+                            }}
                           />
                         </div>
                       );
@@ -387,16 +444,16 @@ export function DishDrawer({
 
         <div className="p-8 bg-white border-t mt-auto flex gap-4 shrink-0">
           <Button variant="ghost" onClick={onClose} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-red-400 hover:bg-red-50">Cancelar</Button>
-          <Button 
+          <Button
             disabled={isSubmitting}
-            className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50" 
+            className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
             onClick={handleFinalSubmit}
-          > 
+          >
             {isSubmitting ? <><Loader2 className="animate-spin mr-2" size={16} /> Salvando...</> : "Confirmar Alterações"}
           </Button>
         </div>
 
-        <MediaPickerModal 
+        <MediaLibraryDrawer
           open={isMediaModalOpen}
           onClose={() => setIsMediaModalOpen(false)}
           onSelect={(url: string) => {
@@ -404,7 +461,7 @@ export function DishDrawer({
             setIsMediaModalOpen(false);
             toast.success("Imagem vinculada ao prato!");
           }}
-          defaultFolder="pratos" 
+          initialFolder="pratos"
         />
       </SheetContent>
     </Sheet>

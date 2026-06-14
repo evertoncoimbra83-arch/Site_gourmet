@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
-import { useDishStore } from "../logic/useDishStore"; 
-import { appToast as toast } from "@/lib/app-toast"; 
+import { useDishStore } from "../logic/useDishStore";
+import { appToast as toast } from "@/lib/app-toast";
 
 // --- INTERFACES ---
 interface DishItem {
@@ -16,8 +16,8 @@ interface DishPayload {
   description: string;
   imageUrl: string;
   ingredients: string;
-  show_nutrition?: boolean; 
-  showNutrition?: boolean;  
+  show_nutrition?: boolean;
+  showNutrition?: boolean;
   price: number;
   salePrice: number | null;
   categoryId?: number;
@@ -47,18 +47,17 @@ export function useAdminDishes() {
   const [editingDishId, setEditingDishId] = useState<number | null>(null);
   const [hydratedEditingDish, setHydratedEditingDish] = useState<Record<string, unknown> | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
 
   // Seletores tipados para evitar 'unknown' do Store
   const setFormData = useDishStore((s) => s.setFormData);
   const setComposition = useDishStore((s) => s.setComposition);
   const reset = useDishStore((s) => s.reset);
-  
-  const utils = trpc.useUtils();
-  const perPage = 8;
 
+  const utils = trpc.useUtils();
   useEffect(() => {
     setPage(1);
-  }, [search, selectedCategory, showInactive]);
+  }, [search, selectedCategory, showInactive, pageSize]);
 
   /* --- QUERIES --- */
   const { data: categories = [] } = trpc.admin.dishes.listCategories.useQuery(undefined, {
@@ -67,23 +66,25 @@ export function useAdminDishes() {
 
   const { data: dishesData, isLoading } = trpc.admin.dishes.list.useQuery({
     page,
-    perPage,
+    pageSize,
     search: search.length >= 2 ? search : undefined,
     categoryId: selectedCategory,
-    showInactive, 
+    status: showInactive ? "all" : "active",
+    sortBy: "updatedAt",
+    sortDir: "desc",
   });
 
   const { data: fullDishData, isLoading: isLoadingDish, isFetching } = trpc.admin.dishes.getById.useQuery(
     editingDishId as number,
-    { 
+    {
       enabled: !!editingDishId,
       gcTime: 0,
-      staleTime: 0, 
+      staleTime: 0,
     }
   );
 
   const totalItems = dishesData?.total || 0;
-  const totalPages = Math.ceil(totalItems / perPage) || 1;
+  const totalPages = dishesData?.totalPages || Math.ceil(totalItems / pageSize) || 1;
 
   useEffect(() => {
     if (editingDishId && fullDishData && !isLoadingDish) {
@@ -100,7 +101,7 @@ export function useAdminDishes() {
       } as unknown as Parameters<typeof setFormData>[0];
 
       setFormData(castedFormData);
-      
+
       const comp = Array.isArray(dish.composition) ? dish.composition : [];
       setComposition(comp as unknown as Parameters<typeof setComposition>[0]);
 
@@ -163,7 +164,10 @@ export function useAdminDishes() {
     onSuccess: () => {
       utils.admin.dishes.list.invalidate();
       toast.info("Visibilidade alterada.");
-    }
+    },
+    onError: (err) => {
+      toast.error(err.message);
+    },
   });
 
   const deleteMutation = trpc.admin.dishes.delete.useMutation({
@@ -174,17 +178,19 @@ export function useAdminDishes() {
   });
 
   return {
-    state: { 
-      page, search, selectedCategory, showInactive, isDialogOpen, 
+    state: {
+      page, search, selectedCategory, showInactive, isDialogOpen,
+      pageSize,
       isLoading: isLoading || upsertMutation.isPending || updateMutation.isPending || isLoadingDish || isFetching,
       editingDishId,
       editingDish: hydratedEditingDish || fullDishData || null
     },
     mutations: { deleteMutation, toggleActiveMutation, updateMutation, upsertMutation },
-    actions: { 
-      setPage, setSearch, setShowInactive, 
+    actions: {
+      setPage, setSearch, setShowInactive,
+      setPageSize,
       setSelectedCategory: (val: string | number) => setSelectedCategory((val === "" || val === "all") ? undefined : Number(val)),
-      
+
       setIsDialogOpen: (open: boolean) => {
         setIsDialogOpen(open);
         if (!open) {
@@ -192,17 +198,17 @@ export function useAdminDishes() {
           setHydratedEditingDish(null);
           reset();
         }
-      }, 
-      
+      },
+
       handleEdit: async (dish: { id: number | string }) => {
-        reset(); 
+        reset();
         setHydratedEditingDish(dish as Record<string, unknown>);
         setEditingDishId(Number(dish.id));
         setIsDialogOpen(true);
       },
 
       handleCreate: () => {
-        reset(); 
+        reset();
         setHydratedEditingDish(null);
         setEditingDishId(null);
         setIsDialogOpen(true);
@@ -228,8 +234,8 @@ export function useAdminDishes() {
           fatTotal: Number(item.fatTotal || 0)
         }));
 
-        const finalSlug = typeof fields.slug === 'string' && fields.slug.trim() 
-          ? generateSlug(fields.slug) 
+        const finalSlug = typeof fields.slug === 'string' && fields.slug.trim()
+          ? generateSlug(fields.slug)
           : generateSlug(fields.name as string);
 
         const payload: DishPayload = {
@@ -237,7 +243,7 @@ export function useAdminDishes() {
           slug: finalSlug,
           description: (fields.description as string) || "",
           imageUrl: (fields.imageUrl as string) || "",
-          ingredients: String(finalIngredientsText || ""), 
+          ingredients: String(finalIngredientsText || ""),
           show_nutrition: Boolean(fields.showNutrition),
           showNutrition: Boolean(fields.showNutrition),
           price: Number(fields.basePrice || fields.price || 0),
@@ -252,7 +258,7 @@ export function useAdminDishes() {
           fiber: Number(fields.fiber || 0),
           sodium: Number(fields.sodium || 0),
           calcium: Number(fields.calcium || 0),
-          iron: Number(fields.iron || 0), 
+          iron: Number(fields.iron || 0),
           isVegetarian: Boolean(fields.isVegetarian),
           isGlutenFree: Boolean(fields.isGlutenFree),
           isLactoseFree: Boolean(fields.isLactoseFree),
@@ -265,20 +271,21 @@ export function useAdminDishes() {
         }
 
         if (editingDishId) {
-          updateMutation.mutate({ 
-            id: editingDishId, 
-            ...payload 
+          updateMutation.mutate({
+            id: editingDishId,
+            ...payload
           } as unknown as Parameters<typeof updateMutation.mutate>[0]);
         } else {
           upsertMutation.mutate(payload as unknown as Parameters<typeof upsertMutation.mutate>[0]);
         }
       }
     },
-    data: { 
-      categories, 
-      dishes: (dishesData?.data as unknown as DishItem[]) || [], 
+    data: {
+      categories,
+      dishes: (dishesData?.data as unknown as DishItem[]) || [],
       total: totalItems,
-      totalPages
+      totalPages,
+      pageSize: dishesData?.pageSize || pageSize,
     }
   };
 }

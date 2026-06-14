@@ -1,28 +1,28 @@
 // client/src/pages/adminPackages/components/PackageSlotsEditor.tsx
 
-import React, { useState, memo } from "react"; 
-import { 
-  Trash2, Utensils, GripVertical, 
-  ChevronDown, CheckCircle2, ListFilter, 
+import React, { useState, memo } from "react";
+import {
+  Trash2, Utensils, GripVertical,
+  ChevronDown, CheckCircle2, ListFilter,
   Search, Copy, PlusCircle, Scale, Sparkles
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { 
-  DragDropContext, 
-  Droppable, 
-  Draggable, 
-  DropResult, 
-  DraggableProvided, 
-  DraggableStateSnapshot 
+import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  DropResult,
+  DraggableProvided,
+  DraggableStateSnapshot
 } from "@hello-pangea/dnd";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // --- INTERFACES ---
-interface Dish { id: string; name: string; category?: string; }
+interface Dish { id: string; name: string; category?: string; sizeIds?: string[]; }
 interface Group { id: string; name: string; }
 interface SlotGroup { id: string; customLabel: string; optionIds?: (string | number)[]; }
 interface Slot { name: string; dishIds?: string[]; groups?: SlotGroup[]; sizeId?: string | number; }
@@ -56,16 +56,22 @@ function isSmartGroup(groupId: string, allGroups: Group[]): boolean {
   return !allGroups.some(g => String(g.id) === groupId);
 }
 
-const SlotCard = memo(({ 
-  slot, sIdx, isExpanded, onToggle, 
-  allDishes, allGroups, allSizes, onUpdateName, onUpdateDishes, 
+const SlotCard = memo(({
+  slot, sIdx, isExpanded, onToggle,
+  allDishes, allGroups, allSizes, onUpdateName, onUpdateDishes,
   onUpdateGroups, onRemoveSlot, onDuplicateSlot, onUpdateSlotSize,
-  provided, snapshot
+  selectedSizeId, provided, snapshot
 }: SlotCardProps) => {
   const [dishSearch, setDishSearch] = useState("");
   const currentIds = slot.dishIds || [];
-  
-  const searchedDishes = allDishes.filter((d) => 
+  const effectiveSizeId = String(slot.sizeId || selectedSizeId || "");
+  const supportsSlotSize = (dish: Dish) => {
+    if (!effectiveSizeId) return true;
+    if (!Array.isArray(dish.sizeIds) || dish.sizeIds.length === 0) return false;
+    return dish.sizeIds.map(String).includes(effectiveSizeId);
+  };
+
+  const searchedDishes = allDishes.filter((d) =>
     d.name.toLowerCase().includes(dishSearch.toLowerCase())
   );
 
@@ -74,7 +80,7 @@ const SlotCard = memo(({
 
   // ✅ Só mostra grupos do banco que ainda não estão no slot
   // Grupos do Smart Generator (UUIDs) não aparecem aqui — eles já estão no slot
-  const availableDbGroups = allGroups.filter(g => 
+  const availableDbGroups = allGroups.filter(g =>
     !(slot.groups || []).some(sg => String(sg.id) === String(g.id))
   );
 
@@ -97,15 +103,15 @@ const SlotCard = memo(({
           </div>
           <div className="min-w-0 flex-1 text-left space-y-1">
             <div className="flex items-center gap-3">
-              <Input 
-                value={slot.name} 
+              <Input
+                value={slot.name}
                 onChange={(e) => onUpdateName(sIdx, e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="font-bold border-none text-sm p-0 h-auto bg-transparent shadow-none focus-visible:ring-0 text-slate-900 w-auto min-w-30" 
+                className="font-bold border-none text-sm p-0 h-auto bg-transparent shadow-none focus-visible:ring-0 text-slate-900 w-auto min-w-30"
               />
               <div onClick={(e) => e.stopPropagation()} className="flex items-center">
-                <Select 
-                  value={String(slot.sizeId || "")} 
+                <Select
+                  value={String(slot.sizeId || "")}
                   onValueChange={(val) => onUpdateSlotSize(sIdx, val)}
                 >
                   <SelectTrigger className="h-6 px-2 py-0 border-slate-100 bg-slate-50 text-[9px] font-black uppercase rounded-md w-auto gap-1">
@@ -126,7 +132,7 @@ const SlotCard = memo(({
             </div>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-1">
           <Button type="button" variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onDuplicateSlot(sIdx); }} className="h-8 w-8 text-slate-400">
             <Copy size={14} />
@@ -141,7 +147,7 @@ const SlotCard = memo(({
       {/* CONTEÚDO EXPANDIDO */}
       <AnimatePresence initial={false}>
         {isExpanded && !snapshot.isDragging && (
-          <motion.div 
+          <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -149,7 +155,7 @@ const SlotCard = memo(({
             className="overflow-hidden border-t border-slate-50 bg-white"
           >
             <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-8 text-left">
-              
+
               {/* PAINEL: PRATOS */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -158,9 +164,9 @@ const SlotCard = memo(({
                   </label>
                   <div className="relative">
                     <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input 
-                      type="text" 
-                      placeholder="Filtrar..." 
+                    <input
+                      type="text"
+                      placeholder="Filtrar..."
                       className="pl-6 pr-2 py-1 text-[10px] font-bold border-b border-slate-100 outline-none focus:border-slate-400 bg-transparent"
                       onChange={(e) => setDishSearch(e.target.value)}
                     />
@@ -169,20 +175,36 @@ const SlotCard = memo(({
 
                 <div className="flex flex-col gap-2 p-2 border rounded-xl bg-slate-50/40 max-h-60 overflow-y-auto custom-scrollbar">
                   {selectedInSlot.map((dish) => (
-                    <div key={dish.id} onClick={() => onUpdateDishes(sIdx, currentIds.filter(id => id !== dish.id))} className="flex items-center justify-between p-2.5 rounded-lg cursor-pointer bg-white border border-orange-100 shadow-sm group">
-                      <span className="text-[11px] font-bold text-slate-700 uppercase">{dish.name}</span>
+                    <div key={dish.id} onClick={() => onUpdateDishes(sIdx, currentIds.filter(id => id !== dish.id))} className={cn("flex items-center justify-between p-2.5 rounded-lg cursor-pointer bg-white border shadow-sm group gap-3", supportsSlotSize(dish) ? "border-orange-100" : "border-red-200 bg-red-50")}>
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase">{dish.name}</span>
+                        {!supportsSlotSize(dish) && (
+                          <p className="text-[8px] font-black uppercase text-red-500 mt-0.5">
+                            Nao suporta este tamanho
+                          </p>
+                        )}
+                      </div>
                       <div className="relative flex items-center justify-center">
                         <CheckCircle2 size={14} className="text-orange-500 group-hover:opacity-0 transition-opacity" />
                         <Trash2 size={12} className="text-red-500 opacity-0 group-hover:opacity-100 absolute transition-opacity" />
                       </div>
                     </div>
                   ))}
-                  {availableInSlot.map((dish) => (
-                    <div key={dish.id} onClick={() => onUpdateDishes(sIdx, [...currentIds, dish.id])} className="flex items-center justify-between p-2.5 rounded-lg cursor-pointer hover:bg-white border border-transparent hover:border-slate-200 transition-all opacity-70 hover:opacity-100">
-                      <span className="text-[11px] font-medium text-slate-500 uppercase">{dish.name}</span>
+                  {availableInSlot.map((dish) => {
+                    const canUseDish = supportsSlotSize(dish);
+                    return (
+                    <div key={dish.id} onClick={() => canUseDish && onUpdateDishes(sIdx, [...currentIds, dish.id])} className={cn("flex items-center justify-between p-2.5 rounded-lg border border-transparent transition-all", canUseDish ? "cursor-pointer hover:bg-white hover:border-slate-200 opacity-70 hover:opacity-100" : "cursor-not-allowed bg-red-50/60 border-red-100 opacity-80")}>
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-medium text-slate-500 uppercase">{dish.name}</span>
+                        {!canUseDish && (
+                          <p className="text-[8px] font-black uppercase text-red-500 mt-0.5">
+                            Nao suporta este tamanho
+                          </p>
+                        )}
+                      </div>
                       <PlusCircle size={14} className="text-slate-300 group-hover:text-orange-500" />
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
 
@@ -192,7 +214,7 @@ const SlotCard = memo(({
                   <ListFilter size={12} className="text-blue-500" /> Rótulos e Grupos
                 </label>
                 <div className="space-y-2 p-2 border rounded-xl bg-slate-50/40 min-h-25">
-                  
+
                   {(slot.groups || []).map((selectedGroup, gIdx) => {
                     const isSmart = isSmartGroup(selectedGroup.id, allGroups);
                     const dbGroup = allGroups.find(g => String(g.id) === selectedGroup.id);
@@ -218,17 +240,17 @@ const SlotCard = memo(({
                               </span>
                             )}
                           </div>
-                          <button 
-                            onClick={() => onUpdateGroups(sIdx, (slot.groups || []).filter((_, i) => i !== gIdx))} 
+                          <button
+                            onClick={() => onUpdateGroups(sIdx, (slot.groups || []).filter((_, i) => i !== gIdx))}
                             className="text-slate-300 hover:text-red-500 shrink-0 ml-2"
                           >
                             <Trash2 size={11} />
                           </button>
                         </div>
-                        <Input 
-                          placeholder="Ex: Carboidrato, Proteína..." 
-                          className="h-8 text-[10px] rounded-md bg-slate-50 border-none shadow-none uppercase font-bold focus-visible:ring-1 focus-visible:ring-slate-200" 
-                          value={selectedGroup.customLabel || ""} 
+                        <Input
+                          placeholder="Ex: Carboidrato, Proteína..."
+                          className="h-8 text-[10px] rounded-md bg-slate-50 border-none shadow-none uppercase font-bold focus-visible:ring-1 focus-visible:ring-slate-200"
+                          value={selectedGroup.customLabel || ""}
                           onChange={(e) => onUpdateGroups(sIdx, (slot.groups || []).map((g, i) => i === gIdx ? { ...g, customLabel: e.target.value } : g))}
                         />
                       </div>
@@ -239,10 +261,10 @@ const SlotCard = memo(({
                   {availableDbGroups.length > 0 && (
                     <div className="pt-2 grid grid-cols-2 gap-1.5">
                       {availableDbGroups.map((g) => (
-                        <button 
-                          key={g.id} 
-                          type="button" 
-                          onClick={() => onUpdateGroups(sIdx, [...(slot.groups || []), { id: String(g.id), customLabel: "" }])} 
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => onUpdateGroups(sIdx, [...(slot.groups || []), { id: String(g.id), customLabel: "" }])}
                           className="p-1.5 text-[9px] font-black uppercase bg-white border border-slate-100 text-slate-400 hover:text-blue-600 hover:border-blue-200 rounded-lg transition-all"
                         >
                           + {g.name}
@@ -269,7 +291,7 @@ export function PackageSlotsEditor(props: PackageSlotsEditorProps) {
     if (!result.destination) return;
     props.onReorderSlots(result.source.index, result.destination.index);
   };
-    
+
   return (
     <div className="space-y-4">
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -279,7 +301,7 @@ export function PackageSlotsEditor(props: PackageSlotsEditorProps) {
               {props.slots.map((slot, sIdx) => (
                 <Draggable key={`slot-${sIdx}`} draggableId={`slot-${sIdx}`} index={sIdx}>
                   {(providedSlot, snapshot) => (
-                    <SlotCard 
+                    <SlotCard
                       slot={slot}
                       sIdx={sIdx}
                       isExpanded={openSlotIdx === sIdx}

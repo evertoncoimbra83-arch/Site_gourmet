@@ -5,14 +5,14 @@ import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, PieChart } from "lucide-react";
-import { calculateMealNutrition } from "@shared/domain/nutrition/nutrition";
+import { calculateMealNutritionCanonical, extractDishNutritionSource } from "@shared/domain/nutrition/nutrition";
 
 // ✅ Importação do componente e da tipagem exata que ele espera
 import { NutritionInfo, type NutritionData } from "../components/NutritionInfo";
 
 /* --------------------------------- TYPES ---------------------------------- */
 
-// Herdamos a tipagem oficial do componente NutritionData e garantimos que 
+// Herdamos a tipagem oficial do componente NutritionData e garantimos que
 // tudo que formos calcular seja um número obrigatório
 interface StrictNutrition extends NutritionData {
   energyKj: number;
@@ -27,19 +27,19 @@ interface StrictNutrition extends NutritionData {
 interface PackageNutritionProps {
   dish: Record<string, unknown> | null | undefined;
   selectedAccs?: Record<string, unknown>[];
-  groups?: Record<string, unknown>[]; 
+  groups?: Record<string, unknown>[];
   defaultWeight: number | string;
-  variant?: "default" | "compact"; 
+  variant?: "default" | "compact";
 }
 
 /* ------------------------------- COMPONENT -------------------------------- */
 
-export default function PackageNutritionDashboard({ 
-  dish, 
-  selectedAccs = [], 
-  groups = [], 
+export default function PackageNutritionDashboard({
+  dish,
+  selectedAccs = [],
+  groups = [],
   defaultWeight,
-  variant = "default" 
+  variant = "default"
 }: PackageNutritionProps) {
 
   const [showFullNutrition, setShowFullNutrition] = useState(false);
@@ -62,19 +62,25 @@ export default function PackageNutritionDashboard({
     };
 
     if (!dish) return { nutrition: emptyNutrition };
-    const mealNutrition = calculateMealNutrition(
-      {
-        ...dish,
-        mainDishWeight:
-          safeNumber(
-            (dish.mainDishWeight as string | number | undefined) ??
-              (dish.main_dish_weight as string | number | undefined) ??
-              defaultWeight,
-            safeNumber(defaultWeight, 300),
-          ),
-      },
-      selectedAccs,
+    const targetMainDishWeight = safeNumber(
+      (dish.mainDishWeight as string | number | undefined) ??
+        (dish.main_dish_weight as string | number | undefined) ??
+        defaultWeight,
+      safeNumber(defaultWeight, 300),
     );
+    const mealNutrition = calculateMealNutritionCanonical({
+      dish: extractDishNutritionSource(dish),
+      recipeWeight: (dish.recipeWeight ?? dish.recipe_weight ?? dish.yieldWeight ?? dish.yield_weight) as
+        | number
+        | string
+        | null
+        | undefined,
+      targetMainDishWeight,
+      composition: Array.isArray(dish.composition)
+        ? (dish.composition as Record<string, unknown>[])
+        : undefined,
+      accompaniments: selectedAccs,
+    }).nutrition;
 
     return {
       nutrition: {
@@ -99,11 +105,11 @@ export default function PackageNutritionDashboard({
   const totalMacros = (nutrition.carbs + nutrition.proteins + nutrition.fatTotal) || 1;
 
   return (
-    <div 
+    <div
       className={cn(
         "rounded-[2rem] border-2 transition-all duration-500",
-        showFullNutrition 
-          ? "bg-slate-50 border-slate-200 shadow-inner" 
+        showFullNutrition
+          ? "bg-slate-50 border-slate-200 shadow-inner"
           : "bg-white border-slate-100 hover:border-emerald-200 hover:shadow-lg cursor-pointer"
       )}
       onClick={() => !showFullNutrition && setShowFullNutrition(true)}
@@ -134,9 +140,9 @@ export default function PackageNutritionDashboard({
           </div>
         </div>
 
-        <button 
-          type="button" 
-          onClick={(e) => { e.stopPropagation(); setShowFullNutrition(!showFullNutrition); }} 
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setShowFullNutrition(!showFullNutrition); }}
           className={cn(
             "h-10 w-10 flex items-center justify-center rounded-2xl transition-all duration-300",
             showFullNutrition ? "bg-emerald-500 text-white rotate-180" : "bg-slate-50 text-slate-400"
@@ -148,21 +154,21 @@ export default function PackageNutritionDashboard({
 
       <AnimatePresence>
         {showFullNutrition && (
-          <motion.div 
-            initial={{ height: 0, opacity: 0 }} 
-            animate={{ height: "auto", opacity: 1 }} 
-            exit={{ height: 0, opacity: 0 }} 
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
             <div className="px-6 pb-6">
               <div className="pt-6 border-t border-slate-200">
                 {/* ✅ Tipagem garantida através da interface StrictNutrition */}
-                <NutritionInfo 
-                  data={nutrition} 
-                  totalWeight={nutrition.yieldWeight} 
+                <NutritionInfo
+                  data={nutrition}
+                  totalWeight={nutrition.yieldWeight}
                 />
-                
-                <button 
+
+                <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setShowFullNutrition(false); }}
                   className="w-full mt-6 py-3 bg-slate-200/50 hover:bg-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-widest rounded-xl transition-colors"
