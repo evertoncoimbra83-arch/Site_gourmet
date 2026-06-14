@@ -4,22 +4,27 @@ import { Button } from "@/components/ui/button";
 
 // ✅ Interfaces estritas para evitar o uso de 'any'
 interface TemplateOption {
-  id: string;
-  name: string;
+  id?: string | number;
+  name?: string;
 }
 
 interface TemplateGroup {
-  id: string;
+  id?: string | number;
   options?: TemplateOption[];
 }
 
 interface TemplateMeal {
-  id: string;
+  id?: string | number;
+  dishes?: TemplateOption[];
+  items?: TemplateOption[];
+  options?: TemplateOption[];
   groups?: TemplateGroup[];
 }
 
 interface TemplateDataStructure {
   meals?: TemplateMeal[];
+  items?: TemplateOption[];
+  dishes?: TemplateOption[];
 }
 
 interface PrescriptionTemplate {
@@ -27,7 +32,17 @@ interface PrescriptionTemplate {
   name: string;
   description?: string | null;
   totalKcalTarget?: number | null;
-  data: unknown; // O JSON bruto do banco
+  data?: unknown; // O JSON bruto do banco
+  content?: unknown;
+  dietSnapshot?: unknown;
+  snapshot?: unknown;
+  meals?: TemplateMeal[];
+  items?: TemplateOption[];
+  dishes?: TemplateOption[];
+  prescriptionItems?: TemplateOption[];
+  itemsCount?: number | string | null;
+  dishesCount?: number | string | null;
+  mealsCount?: number | string | null;
   createdAt: string | Date;
 }
 
@@ -39,40 +54,79 @@ interface TemplateListProps {
   onCreate: () => void;
 }
 
-export function TemplateList({ templates, isLoading, onEdit, onDelete, onCreate }: TemplateListProps) {
-  
-  /**
-   * ✅ Função de contagem revisada:
-   * Trata o dado como string ou objeto e percorre a árvore meals -> groups -> options
-   */
-  const countTotalDishes = (rawData: unknown): number => {
-    if (!rawData) return 0;
+function safeCount(value: unknown): number | null {
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? count : null;
+}
 
-    try {
-      // 1. Tenta fazer o parse se for string, senão assume que já é objeto
-      const parsed: TemplateDataStructure = typeof rawData === 'string' 
-        ? JSON.parse(rawData) 
-        : (rawData as TemplateDataStructure);
+function parseTemplatePayload(rawData: unknown): TemplateDataStructure | TemplateMeal[] | null {
+  if (!rawData) return null;
 
-      // 2. Garante que meals existe e é um array
-      const meals = parsed?.meals;
-      if (!Array.isArray(meals)) return 0;
+  try {
+    return typeof rawData === "string"
+      ? JSON.parse(rawData)
+      : (rawData as TemplateDataStructure | TemplateMeal[]);
+  } catch {
+    return null;
+  }
+}
 
-      // 3. Soma as opções de todos os grupos de todas as refeições
-      return meals.reduce((total, meal) => {
-        const groups = meal.groups || [];
-        const mealDishes = groups.reduce((groupTotal, group) => {
-          return groupTotal + (group.options?.length || 0);
-        }, 0);
-        return total + mealDishes;
+function countMealsDishes(meals: unknown): number {
+  if (!Array.isArray(meals)) return 0;
+
+  return meals.reduce((total, mealItem) => {
+    const meal = mealItem as TemplateMeal;
+
+    if (Array.isArray(meal.dishes)) return total + meal.dishes.length;
+    if (Array.isArray(meal.items)) return total + meal.items.length;
+    if (Array.isArray(meal.options)) return total + meal.options.length;
+
+    if (Array.isArray(meal.groups)) {
+      return total + meal.groups.reduce((groupTotal, group) => {
+        return groupTotal + (Array.isArray(group.options) ? group.options.length : 0);
       }, 0);
-
-    } catch (error) {
-      console.error("Erro ao processar contagem de pratos:", error);
-      return 0;
     }
-  };
 
+    return total;
+  }, 0);
+}
+
+export function countTemplateDishes(template: Partial<PrescriptionTemplate>): number {
+  const explicitCount =
+    safeCount(template.itemsCount) ??
+    safeCount(template.dishesCount) ??
+    safeCount(template.mealsCount);
+
+  if (explicitCount !== null) return explicitCount;
+
+  if (Array.isArray(template.prescriptionItems)) return template.prescriptionItems.length;
+  if (Array.isArray(template.items)) return template.items.length;
+  if (Array.isArray(template.dishes)) return template.dishes.length;
+  if (Array.isArray(template.meals)) return countMealsDishes(template.meals);
+
+  const payloadCandidates = [
+    template.data,
+    template.content,
+    template.dietSnapshot,
+    template.snapshot,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    const parsed = parseTemplatePayload(candidate);
+    if (Array.isArray(parsed)) return countMealsDishes(parsed);
+    if (parsed?.items && Array.isArray(parsed.items)) return parsed.items.length;
+    if (parsed?.dishes && Array.isArray(parsed.dishes)) return parsed.dishes.length;
+    if (parsed?.meals && Array.isArray(parsed.meals)) return countMealsDishes(parsed.meals);
+  }
+
+  return 0;
+}
+
+export function formatDishesCountLabel(totalDishes: number): string {
+  return `${totalDishes} ${totalDishes === 1 ? "Prato" : "Pratos"}`;
+}
+
+export function TemplateList({ templates, isLoading, onEdit, onDelete, onCreate }: TemplateListProps) {
   if (isLoading) {
     return (
       <div className="p-20 flex flex-col items-center justify-center w-full gap-4">
@@ -98,7 +152,7 @@ export function TemplateList({ templates, isLoading, onEdit, onDelete, onCreate 
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {templates.map((template) => {
-          const totalDishes = countTotalDishes(template.data);
+          const totalDishes = countTemplateDishes(template);
 
           return (
             <div 
@@ -109,7 +163,7 @@ export function TemplateList({ templates, isLoading, onEdit, onDelete, onCreate 
               <div className="absolute top-0 right-0 bg-slate-900 text-white px-5 py-2 rounded-bl-3xl flex items-center gap-2 shadow-lg z-10">
                 <Utensils size={10} className="text-amber-400" />
                 <span className="text-[10px] font-black uppercase tracking-tighter">
-                  {totalDishes} {totalDishes === 1 ? 'Prato' : 'Pratos'}
+                  {formatDishesCountLabel(totalDishes)}
                 </span>
               </div>
 

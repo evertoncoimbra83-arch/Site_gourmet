@@ -1,10 +1,12 @@
 // client/src/pages/nutri/NutriDashboardView.tsx
 
-import React, { useState, useMemo, ComponentProps } from "react";
+import React, { useEffect, useState, useMemo, ComponentProps } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
+import { buildReferralInviteUrl } from "@/lib/referral-invite-url";
 import { Loader2, UserCircle } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 import { DashboardHeader } from "./components/Dashboard/DashboardHeader";
 import { ReferralCard } from "./components/Dashboard/ReferralCard";
@@ -37,10 +39,14 @@ export default function NutriDashboardView() {
   const [isPrescriptionDrawerOpen, setIsPrescriptionDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedClientName, setSelectedClientName] = useState<string>("");
+  const [selectedPrescriptionId, setSelectedPrescriptionId] = useState<string | null>(null);
   const [currentDiet, setCurrentDiet] = useState<PrescriptionType>(null);
   
   const [isTemplateDrawerOpen, setIsTemplateDrawerOpen] = useState(false);
   const [currentTemplate, setCurrentTemplate] = useState<PrescriptionType>(null);
+  
+  const [prescriptionToDelete, setPrescriptionToDelete] = useState<string | number | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<string | number | null>(null);
   
   // ✅ Cast seguro para evitar o uso de 'any' conforme regra do ESLint
   const nutriApi = (trpc.nutri as unknown as NutriRouterApi);
@@ -49,10 +55,36 @@ export default function NutriDashboardView() {
   const { data: profile, isLoading: lp } = trpc.nutri.getPublicProfile.useQuery(undefined, { enabled: !!user?.id });
   const { data: clients, isLoading: lc } = trpc.nutri.getMyClients.useQuery(undefined, { enabled: !!user?.id, staleTime: 0 });
   const { data: templates, isLoading: lt } = trpc.nutri.getMyTemplates.useQuery(undefined, { enabled: !!user?.id });
+  const {
+    data: prescriptionDetails,
+    isFetching: isLoadingPrescriptionDetails,
+  } = trpc.nutri.getPrescriptionDetails.useQuery(
+    {
+      clientId: selectedClientId,
+      prescriptionId: selectedPrescriptionId || undefined,
+    },
+    {
+      enabled:
+        isPrescriptionDrawerOpen &&
+        Boolean(selectedClientId) &&
+        Boolean(selectedPrescriptionId),
+      staleTime: 0,
+    },
+  );
+
+  useEffect(() => {
+    if (!selectedPrescriptionId) return;
+    const richPrescription = Array.isArray(prescriptionDetails)
+      ? prescriptionDetails[0]
+      : null;
+    if (richPrescription) {
+      setCurrentDiet((richPrescription as unknown) as PrescriptionType);
+    }
+  }, [prescriptionDetails, selectedPrescriptionId]);
 
   const referralLink = useMemo(() => {
     if (!profile?.referralCode) return "";
-    return `${window.location.origin}/convite/${profile.referralCode}`;
+    return buildReferralInviteUrl(profile.referralCode);
   }, [profile]);
 
   // Mutations
@@ -148,13 +180,12 @@ export default function NutriDashboardView() {
               onOpen={(id, name, diet) => {
                 setSelectedClientId(id);
                 setSelectedClientName(name);
-                setCurrentDiet((diet as unknown) as PrescriptionType);
+                setSelectedPrescriptionId(diet?.id || null);
+                setCurrentDiet(null);
                 setIsPrescriptionDrawerOpen(true);
               }}
               onDeletePrescription={(id) => {
-                if(confirm("Deseja apagar esta prescrição?")) {
-                    deletePrescription.mutate({ id });
-                }
+                setPrescriptionToDelete(id);
               }}
             />
           )}
@@ -168,9 +199,7 @@ export default function NutriDashboardView() {
                 setIsTemplateDrawerOpen(true);
               }} 
               onDelete={(id: string) => {
-                if(confirm("Excluir modelo?")) {
-                    deleteTemplate.mutate({ templateId: id });
-                }
+                setTemplateToDelete(id);
               }} 
               onCreate={() => {
                 setCurrentTemplate(null);
@@ -198,10 +227,12 @@ export default function NutriDashboardView() {
         onClose={() => {
           setIsPrescriptionDrawerOpen(false);
           setCurrentDiet(null);
+          setSelectedPrescriptionId(null);
         }} 
         clientId={selectedClientId}
         clientName={selectedClientName}
         currentPrescription={currentDiet}
+        isLoadingInitialData={Boolean(selectedPrescriptionId) && isLoadingPrescriptionDetails}
         isTemplateMode={false}
       />
 
@@ -217,6 +248,37 @@ export default function NutriDashboardView() {
         isTemplateMode={true}
       />
 
+      <ConfirmDialog
+        open={prescriptionToDelete !== null}
+        title="Apagar Prescrição"
+        description="Deseja realmente apagar esta prescrição? Esta ação não pode ser desfeita."
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (prescriptionToDelete !== null) {
+            deletePrescription.mutate({ id: prescriptionToDelete });
+            setPrescriptionToDelete(null);
+          }
+        }}
+        onCancel={() => setPrescriptionToDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={templateToDelete !== null}
+        title="Excluir Modelo"
+        description="Deseja realmente excluir este modelo de dieta?"
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (templateToDelete !== null) {
+            deleteTemplate.mutate({ templateId: templateToDelete });
+            setTemplateToDelete(null);
+          }
+        }}
+        onCancel={() => setTemplateToDelete(null)}
+      />
     </div>
   );
 }

@@ -6,13 +6,50 @@ import { appToast as toast } from "@/lib/app-toast";
 import { safeNumber } from "@/lib/safe-parse";
 
 export interface PrescriptionOptionData {
+  id?: string | number;
+  prescriptionId?: string;
+  prescriptionItemId?: string;
+  source?: "prescription" | string;
   dishId: string | number;
   name: string;
   originalPrice: number;
   priceAtCreation?: number;
   sizeId?: string | number;
-  allowedAccompaniments?: Array<{ id: string | number; name: string; weight?: number }>;
+  sizeName?: string | null;
+  sizeWeight?: string | number | null;
+  weight?: string | number | null;
+  mainDishWeight?: number | null;
+  noAccompanimentsMessage?: string | null;
+  fixedPrice?: number;
+  discountPercentage?: number;
+  legacySizeMissing?: boolean;
+  selectedAccompaniments?: Array<{
+    id: string | number;
+    name: string;
+    groupId?: string | number | null;
+    groupName?: string | null;
+    sourceGroupId?: string | number | null;
+    sourceGroupName?: string | null;
+    minSelections?: number | string | null;
+    maxSelections?: number | string | null;
+    defaultGrammage?: number | string | null;
+    weight?: number | string | null;
+    isNoAccompaniment?: boolean;
+    is_no_accompaniment?: boolean;
+    energyKcal?: number | string;
+    proteins?: number | string;
+    carbs?: number | string;
+    fatTotal?: number | string;
+    /** Marcado pelo getDashboard quando o acc não existe mais no catálogo ativo */
+    legacyAccMissing?: boolean;
+    unavailable?: boolean;
+  }>;
+  allowedAccompaniments?: PrescriptionOptionData["selectedAccompaniments"];
   nutritionalData?: {
+    sizeName?: string | null;
+    sizeWeight?: string | number | null;
+    weight?: string | number | null;
+    noAccompanimentsMessage?: string | null;
     mainDishWeight?: number;
     baseMacros?: {
       kcal?: number;
@@ -48,9 +85,9 @@ export function usePrescriptionLogic() {
       }
     }
   };
-  
+
   const prescriptionsQuery = nutriApi.myPrescription.getDashboard.useQuery();
-  
+
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const { addItem, items } = useCart();
   const navigate = useNavigate();
@@ -63,7 +100,7 @@ export function usePrescriptionLogic() {
       id: String(raw.id || ""),
       planName: String(raw.planName || raw.plan_name || "Plano Alimentar"),
       discountPercentage: Number(raw.discountPercentage || raw.discount_percentage || 0),
-      technicalInsight: String(raw.technicalInsight || ""), 
+      technicalInsight: String(raw.technicalInsight || ""),
       meals: ((raw.meals || []) as Record<string, unknown>[]).map((m): PatientMeal => ({
         mealName: String(m.mealName || "Refeição"),
         notes: String(m.notes || ""),
@@ -82,11 +119,73 @@ export function usePrescriptionLogic() {
   const handleAddToCart = async (dish: PrescriptionOptionData) => {
     if (!dish.dishId || !activePlan) return;
 
+    if (dish.legacySizeMissing) {
+      toast.error("Este prato usa um tamanho legado e precisa ser atualizado pelo nutricionista.");
+      return;
+    }
+
+    // ✅ P0 FIX: Bloquear se sizeId inválido (0, null ou undefined)
+    const numericSizeId = Number(dish.sizeId);
+    if (!numericSizeId || !Number.isFinite(numericSizeId)) {
+      toast.error("Este prato não tem tamanho definido. Peça ao nutricionista para atualizar o plano.");
+      return;
+    }
+
+    const accsToUse = (
+      dish.selectedAccompaniments ||
+      dish.allowedAccompaniments ||
+      []
+    );
+
+    // ✅ P0 FIX: Bloquear se algum acompanhamento foi marcado como indisponível pelo getDashboard
+    const hasUnavailableAcc = accsToUse.some(
+      (acc) =>
+        (acc as Record<string, unknown>).legacyAccMissing === true ||
+        (acc as Record<string, unknown>).unavailable === true,
+    );
+    if (hasUnavailableAcc) {
+      toast.error(
+        "Esta prescrição usa acompanhamentos que não estão mais disponíveis. " +
+        "Peça ao nutricionista para atualizar o plano.",
+      );
+      return;
+    }
+
     try {
       const discount = safeNumber(activePlan.discountPercentage);
-      const finalPrice = discount > 0 
-        ? dish.originalPrice * (1 - discount / 100) 
+      const finalPrice = discount > 0
+        ? dish.originalPrice * (1 - discount / 100)
         : dish.originalPrice;
+
+      const selectedSizeName =
+        dish.sizeName ||
+        dish.nutritionalData?.sizeName ||
+        undefined;
+
+      // ✅ P0 FIX: weight vem de defaultGrammage do grupo (gramagem do acompanhamento),
+      // nunca de mainDishWeight ou sizeWeight (que são do prato/tamanho, não do acompanhamento)
+      const selectedAccs = accsToUse.map((acc) => ({
+        id: Number(acc.id),
+        name: acc.name,
+        weight: safeNumber(acc.defaultGrammage ?? acc.weight, 100),
+        defaultGrammage: safeNumber(acc.defaultGrammage ?? acc.weight, 100),
+        groupId: acc.groupId ?? acc.sourceGroupId ?? undefined,
+        groupName: acc.groupName ?? acc.sourceGroupName ?? undefined,
+        minSelections:
+          acc.minSelections === null || acc.minSelections === undefined
+            ? undefined
+            : safeNumber(acc.minSelections),
+        maxSelections:
+          acc.maxSelections === null || acc.maxSelections === undefined
+            ? undefined
+            : safeNumber(acc.maxSelections),
+        isNoAccompaniment: Boolean(acc.isNoAccompaniment ?? acc.is_no_accompaniment),
+        is_no_accompaniment: Boolean(acc.isNoAccompaniment ?? acc.is_no_accompaniment),
+        energyKcal: safeNumber(acc.energyKcal),
+        proteins: safeNumber(acc.proteins),
+        carbs: safeNumber(acc.carbs),
+        fatTotal: safeNumber(acc.fatTotal),
+      }));
 
       await addItem({
         itemType: "dish",
@@ -94,20 +193,29 @@ export function usePrescriptionLogic() {
         quantity: 1,
         price: finalPrice,
         name: dish.name,
-        image: "", 
+        image: "",
         options: {
           _type: "single",
           dishId: String(dish.dishId),
-          selectedSizeId: dish.sizeId ? String(dish.sizeId) : undefined,
-          selectedSizeName: dish.nutritionalData?.mainDishWeight 
-            ? `${dish.nutritionalData.mainDishWeight}g` 
-            : "Personalizado",
-          selectedAccs: (dish.allowedAccompaniments || []).map((acc) => ({
-            id: Number(acc.id),
-            name: acc.name,
-            weight: Number(acc.weight || 100),
-            groupName: "Acompanhamento"
-          }))
+          dishName: dish.name,
+          source: "prescription",
+          prescriptionId: dish.prescriptionId || activePlan.id,
+          prescriptionItemId: dish.prescriptionItemId || String(dish.id || ""),
+          prescriptionDiscountPercentage: discount,
+          prescriptionFixedPrice: safeNumber(dish.fixedPrice ?? dish.priceAtCreation ?? dish.originalPrice),
+          // ✅ P0 FIX: selectedSizeId sempre explícito quando sizeId > 0
+          selectedSizeId: String(numericSizeId),
+          selectedSizeName,
+          sizeName: selectedSizeName,
+          weight: dish.sizeWeight ?? dish.weight ?? dish.nutritionalData?.sizeWeight ?? dish.nutritionalData?.weight ?? null,
+          sizeWeight: dish.sizeWeight ?? dish.weight ?? dish.nutritionalData?.sizeWeight ?? dish.nutritionalData?.weight ?? null,
+          mainDishWeight: safeNumber(dish.mainDishWeight ?? dish.nutritionalData?.mainDishWeight),
+          noAccompanimentsMessage:
+            dish.noAccompanimentsMessage ??
+            dish.nutritionalData?.noAccompanimentsMessage ??
+            undefined,
+          selectedAccs,
+          selectedAccompaniments: selectedAccs,
         },
         appliedNutrition: {
           energyKcal: Number(dish.nutritionalData?.baseMacros?.kcal || 0),
@@ -116,7 +224,7 @@ export function usePrescriptionLogic() {
           fatTotal: Number(dish.nutritionalData?.baseMacros?.fat || 0),
         }
       } as unknown as Parameters<typeof addItem>[0]);
-      
+
       toast.success(`${dish.name} adicionado ao carrinho!`);
     } catch (err) {
       console.error(err);

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { router, publicProcedure } from "../../../_core/trpc.js";
-import { dishes, dishSizes, appConfigs } from "../../../../drizzle/schema/index.js"; 
+import { dishes, dishSizes, dishesToSizes, appConfigs } from "../../../../drizzle/schema/index.js"; 
 import { and, eq, sql } from "drizzle-orm";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { decrypt } from "../../../encryption.js";
@@ -69,17 +69,19 @@ export const nutritionRouter = router({
             slug: dishes.slug,
             imageUrl: dishes.imageUrl,
             sizeName: dishSizes.name,
-            protein: sql<number>`dish_sizes.protein_g`,
-            kcal: sql<number>`dish_sizes.energy_kcal`,
+            mainDishWeight: dishSizes.mainDishWeight,
+            protein: dishes.proteins,
+            kcal: dishes.energyKcal,
           })
           .from(dishes)
-          .innerJoin(dishSizes, sql`${dishes.id} = dish_sizes.dish_id`)
+          .innerJoin(dishesToSizes, eq(dishes.id, dishesToSizes.dishId))
+          .innerJoin(dishSizes, eq(dishesToSizes.sizeId, dishSizes.id))
           .where(
             and(
               eq(dishes.isActive, true),
               eq(dishes.isVisible, true),
-              sql`dish_sizes.energy_kcal >= ${aiMeta.lunch.kcal * 0.8}`,
-              sql`dish_sizes.energy_kcal <= ${aiMeta.lunch.kcal * 1.2}`
+              sql`${dishes.energyKcal} >= ${aiMeta.lunch.kcal * 0.8}`,
+              sql`${dishes.energyKcal} <= ${aiMeta.lunch.kcal * 1.2}`
             )
           )
           .limit(10);

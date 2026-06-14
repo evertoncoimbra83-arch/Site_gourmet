@@ -4,23 +4,88 @@ import type { FullPrescription, PrescriptionMeal, PrescriptionOption } from "../
 
 export interface CatalogItem {
   id: string | number;
+  sizes?: unknown[];
   availableSizes?: unknown[];
-  basePrice?: number | string; 
+  basePrice?: number | string;
   base_price?: number | string;
 }
 
+const normalizeComparable = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+const getCatalogSizes = (catalogItem: CatalogItem | undefined, option: Record<string, unknown>) => {
+  const sizes = Array.isArray(catalogItem?.sizes)
+    ? catalogItem?.sizes
+    : Array.isArray(catalogItem?.availableSizes)
+      ? catalogItem?.availableSizes
+      : Array.isArray(option.availableSizes)
+        ? option.availableSizes
+        : [];
+
+  return (sizes || []) as Record<string, unknown>[];
+};
+
+const findRealSizeForSnapshot = (
+  sizes: Record<string, unknown>[],
+  sizeId: number | null,
+  option: Record<string, unknown>,
+  nutriData: Record<string, unknown>,
+) => {
+  if (sizeId !== null && Number.isFinite(sizeId)) {
+    const byId = sizes.find((size) => Number(size.id) === Number(sizeId));
+    if (byId) return byId;
+  }
+
+  const legacyName = normalizeComparable(
+    option.sizeName ?? nutriData.sizeName ?? option.size ?? option.weight,
+  );
+  if (!legacyName) return undefined;
+
+  return sizes.find((size) => {
+    const sizeName = normalizeComparable(size.name);
+    const sizeWeight = normalizeComparable(size.weight);
+    return sizeName === legacyName || sizeWeight === legacyName;
+  });
+};
+
+const getSizeGroups = (size: Record<string, unknown> | undefined) => {
+  const groups = Array.isArray(size?.accompanimentGroups)
+    ? size?.accompanimentGroups
+    : Array.isArray(size?.groups)
+      ? size?.groups
+      : [];
+
+  return groups as Record<string, unknown>[];
+};
+
+const findGroupForAcc = (
+  groups: Record<string, unknown>[],
+  acc: Record<string, unknown>,
+) => {
+  const groupId = acc.groupId ?? acc.sourceGroupId;
+  if (groupId !== null && groupId !== undefined) {
+    const direct = groups.find((group) => String(group.id ?? group.groupId) === String(groupId));
+    if (direct) return direct;
+  }
+
+  return groups.find((group) => {
+    const options = Array.isArray(group.options) ? group.options : [];
+    return options.some((option) => String((option as Record<string, unknown>).id) === String(acc.id));
+  });
+};
+
 export function normalizePrescriptionData(
-  p: unknown, 
+  p: unknown,
   catalog: CatalogItem[] = [],
   forceRecalculatePrices = false
 ): FullPrescription {
   if (!p) return { planName: "Plano Alimentar", meals: [] } as unknown as FullPrescription;
 
   const data = p as Record<string, unknown>;
-  
   let rawMeals: unknown[] = [];
-  
-  // Prioridade de extração (Nova tabela 'meals' vs Snapshot antigo)
+
   if (Array.isArray(data.meals)) {
     rawMeals = data.meals;
   } else if (data.dietSnapshot) {
@@ -47,8 +112,7 @@ export function normalizePrescriptionData(
     const transformOption = (oItem: unknown): PrescriptionOption => {
       const o = oItem as Record<string, unknown>;
       const nutriData = (o.nutritionalData as Record<string, unknown>) || {};
-      
-      // ✅ Prioriza macros já calculados (que agora o backend envia)
+
       const macrosSource = (o.macros as Record<string, unknown>) || (nutriData.baseMacros as Record<string, unknown>) || o || {};
       const macros = {
         kcal: safeNumber(macrosSource.kcal ?? macrosSource.energyKcal),
@@ -57,25 +121,97 @@ export function normalizePrescriptionData(
         fat: safeNumber(macrosSource.fat ?? macrosSource.fatTotal),
       };
 
-      const finalAccs = Array.isArray(o.allowedAccompaniments) 
-        ? o.allowedAccompaniments 
-        : Array.isArray(nutriData.allowedAccompaniments) 
-          ? nutriData.allowedAccompaniments 
+      const rawAccs = Array.isArray(o.allowedAccompaniments)
+        ? o.allowedAccompaniments
+        : Array.isArray(nutriData.allowedAccompaniments)
+          ? nutriData.allowedAccompaniments
           : [];
 
-      const sId = o.sizeId !== undefined ? safeNumber(o.sizeId, Number.NaN) : nutriData.sizeId ? safeNumber(nutriData.sizeId, Number.NaN) : null;
-      const weight = o.mainDishWeight !== undefined ? safeNumber(o.mainDishWeight, 200) : nutriData.mainDishWeight !== undefined ? safeNumber(nutriData.mainDishWeight, 200) : 200;
+      // ✅ P0 FIX: Usar defaultGrammage real do grupo/acc.
+      // Removida heurística de nome ("80g"/"100g") e distribuição por índice.
+      // Regra objetiva: defaultGrammage > weight salvo > fallback 100.
+      let finalAccs = rawAccs.map((acc: any) => {
+        if (!acc) return acc;
+
+        // Prefere defaultGrammage explícito (salvo pelo novo builder),
+        // depois weight salvo (pode ser correto se veio do catálogo),
+        // nunca usa mainDishWeight como gramagem do acompanhamento.
+        const calculatedWeight = Number(
+          acc.defaultGrammage ??
+          acc.weight ??
+          100
+        );
+        const safeWeight = Number.isFinite(calculatedWeight) && calculatedWeight > 0
+          ? calculatedWeight
+          : 100;
+
+        return {
+          ...acc,
+          weight: safeWeight,
+          defaultGrammage: acc.defaultGrammage ?? safeWeight,
+          groupName: acc.groupName ?? acc.sourceGroupName ?? null,
+          groupId: acc.groupId ?? acc.sourceGroupId ?? null,
+        };
+      });
 
       const catalogItem = catalog.find((c) => String(c.id) === String(o.dishId));
-      const availableSizes = (catalogItem?.availableSizes as unknown[]) || (o.availableSizes as unknown[]) || [];
+      const availableSizes = getCatalogSizes(catalogItem, o);
+      const rawSizeId = o.sizeId ?? nutriData.sizeId;
+      const sId = rawSizeId !== undefined && rawSizeId !== null ? safeNumber(rawSizeId, Number.NaN) : null;
+      const matchedSize = findRealSizeForSnapshot(availableSizes, sId, o, nutriData);
 
-      // ✅ IMPORTANTE: Preservar os campos de preço
+      const snapshotWeight = o.mainDishWeight !== undefined
+        ? safeNumber(o.mainDishWeight, 0)
+        : nutriData.mainDishWeight !== undefined
+          ? safeNumber(nutriData.mainDishWeight, 0)
+          : 0;
+
+      const weight = matchedSize ? safeNumber(matchedSize.mainDishWeight ?? matchedSize.weight, snapshotWeight) : snapshotWeight;
+      const hydratedSizeId = matchedSize?.id !== undefined ? safeNumber(matchedSize.id, Number.NaN) : sId;
+      const sizeName = String(matchedSize?.name ?? o.sizeName ?? nutriData.sizeName ?? "") || null;
+      const sizeWeight = matchedSize?.weight ?? o.sizeWeight ?? o.weight ?? nutriData.sizeWeight ?? nutriData.weight ?? null;
+      const noAccompanimentsMessage = String(matchedSize?.noAccompanimentsMessage ?? o.noAccompanimentsMessage ?? nutriData.noAccompanimentsMessage ?? "") || null;
+      const legacySizeMissing = Boolean(o.legacySizeMissing) || (sId !== null && !matchedSize && (availableSizes.length > 0 || Boolean(o.sizeId)));
+
+      const groups = getSizeGroups(matchedSize);
+      finalAccs = rawAccs.map((acc: any) => {
+        if (!acc) return acc;
+
+        const group = findGroupForAcc(groups, acc);
+        const groupDefault = safeNumber(
+          group?.defaultGrammage ?? group?.default_grammage,
+          Number.NaN,
+        );
+        const accDefault = safeNumber(acc.defaultGrammage, Number.NaN);
+        const accWeight = safeNumber(acc.weight, Number.NaN);
+        const mainDishWeight = safeNumber(weight, Number.NaN);
+        const optionSizeWeight = safeNumber(sizeWeight, Number.NaN);
+        const weightLooksLikeDish =
+          Number.isFinite(accWeight) &&
+          ((Number.isFinite(mainDishWeight) && accWeight === mainDishWeight) ||
+            (Number.isFinite(optionSizeWeight) && accWeight === optionSizeWeight));
+
+        const calculatedWeight =
+          (Number.isFinite(accDefault) && accDefault > 0 ? accDefault : null) ??
+          (!weightLooksLikeDish && Number.isFinite(accWeight) && accWeight > 0 ? accWeight : null) ??
+          (Number.isFinite(groupDefault) && groupDefault > 0 ? groupDefault : null) ??
+          100;
+
+        return {
+          ...acc,
+          weight: calculatedWeight,
+          defaultGrammage:
+            (Number.isFinite(accDefault) && accDefault > 0 ? accDefault : null) ??
+            (Number.isFinite(groupDefault) && groupDefault > 0 ? groupDefault : null) ??
+            calculatedWeight,
+          groupName: acc.groupName ?? acc.sourceGroupName ?? group?.name ?? group?.groupName ?? null,
+          groupId: acc.groupId ?? acc.sourceGroupId ?? group?.id ?? group?.groupId ?? null,
+        };
+      });
+
       const priceAtCreation = safeNumber(o.priceAtCreation ?? o.fixedPrice ?? o.price);
-      
-      // Tenta recuperar o preço base do catálogo, se falhar usa o preço da criação
-      const basePrice = catalogItem ? safeNumber(catalogItem.basePrice ?? catalogItem.base_price) : priceAtCreation;
+      let basePrice = catalogItem ? safeNumber(catalogItem.basePrice ?? catalogItem.base_price) : priceAtCreation;
 
-      // Recalcular com o catálogo vigente se forceRecalculatePrices for ativo
       let finalPrice = priceAtCreation;
       if (forceRecalculatePrices && catalogItem) {
         const matchedSize = (availableSizes as any[]).find((s) => Number(s.id) === Number(sId));
@@ -89,39 +225,43 @@ export function normalizePrescriptionData(
         }
       }
 
-      // 🔥 TRAVA DE SEGURANÇA (RESCUE LOGIC) 🔥
-      // Corrige dietas corrompidas onde o 'price' foi salvo no 'multiplier' (ex: 8.00)
       const rawMultiplier = safeNumber(o.multiplier, 1);
-      const safeMultiplier = rawMultiplier > 5 ? 1 : rawMultiplier; // Se for bizarro (>5), reseta para 1
+      const safeMultiplier = rawMultiplier > 5 ? 1 : rawMultiplier;
 
       return {
         ...o,
         id: (o.id as string) || uuidv4(),
-        dishId: (o.dishId as string | number),
-        name: (o.name as string),
-        sizeId: sId,
+        dishId: o.dishId,
+        name: o.name,
+        sizeId: hydratedSizeId,
+        sizeName,
+        weight: sizeWeight,
+        sizeWeight,
         mainDishWeight: weight,
-        
-        multiplier: String(safeMultiplier), // ✅ Fator limpo e seguro
-        basePrice: basePrice, // ✅ Injeta para não quebrar a edição de tamanho
+        noAccompanimentsMessage,
+        legacySizeMissing,
+        multiplier: String(safeMultiplier),
+        basePrice: basePrice,
         priceAtCreation: finalPrice,
-        price: finalPrice, 
-        
+        price: finalPrice,
         isDefault: o.isDefault === true || String(o.isDefault) === "true",
         macros: macros,
         availableSizes: availableSizes,
         allowedAccompaniments: finalAccs,
         nutritionalData: {
           ...nutriData,
-          sizeId: sId,
+          sizeId: hydratedSizeId,
+          sizeName,
+          weight: sizeWeight,
+          sizeWeight,
           mainDishWeight: weight,
+          noAccompanimentsMessage,
           baseMacros: macros,
           allowedAccompaniments: finalAccs
         }
       } as unknown as PrescriptionOption;
     };
 
-    // Suporte tanto para estrutura com Grupos (Builder) quanto Lista Simples (API)
     let finalGroups: PrescriptionMeal['groups'] = [];
 
     if (m.groups && Array.isArray(m.groups)) {
@@ -131,13 +271,12 @@ export function normalizePrescriptionData(
           id: (g.id as string) || uuidv4(),
           name: (g.name as string) || "Opções da Semana",
           minSelections: Number(g.minSelections || 1),
-          maxSelections: Number(g.maxSelections || 7), // Atualizado para suportar até 7 pratos
+          maxSelections: Number(g.maxSelections || 7),
           isRequired: g.isRequired !== false,
           options: (Array.isArray(g.options) ? g.options : []).map(transformOption)
         };
       });
     } else if (Array.isArray(m.dishes)) {
-      // Se vier como lista plana (da nova tabela), agrupa por groupName para o Builder
       const groupsMap = new Map<string, PrescriptionMeal['groups'][number]>();
       m.dishes.forEach((dishItem) => {
         const dish = dishItem as Record<string, unknown>;
@@ -159,7 +298,7 @@ export function normalizePrescriptionData(
   });
 
   return {
-    id: data.id as string, 
+    id: data.id as string,
     planName: (data.planName as string) || (data.name as string) || "Plano Alimentar",
     totalKcalTarget: (data.totalKcalTarget as number) || 0,
     technicalInsight: (data.technicalInsight as string) || "",

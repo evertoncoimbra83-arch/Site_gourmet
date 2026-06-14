@@ -7,7 +7,8 @@ import {
   dishSizes, 
   nutriProfiles, 
   users, 
-  nutriAddresses 
+  nutriAddresses,
+  professionalClients,
 } from "../../../../drizzle/schema/index.js";
 import { eq, inArray, desc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
@@ -55,7 +56,27 @@ export const adminNutriRouter = router({
     .input(z.object({ referralCode: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const rows = await db
+
+      const [nutri] = await db
+        .select({ id: nutriProfiles.id })
+        .from(nutriProfiles)
+        .where(eq(nutriProfiles.referralCode, input.referralCode))
+        .limit(1);
+
+      const canonicalRows = nutri
+        ? await db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              createdAt: users.createdAt
+            })
+            .from(professionalClients)
+            .innerJoin(users, eq(professionalClients.clientId, users.id))
+            .where(eq(professionalClients.professionalId, nutri.id))
+        : [];
+
+      const legacyRows = await db
         .select({
           id: users.id,
           name: users.name,   
@@ -64,6 +85,11 @@ export const adminNutriRouter = router({
         })
         .from(users)
         .where(eq(users.referralCode, input.referralCode));
+
+      const rowsById = new Map<string, (typeof canonicalRows)[number]>();
+      canonicalRows.forEach((row) => rowsById.set(row.id, row));
+      legacyRows.forEach((row) => rowsById.set(row.id, row));
+      const rows = Array.from(rowsById.values());
 
       return rows.map(user => ({
         ...user,

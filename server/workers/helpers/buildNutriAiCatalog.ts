@@ -36,6 +36,8 @@ type DbAcc = {
   carbs?: number | null;
   fatTotal?: number | null;
   priceModifier?: number | null;
+  isNoAccompaniment?: boolean | null;
+  is_no_accompaniment?: boolean | null;
 };
 
 export function buildNutriAiCatalog(
@@ -80,6 +82,8 @@ export function buildNutriAiCatalog(
                 carbs: safeNumber(opt.carbs),
                 fatTotal: safeNumber(opt.fatTotal),
                 priceModifier: safeNumber(opt.priceModifier),
+                isNoAccompaniment: Boolean(opt.isNoAccompaniment ?? opt.is_no_accompaniment),
+                is_no_accompaniment: Boolean(opt.isNoAccompaniment ?? opt.is_no_accompaniment),
               })),
           };
         });

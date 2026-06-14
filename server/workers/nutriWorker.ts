@@ -62,12 +62,15 @@ const redisConfig: ConnectionOptions = redisUrl
 export const nutriWorker = new Worker(
   NUTRI_QUEUE_NAME,
   async (job) => {
-    const { scanId, rawText } = job.data;
+    const { scanId, rawText, requestId } = job.data;
     const runId = crypto.randomUUID();
     const startTime = Date.now();
 
     console.log(`\n[DEBUG] 🚀 --- INÍCIO DO JOB ---`);
     console.log(`[DEBUG] 🆔 Scan ID: ${scanId}`);
+    if (requestId) {
+      console.log(`[DEBUG] 🆔 Request ID: ${requestId}`);
+    }
 
     try {
       const db = await getDb();
@@ -159,6 +162,7 @@ export const nutriWorker = new Worker(
           carbs: accompanimentOptions.carbs,
           fatTotal: accompanimentOptions.fatTotal,
           priceModifier: accompanimentOptions.priceModifier,
+          isNoAccompaniment: accompanimentOptions.isNoAccompaniment,
         })
         .from(accompanimentOptions)
         .innerJoin(
@@ -252,7 +256,7 @@ export const nutriWorker = new Worker(
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Erro desconhecido";
-      console.error(`\n[DEBUG] ❌ FALHA NO JOB:`, errorMessage);
+      console.error(`\n[DEBUG] ❌ FALHA NO JOB: ${errorMessage} (Request ID: ${requestId || "none"})`);
 
       const db = await getDb();
       if (db && scanId) {

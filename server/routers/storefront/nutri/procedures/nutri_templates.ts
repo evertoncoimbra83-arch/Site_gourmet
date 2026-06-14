@@ -60,6 +60,27 @@ const safeNum = (val: unknown, fallback: number = 0): number => {
   return safeNumber(val, fallback);
 };
 
+function countTemplateItemsFromMeals(meals: unknown): number {
+  if (!Array.isArray(meals)) return 0;
+
+  return meals.reduce((total, mealItem) => {
+    const meal = mealItem as Record<string, unknown>;
+
+    if (Array.isArray(meal.dishes)) return total + meal.dishes.length;
+    if (Array.isArray(meal.items)) return total + meal.items.length;
+    if (Array.isArray(meal.options)) return total + meal.options.length;
+
+    if (Array.isArray(meal.groups)) {
+      return total + meal.groups.reduce((groupTotal, groupItem) => {
+        const group = groupItem as Record<string, unknown>;
+        return groupTotal + (Array.isArray(group.options) ? group.options.length : 0);
+      }, 0);
+    }
+
+    return total;
+  }, 0);
+}
+
 export const templateProcedures = {
   /**
    * SALVA UM MODELO DE DIETA (TEMPLATE)
@@ -174,7 +195,8 @@ export const templateProcedures = {
       } catch {
         console.error(`🔴 Erro JSON no template ${t.id}`);
       }
-      return { ...t, meals: parsedMeals };
+      const itemsCount = countTemplateItemsFromMeals(parsedMeals);
+      return { ...t, meals: parsedMeals, itemsCount, dishesCount: itemsCount };
     });
   }),
 

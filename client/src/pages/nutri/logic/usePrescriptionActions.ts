@@ -16,6 +16,12 @@ interface RawOptionData {
   macros?: Record<string, unknown> | null;
   nutritionalData?: Record<string, unknown> | null;
   mainDishWeight?: number | null;
+  sizeName?: string | null;
+  weight?: string | number | null;
+  sizeWeight?: string | number | null;
+  noAccompanimentsMessage?: string | null;
+  legacySizeMissing?: boolean;
+  availableSizes?: Array<{ id?: string | number | null }> | null;
   [key: string]: unknown;
 }
 
@@ -96,7 +102,34 @@ export function usePrescriptionActions({ clientId, prescriptionId, builder, onCl
               priceAtCreation: Number(o.priceAtCreation || o.price || 0),
               multiplier: String(o.multiplier || "1.00"),
               isDefault: !!o.isDefault,
-              allowedAccompaniments: o.allowedAccompaniments || [],
+              sizeName: o.sizeName ?? rawNutritionalData.sizeName ?? null,
+              weight: o.weight ?? o.sizeWeight ?? rawNutritionalData.weight ?? null,
+              sizeWeight: o.sizeWeight ?? o.weight ?? rawNutritionalData.sizeWeight ?? null,
+              mainDishWeight:
+                o.mainDishWeight ??
+                (rawNutritionalData.mainDishWeight as number | undefined) ??
+                null,
+              noAccompanimentsMessage:
+                o.noAccompanimentsMessage ??
+                (rawNutritionalData.noAccompanimentsMessage as string | undefined) ??
+                null,
+              // ✅ P0 FIX: Preservar groupId/groupName/defaultGrammage na serialização
+              allowedAccompaniments: (o.allowedAccompaniments || []).map((acc) => {
+                const a = acc as Record<string, unknown>;
+                return {
+                  ...a,
+                  // Campos obrigatórios para o carrinho (mesmo formato do produto normal):
+                  groupId: a.groupId ?? a.sourceGroupId ?? null,
+                  groupName: a.groupName ?? a.sourceGroupName ?? null,
+                  defaultGrammage: Number(a.defaultGrammage ?? a.weight ?? 100) || 100,
+                  weight: Number(a.defaultGrammage ?? a.weight ?? 100) || 100,
+                  minSelections: a.minSelections ?? null,
+                  maxSelections: a.maxSelections ?? null,
+                  // Aliases legados preservados:
+                  sourceGroupId: a.sourceGroupId ?? a.groupId ?? null,
+                  sourceGroupName: a.sourceGroupName ?? a.groupName ?? null,
+                };
+              }),
               macros: {
                 kcal: Number(rawBaseMacros.kcal || 0),
                 protein: Number(rawBaseMacros.protein || 0),
@@ -110,7 +143,19 @@ export function usePrescriptionActions({ clientId, prescriptionId, builder, onCl
                   protein: Number(rawBaseMacros.protein || 0),
                   carbs: Number(rawBaseMacros.carbs || 0),
                   fat: Number(rawBaseMacros.fat || 0),
-                }
+                },
+                sizeId: o.sizeId ? Number(o.sizeId) : null,
+                sizeName: o.sizeName ?? rawNutritionalData.sizeName ?? null,
+                weight: o.weight ?? o.sizeWeight ?? rawNutritionalData.weight ?? null,
+                sizeWeight: o.sizeWeight ?? o.weight ?? rawNutritionalData.sizeWeight ?? null,
+                mainDishWeight:
+                  o.mainDishWeight ??
+                  (rawNutritionalData.mainDishWeight as number | undefined) ??
+                  null,
+                noAccompanimentsMessage:
+                  o.noAccompanimentsMessage ??
+                  (rawNutritionalData.noAccompanimentsMessage as string | undefined) ??
+                  null,
               }
             };
           }),
@@ -122,6 +167,26 @@ export function usePrescriptionActions({ clientId, prescriptionId, builder, onCl
   const handleSaveProcess = (isTemplateMode: boolean, sanitizedMeals?: PrescriptionMeal[]) => {
     if (!builder.prescription?.meals || builder.prescription.meals.length === 0) {
       return toast.error("Adicione pelo menos uma refeição antes de salvar.");
+    }
+
+    const hasInvalidLegacySize = (builder.prescription.meals || []).some((meal) =>
+      (meal.groups || []).some((group) =>
+        (group.options || []).some((option) => {
+          const opt = option as unknown as RawOptionData;
+          const availableSizes = Array.isArray(opt.availableSizes) ? opt.availableSizes : [];
+          const selectedSizeExists = availableSizes.some(
+            (size) => String(size.id) === String(opt.sizeId),
+          );
+
+          return Boolean(opt.legacySizeMissing) || (availableSizes.length > 0 && !selectedSizeExists);
+        }),
+      ),
+    );
+
+    if (hasInvalidLegacySize) {
+      return toast.warning(
+        "Tamanho antigo nao encontrado no cadastro atual. Se editar esta refeicao, selecione um tamanho valido.",
+      );
     }
 
     if (isTemplateMode) {

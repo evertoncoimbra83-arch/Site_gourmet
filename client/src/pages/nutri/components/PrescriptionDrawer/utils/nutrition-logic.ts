@@ -1,7 +1,4 @@
-/**
- * ✅ LÓGICA DE NUTRIÇÃO DEFINITIVA
- * Sempre calcula dinamicamente: Base * Fator de Peso + Acompanhamentos
- */
+import { calculateMealNutritionCanonical } from "@shared/domain/nutrition/nutrition";
 
 export interface MacroData {
   kcal: number;
@@ -15,10 +12,10 @@ interface NutritionalMacros {
   protein?: number;
   carbs?: number;
   fat?: number;
-  energyKcal?: number; 
-  proteins?: number;   
-  carbohydrates?: number; 
-  fatTotal?: number;   
+  energyKcal?: number;
+  proteins?: number;
+  carbohydrates?: number;
+  fatTotal?: number;
 }
 
 interface BuilderAccompaniment extends NutritionalMacros {
@@ -33,9 +30,17 @@ interface BuilderAccompaniment extends NutritionalMacros {
 export interface SingleCardOption {
   multiplier?: string | number;
   mainDishWeight?: string | number;
+  recipeWeight?: string | number;
+  recipe_weight?: string | number;
+  yieldWeight?: string | number;
+  yield_weight?: string | number;
+  composition?: Array<Record<string, unknown>>;
   macros?: NutritionalMacros | null;
   nutritionalData?: {
     baseMacros?: NutritionalMacros;
+    recipeWeight?: string | number;
+    recipe_weight?: string | number;
+    composition?: Array<Record<string, unknown>>;
   };
   energyKcal?: number;
   proteins?: number;
@@ -45,53 +50,42 @@ export interface SingleCardOption {
 }
 
 const safeNum = (val: unknown): number => {
-  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
   if (typeof val === "string") {
-    const n = parseFloat(val);
-    return isNaN(n) ? 0 : n;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : 0;
   }
   return 0;
 };
 
-/**
- * Calcula a nutrição total de um prato (Card) com seus acompanhamentos
- */
 export function calculateSingleCardNutrition(option: SingleCardOption): MacroData {
-  const multiplier = safeNum(option.multiplier) || 1; // Fator de quantidade (ex: 1 porção)
-  const mainWeight = safeNum(option.mainDishWeight) || 200; // Peso do prato
-  const dishFactor = mainWeight / 100; // Se pesa 200g, multiplica os macros base por 2
-
-  // ✅ 1. Extração da Base (TS Tipado sem conflitos)
+  const multiplier = safeNum(option.multiplier) || 1;
   const source = option.nutritionalData?.baseMacros || option.macros;
-  
-  const base = {
-    kcal: safeNum(source?.kcal ?? source?.energyKcal ?? option.energyKcal ?? 0),
-    protein: safeNum(source?.protein ?? source?.proteins ?? option.proteins ?? 0),
-    carbs: safeNum(source?.carbs ?? source?.carbohydrates ?? option.carbohydrates ?? 0),
-    fat: safeNum(source?.fat ?? source?.fatTotal ?? option.fatTotal ?? 0)
-  };
+  const selectedAccs = option.allowedAccompaniments || [];
 
-  // 2. Extração e Soma dos Acompanhamentos ativos
-  let accKcal = 0, accProtein = 0, accCarbs = 0, accFat = 0;
-  
-  const selectedAccs = (option.allowedAccompaniments || []).filter(acc => acc?.isBase === true);
+  const calculated = calculateMealNutritionCanonical({
+    dish: {
+      energyKcal: source?.kcal ?? source?.energyKcal ?? option.energyKcal ?? 0,
+      proteins: source?.protein ?? source?.proteins ?? option.proteins ?? 0,
+      carbs: source?.carbs ?? source?.carbohydrates ?? option.carbohydrates ?? 0,
+      fatTotal: source?.fat ?? source?.fatTotal ?? option.fatTotal ?? 0,
+    },
+    recipeWeight:
+      option.recipeWeight ??
+      option.recipe_weight ??
+      option.yieldWeight ??
+      option.yield_weight ??
+      option.nutritionalData?.recipeWeight ??
+      option.nutritionalData?.recipe_weight,
+    targetMainDishWeight: option.mainDishWeight,
+    composition: option.composition ?? option.nutritionalData?.composition,
+    accompaniments: selectedAccs as unknown as Record<string, unknown>[],
+  }).nutrition;
 
-  selectedAccs.forEach(curr => {
-    // Acompanhamentos geralmente são calculados por porção enviada (weight) ou 100g
-    const weight = safeNum(curr.weight ?? curr.defaultGrammage ?? curr.default_grammage ?? 100);
-    const factor = weight / 100;
-    
-    accKcal += safeNum(curr.kcal ?? curr.energyKcal ?? 0) * factor;
-    accProtein += safeNum(curr.protein ?? curr.proteins ?? 0) * factor;
-    accCarbs += safeNum(curr.carbs ?? curr.carbohydrates ?? 0) * factor;
-    accFat += safeNum(curr.fat ?? curr.fatTotal ?? 0) * factor;
-  });
-
-  // 3. Cálculo Final: ((Base * Proporção do Peso) + Acompanhamentos) * Quantidade
   return {
-    kcal: Math.round(((base.kcal * dishFactor) + accKcal) * multiplier),
-    protein: Number((((base.protein * dishFactor) + accProtein) * multiplier).toFixed(1)),
-    carbs: Number((((base.carbs * dishFactor) + accCarbs) * multiplier).toFixed(1)),
-    fat: Number((((base.fat * dishFactor) + accFat) * multiplier).toFixed(1))
+    kcal: Math.round(calculated.energyKcal * multiplier),
+    protein: Number((calculated.proteins * multiplier).toFixed(1)),
+    carbs: Number((calculated.carbs * multiplier).toFixed(1)),
+    fat: Number((calculated.fatTotal * multiplier).toFixed(1)),
   };
 }
