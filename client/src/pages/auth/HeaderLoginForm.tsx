@@ -1,14 +1,14 @@
 // client/src/.../HeaderAuthForm.tsx
 
 import React, { useState, useRef, useEffect } from "react";
-import { trpc } from "@/_core/trpc"; 
+import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox"; // ✅ Importar o Checkbox
-import { Loader2, User, Lock, Mail, Phone, Fingerprint, Leaf, LogIn } from "lucide-react"; 
-import { appToast as toast } from "@/lib/app-toast"; 
-import { useNavigate, Link, useLocation } from "react-router-dom"; 
+import { Loader2, User, Lock, Mail, Phone, Fingerprint, Leaf, LogIn, Globe } from "lucide-react";
+import { appToast as toast } from "@/lib/app-toast";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { getGuestId, rotateGuestId } from "@/lib/guest";
 import { getCleanErrorMessage, validateCPF, masks, checkDocumentUI } from "./logic/auth.logic";
@@ -17,8 +17,8 @@ type AuthMode = "login" | "register";
 
 interface HeaderAuthFormProps {
   onSuccess?: () => void;
-  initialEmail?: string; 
-  initialMode?: AuthMode; 
+  initialEmail?: string;
+  initialMode?: AuthMode;
 }
 
 interface AuthResponse {
@@ -35,16 +35,16 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
   const utils = trpc.useUtils();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   const [mode, setMode] = useState<AuthMode>(initialMode || "login");
-  const [identifier, setIdentifier] = useState(initialEmail || ""); 
+  const [identifier, setIdentifier] = useState(initialEmail || "");
   const [rememberMe, setRememberMe] = useState(false); // ✅ ESTADO NOVO: Controle do "Lembrar"
-  
+
   const firstInputRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [cpf, setCpf] = useState(""); 
+  const [cpf, setCpf] = useState("");
   const [cpfError, setCpfError] = useState<string | null>(null);
 
   const syncAuthAndCart = async () => {
@@ -68,7 +68,7 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
 
   const handleAuthSuccess = async (data: AuthResponse, isLogin: boolean) => {
     if (isLogin && data?.status === "MIGRATION_REQUIRED") {
-      toast("Bem-vindo de volta! 🏠", { 
+      toast("Bem-vindo de volta! 🏠", {
         description: "Sua conta foi migrada com segurança. Defina uma nova senha.",
         icon: <Leaf className="text-emerald-500" size={18} />
       });
@@ -86,7 +86,7 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
     }
 
     setTimeout(() => {
-      if (isAtConvite) return; 
+      if (isAtConvite) return;
       const userRole = data?.user?.role?.toLowerCase();
       if (userRole === "admin") {
         window.location.href = "/admin/dashboard";
@@ -118,6 +118,23 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
     }
   });
 
+  const oauthGoogleStartMutation = trpc.auth.oauthGoogleStart.useMutation({
+    onSuccess: (data) => {
+      sessionStorage.setItem("oauth_state", data.state);
+      sessionStorage.setItem("oauth_nonce", data.nonce);
+      sessionStorage.setItem("oauth_code_verifier", data.codeVerifier);
+      sessionStorage.setItem("oauth_flow_type", "login");
+      window.location.href = data.url;
+    },
+    onError: (err) => {
+      toast.error("Erro ao iniciar Google Login", { description: err.message });
+    }
+  });
+
+  const handleGoogleLogin = () => {
+    oauthGoogleStartMutation.mutate({ provider: "google" });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!identifier.includes("@")) return toast.error("E-mail inválido");
@@ -128,8 +145,8 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
 
     if (mode === "login") {
       // ✅ ENVIANDO: rememberMe para o tRPC
-      loginMutation.mutate({ 
-        identifier: identifier.trim(), 
+      loginMutation.mutate({
+        identifier: identifier.trim(),
         password,
         rememberMe,
         guestSessionId: getGuestId(),
@@ -137,12 +154,12 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
     } else {
       if (!name.trim()) return toast.error("Nome completo é obrigatório");
       if (!validateCPF(cpf)) return setCpfError("CPF inválido");
-      
-      registerMutation.mutate({ 
-        name: name.trim(), 
-        email: identifier.trim(), 
-        password, 
-        whatsapp: phone.replace(/\D/g, ""), 
+
+      registerMutation.mutate({
+        name: name.trim(),
+        email: identifier.trim(),
+        password,
+        whatsapp: phone.replace(/\D/g, ""),
         cpf: cpf.replace(/\D/g, ""),
         guestSessionId: getGuestId(),
       });
@@ -183,13 +200,13 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
             <div className="space-y-1">
               <Label className="text-[9px] font-black uppercase text-slate-500 ml-1">Nome Completo</Label>
               <div className="relative">
-                <Input 
+                <Input
                   ref={firstInputRef}
                   placeholder="Seu nome"
-                  value={name} 
-                  onChange={(e) => setName(e.target.value)} 
-                  className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold" 
-                  disabled={isLoading} 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold"
+                  disabled={isLoading}
                 />
                 <User className="absolute left-4 top-3.5 text-slate-400" size={18} />
               </div>
@@ -199,13 +216,13 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
               <div className="space-y-1">
                 <Label className={cn("text-[9px] font-black uppercase ml-1", cpfError ? "text-red-600" : "text-slate-500")}>CPF</Label>
                 <div className="relative">
-                  <Input 
-                    value={cpf} 
-                    onChange={(e) => { setCpf(masks.cpf(e.target.value)); setCpfError(null); }} 
+                  <Input
+                    value={cpf}
+                    onChange={(e) => { setCpf(masks.cpf(e.target.value)); setCpfError(null); }}
                     onBlur={() => setCpfError(checkDocumentUI(cpf))}
                     placeholder="000.000.000-00"
                     className={cn("pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold", cpfError && "border-red-500")}
-                    disabled={isLoading} 
+                    disabled={isLoading}
                   />
                   <Fingerprint className="absolute left-4 top-3.5 text-slate-400" size={18} />
                 </div>
@@ -214,12 +231,12 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
               <div className="space-y-1">
                 <Label className="text-[9px] font-black uppercase ml-1 text-slate-500">WhatsApp</Label>
                 <div className="relative">
-                  <Input 
-                    value={phone} 
-                    onChange={(e) => setPhone(masks.phone(e.target.value))} 
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(masks.phone(e.target.value))}
                     placeholder="(00) 00000-0000"
-                    className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold" 
-                    disabled={isLoading} 
+                    className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold"
+                    disabled={isLoading}
                   />
                   <Phone className="absolute left-4 top-3.5 text-slate-400" size={18} />
                 </div>
@@ -231,12 +248,12 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
         <div className="space-y-1">
           <Label className="text-[9px] font-black uppercase text-slate-500 ml-1">E-mail de Acesso</Label>
           <div className="relative">
-            <Input 
+            <Input
               type="email"
               ref={mode === "login" ? firstInputRef : undefined}
               placeholder="seu@email.com"
-              value={identifier} 
-              onChange={(e) => setIdentifier(e.target.value)} 
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold"
               disabled={isLoading}
             />
@@ -254,13 +271,13 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
             )}
           </div>
           <div className="relative">
-            <Input 
-              type="password" 
+            <Input
+              type="password"
               placeholder="••••••••"
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold" 
-              disabled={isLoading} 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="pl-11 h-12 bg-slate-50/50 border-slate-100 focus:bg-white transition-all rounded-xl font-bold"
+              disabled={isLoading}
             />
             <Lock className="absolute left-4 top-3.5 text-slate-400" size={18} />
           </div>
@@ -269,14 +286,14 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
         {/* ✅ NOVO: Caixa de "Lembrar de mim" */}
         {mode === "login" && (
           <div className="flex items-center space-x-2 ml-1 animate-in fade-in duration-500">
-            <Checkbox 
-              id="remember" 
-              checked={rememberMe} 
+            <Checkbox
+              id="remember"
+              checked={rememberMe}
               onCheckedChange={(checked) => setRememberMe(checked as boolean)}
               className="border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
             />
-            <label 
-              htmlFor="remember" 
+            <label
+              htmlFor="remember"
               className="text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer select-none"
             >
               Lembrar de mim
@@ -284,9 +301,9 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
           </div>
         )}
 
-        <Button 
-          type="submit" 
-          disabled={isLoading} 
+        <Button
+          type="submit"
+          disabled={isLoading}
           className="w-full bg-slate-900 hover:bg-emerald-600 text-white h-14 rounded-xl shadow-lg transition-all duration-300 group"
         >
           {isLoading ? (
@@ -298,12 +315,36 @@ export function HeaderAuthForm({ onSuccess, initialEmail, initialMode }: HeaderA
             </div>
           )}
         </Button>
+
+        {/* Divisor para Login Social */}
+        <div className="relative my-4 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-slate-100" />
+          </div>
+          <span className="relative bg-white px-4 text-[9px] font-black uppercase tracking-widest text-slate-400">
+            Ou continuar com
+          </span>
+        </div>
+
+        {/* Botão Google Login */}
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isLoading || oauthGoogleStartMutation.isPending}
+          onClick={handleGoogleLogin}
+          className="w-full h-14 rounded-xl border-slate-100 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-3 transition-all duration-200"
+        >
+          <Globe className="h-4 w-4 text-red-500" />
+          <span className="uppercase text-[10px] font-black tracking-widest">
+            Entrar com o Google
+          </span>
+        </Button>
       </form>
 
       <footer className="text-center pt-2">
-        <button 
-          type="button" 
-          onClick={() => setMode(mode === "login" ? "register" : "login")} 
+        <button
+          type="button"
+          onClick={() => setMode(mode === "login" ? "register" : "login")}
           className="group flex flex-col items-center gap-1 mx-auto outline-none"
         >
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">

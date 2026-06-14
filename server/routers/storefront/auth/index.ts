@@ -31,12 +31,12 @@ import { generateNonce } from "../../../auth/oauth/nonce.js";
 import { generateCodeChallenge, generateCodeVerifier } from "../../../auth/oauth/pkce.js";
 import { exchangeCodeForTokens, verifyGoogleIdToken } from "../../../auth/oauth/google.js";
 
-import { 
-  registerProcedure, 
-  loginProcedure, 
+import {
+  registerProcedure,
+  loginProcedure,
   logoutProcedure,
   requestPasswordResetProcedure,
-  resetPasswordProcedure 
+  resetPasswordProcedure
 } from "./auth.procedures.js";
 import { getAuthInputKey } from "./auth-security.js";
 
@@ -45,7 +45,7 @@ import { getAuthInputKey } from "./auth-security.js";
  */
 interface LoginResponse {
   success: boolean;
-  status: "SUCCESS" | "MIGRATION_REQUIRED" | "ERROR"; 
+  status: "SUCCESS" | "MIGRATION_REQUIRED" | "ERROR";
   email?: string;
   message?: string;
 }
@@ -56,7 +56,7 @@ interface ActionResponse {
 }
 
 export const authRouter = router({
-  
+
   /**
    * 🔍 VERIFICA SE USUÁRIO EXISTE
    */
@@ -77,16 +77,132 @@ export const authRouter = router({
       const db = await getDb();
       const cleanEmail = input.email.toLowerCase().trim();
 
-      const [existingUser] = await db
+      const [emailUser] = await db
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.email, cleanEmail), isNull(users.deletedAt)))
         .limit(1);
 
-      return { 
-        exists: !!existingUser 
+      let cpfExists = false;
+      if (input.document) {
+        const cleanCpf = input.document.replace(/\D/g, "");
+        const docHash = piiHash(cleanCpf);
+        if (docHash) {
+          const [cpfUser] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.documentIndex, docHash), isNull(users.deletedAt)))
+            .limit(1);
+          cpfExists = !!cpfUser;
+        }
+      }
+
+      return {
+        exists: !!emailUser || cpfExists,
+        emailExists: !!emailUser,
+        cpfExists,
       };
     }),
+
+  createGuestSession: publicProcedure
+    .use(
+      createRateLimitMiddleware({
+        keyPrefix: "auth-create-guest-session",
+        limit: 15,
+        windowMs: 15 * 60 * 1000,
+        getInputKey: getAuthInputKey,
+      }),
+    )
+    .input(z.object({
+      email: z.string().email("E-mail inválido").transform(v => v.toLowerCase().trim()),
+      name: z.string().min(2, "Nome muito curto"),
+      phone: z.string().min(10, "Telefone inválido"),
+      cpf: z.string().min(11, "CPF inválido"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      const cleanCpf = input.cpf.replace(/\D/g, "");
+      const cleanPhone = input.phone.replace(/\D/g, "");
+      const cleanName = input.name.trim();
+      const docHash = piiHash(cleanCpf);
+      const emailLower = input.email;
+
+      const [emailUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.email, emailLower), isNull(users.deletedAt)))
+        .limit(1);
+
+      let cpfUser = null;
+      if (docHash) {
+        const [foundCpf] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.documentIndex, docHash), isNull(users.deletedAt)))
+          .limit(1);
+        cpfUser = foundCpf;
+      }
+
+      const unifiedId = crypto.randomUUID();
+      let finalEmail = emailLower;
+
+      if (emailUser || cpfUser) {
+        finalEmail = `${emailLower}.guest_${crypto.randomUUID()}`;
+      }
+
+      await db.insert(users).values({
+        id: unifiedId,
+        email: finalEmail,
+        password: null,
+        name: encrypt(cleanName),
+        customerDocument: encrypt(cleanCpf),
+        phone: encrypt(cleanPhone),
+        documentIndex: docHash || null,
+        phoneIndex: piiHash(cleanPhone) || null,
+        nameIndex: cleanName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(),
+        role: "user",
+        loginMethod: "guest",
+        needsPasswordReset: 0,
+        availablePoints: 0,
+        aiCredits: 0,
+      });
+
+      const ipAddress = ctx.req ? (ctx.req.ip || (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1") : "127.0.0.1";
+      const userAgent = ctx.req ? (ctx.req.headers?.["user-agent"] || "unknown") : "unknown";
+
+      const session = await lucia.createSession(unifiedId, {
+        ipAddress,
+        userAgent,
+      });
+      const sessionCookie = lucia.createSessionCookie(session.id);
+
+      if (ctx.req?.hostname && (
+        ctx.req.hostname === "localhost" ||
+        ctx.req.hostname === "127.0.0.1" ||
+        ctx.req.hostname.startsWith("192.168.24.")
+      )) {
+        sessionCookie.attributes.secure = false;
+      }
+
+      sessionCookie.attributes.maxAge = undefined;
+      sessionCookie.attributes.expires = undefined;
+
+      if (ctx.res) {
+        if (typeof ctx.res.appendHeader === "function") {
+          ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+        } else {
+          ctx.res.append("Set-Cookie", sessionCookie.serialize());
+        }
+      }
+
+      await promoteCart(ctx.guestId, unifiedId);
+
+      return {
+        success: true,
+        userId: unifiedId,
+      };
+    }),
+
 
   /**
    * 📝 REGISTRO
@@ -127,9 +243,9 @@ export const authRouter = router({
     )
     .input(z.object({
       identifier: z.string().min(1, "E-mail ou CPF é obrigatório").trim(),
-      password: z.string().optional().nullish(), 
+      password: z.string().optional().nullish(),
       guestSessionId: z.string().optional().nullish(),
-      rememberMe: z.boolean().optional() 
+      rememberMe: z.boolean().optional()
     }))
     .mutation(async ({ input, ctx }): Promise<LoginResponse> => {
       const result = await loginProcedure({ input, ctx });
@@ -156,8 +272,8 @@ export const authRouter = router({
         getInputKey: getAuthInputKey,
       }),
     )
-    .input(z.object({ 
-      email: z.string().email("E-mail inválido").transform(v => v.toLowerCase().trim()) 
+    .input(z.object({
+      email: z.string().email("E-mail inválido").transform(v => v.toLowerCase().trim())
     }))
     .mutation(async ({ input, ctx }): Promise<ActionResponse> => {
       return requestPasswordResetProcedure({ input, ctx });
@@ -174,9 +290,9 @@ export const authRouter = router({
         windowMs: 15 * 60 * 1000,
       }),
     )
-    .input(z.object({ 
-      token: z.string().min(1, "Token obrigatório"), 
-      password: z.string().min(8, "Senha muito curta") 
+    .input(z.object({
+      token: z.string().min(1, "Token obrigatório"),
+      password: z.string().min(8, "Senha muito curta")
     }))
     .mutation(async ({ input, ctx }): Promise<ActionResponse> => {
       return resetPasswordProcedure({ input, ctx });
@@ -202,6 +318,10 @@ export const authRouter = router({
       if (!profile) return null;
 
       // Retorna o objeto do usuário com os campos sensíveis descriptografados para o Frontend
+      const displayEmail = profile.email && profile.email.includes(".guest_")
+        ? profile.email.split(".guest_")[0]
+        : profile.email;
+
       return {
         ...ctx.user,
         name: profile.name ? decrypt(profile.name) : null,
@@ -210,13 +330,13 @@ export const authRouter = router({
         availablePoints: Number(profile.availablePoints || 0),
         aiCredits: Number(profile.aiCredits ?? 0),
         needsPasswordReset: profile.needsPasswordReset === 1,
-        email: profile.email,
+        email: displayEmail,
         role: profile.role
       };
     } catch (error) {
       console.error("❌ Erro em auth.me:", error);
       // Fallback para o usuário básico do contexto em caso de erro no DB
-      return ctx.user; 
+      return ctx.user;
     }
   }),
 
@@ -436,7 +556,7 @@ export const authRouter = router({
    */
   logoutAllSessions: protectedProcedure.mutation(async ({ ctx }) => {
     const db = await getDb();
-    
+
     // Fetch all sessions of the user to log individual revokes
     const userSessions = await db
       .select({ id: sessions.id })
@@ -497,7 +617,7 @@ export const authRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      
+
       // Verify session belongs to the user
       const [sessionVal] = await db
         .select()
@@ -586,16 +706,18 @@ export const authRouter = router({
   }),
 
   /**
-   * 🌐 OAUTH START
-   * Gera e retorna os parâmetros PKCE, state e nonce para iniciar o fluxo.
+   * 🌐 OAUTH GOOGLE START
+   * Gera parâmetros PKCE/state/nonce e retorna a URL de autorização oficial do Google.
    */
-  oauthStart: publicProcedure
+  oauthGoogleStart: publicProcedure
     .input(z.object({ provider: z.literal("google") }))
     .mutation(async ({ ctx, input }) => {
       const state = generateState();
       const nonce = generateNonce();
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = generateCodeChallenge(codeVerifier);
+
+      const url = await generateGoogleAuthUrl({ state, nonce, codeChallenge });
 
       void AuditLogService.record({
         actor: {
@@ -612,6 +734,7 @@ export const authRouter = router({
       });
 
       return {
+        url,
         state,
         nonce,
         codeVerifier,
@@ -620,11 +743,11 @@ export const authRouter = router({
     }),
 
   /**
-   * 🌐 OAUTH CALLBACK
-   * Valida state/nonce e troca o código pelo payload Google decodificado.
-   * Não cria sessão local nesta fase (P1).
+   * 🌐 OAUTH GOOGLE COMPLETE
+   * Endpoint centralizado de callback que realiza login ou auto-cadastro (se não autenticado)
+   * ou inicia fluxo de vinculação segura gerando linkingToken (se já autenticado).
    */
-  oauthCallback: publicProcedure
+  oauthGoogleComplete: publicProcedure
     .input(
       z.object({
         provider: z.literal("google"),
@@ -636,7 +759,9 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // 1. Validar state contra CSRF
+      const db = await getDb();
+
+      // 1. Validar CSRF
       if (input.state !== input.expectedState) {
         void AuditLogService.record({
           actor: {
@@ -659,13 +784,11 @@ export const authRouter = router({
 
       let payload;
       try {
-        // 2. Trocar code por tokens
         const tokens = await exchangeCodeForTokens({
           code: input.code,
           codeVerifier: input.codeVerifier,
         });
 
-        // 3. Validar ID Token criptograficamente
         payload = await verifyGoogleIdToken({
           idToken: tokens.idToken,
           expectedNonce: input.expectedNonce,
@@ -691,54 +814,373 @@ export const authRouter = router({
       }
 
       const providerUserId = payload.sub;
-      const email = payload.email || "";
+      const email = (payload.email || "").toLowerCase().trim();
       const emailVerified = payload.email_verified === true;
-      const name = payload.name || null;
-      const picture = payload.picture || null;
+      const name = payload.name || "Usuário Google";
+
+      // Requisito obrigatório: email_verified
+      if (!emailVerified) {
+        void AuditLogService.record({
+          actor: {
+            userId: ctx.user?.id || null,
+            ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+            userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "OAUTH_LINK_DENIED",
+          severity: "warning",
+          entityType: "oauth_account",
+          newValues: { provider: input.provider, email, reason: "email_not_verified" },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "O e-mail da conta do Google precisa estar verificado pelo Google.",
+        });
+      }
+
+      // --- CENÁRIO A: USUÁRIO JÁ AUTENTICADO (Iniciar Fluxo de Vinculação) ---
+      if (ctx.user && ctx.session) {
+        // Validação de sessão recente (menor que 15 minutos)
+        const sessionCreatedAt = (ctx.session as any).createdAt
+          ? new Date((ctx.session as any).createdAt)
+          : new Date(ctx.session.expiresAt.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const sessionAgeMs = Date.now() - sessionCreatedAt.getTime();
+        if (sessionAgeMs > 15 * 60 * 1000) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Sessão expirada ou muito antiga. Por favor, reautentique-se com sua senha para vincular.",
+          });
+        }
+
+        // Verifica colisão: conta social já vinculada a outro
+        const [alreadyLinked] = await db
+          .select()
+          .from(userOauthAccounts)
+          .where(
+            and(
+              eq(userOauthAccounts.provider, input.provider),
+              eq(userOauthAccounts.providerUserId, providerUserId)
+            )
+          )
+          .limit(1);
+
+        if (alreadyLinked) {
+          if (alreadyLinked.userId !== ctx.user.id) {
+            void AuditLogService.record({
+              actor: {
+                userId: ctx.user.id,
+                ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+              },
+              module: "auth",
+              action: "OAUTH_LINK_DENIED",
+              severity: "critical",
+              entityType: "oauth_account",
+              newValues: { provider: input.provider, email, reason: "social_account_already_linked_to_other_user" },
+            });
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Esta conta do Google já está vinculada a outro perfil do sistema.",
+            });
+          }
+          return { success: true, status: "ALREADY_LINKED" as const, message: "Esta conta já está vinculada ao seu perfil." };
+        }
+
+        // Verifica colisão: e-mail em uso por outro usuário local
+        const [existingUser] = await db
+          .select()
+          .from(users)
+          .where(and(eq(users.email, email), isNull(users.deletedAt)))
+          .limit(1);
+
+        if (existingUser && existingUser.id !== ctx.user.id) {
+          void AuditLogService.record({
+            actor: {
+              userId: ctx.user.id,
+              ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+              userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+              requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+            },
+            module: "auth",
+            action: "OAUTH_LINK_DENIED",
+            severity: "critical",
+            entityType: "oauth_account",
+            newValues: { provider: input.provider, email, reason: "email_belongs_to_other_user" },
+          });
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "O e-mail dessa conta Google é utilizado por outro perfil cadastrado.",
+          });
+        }
+
+        // Gera token temporário assinado de vinculação para confirmação explícita no painel
+        const linkingToken = signLinkingToken({
+          userId: ctx.user.id,
+          provider: input.provider,
+          providerUserId,
+          email,
+          emailVerified,
+          expiresAt: Date.now() + 5 * 60 * 1000, // expiração em 5 minutos
+        });
+
+        void AuditLogService.record({
+          actor: {
+            userId: ctx.user.id,
+            ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+            userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "OAUTH_LINK_ATTEMPT",
+          severity: "info",
+          entityType: "oauth_account",
+          newValues: { provider: input.provider, email, reason: "needs_explicit_confirmation" },
+        });
+
+        return {
+          success: false,
+          status: "REQUIRES_CONFIRMATION" as const,
+          linkingToken,
+          email,
+        };
+      }
+
+      // --- CENÁRIO B: USUÁRIO ANÔNIMO (Login ou Cadastro) ---
+      const [oauthMapping] = await db
+        .select()
+        .from(userOauthAccounts)
+        .where(
+          and(
+            eq(userOauthAccounts.provider, input.provider),
+            eq(userOauthAccounts.providerUserId, providerUserId)
+          )
+        )
+        .limit(1);
+
+      if (oauthMapping) {
+        // --- 1. LOGIN DE CONTA JÁ VINCULADA ---
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(and(eq(users.id, oauthMapping.userId), isNull(users.deletedAt)))
+          .limit(1);
+
+        if (!user) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "O usuário associado a esta conta Google não foi localizado ou foi excluído.",
+          });
+        }
+
+        const ipAddress = ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1";
+        const userAgent = ctx.req?.headers?.["user-agent"] || "unknown";
+
+        const session = await lucia.createSession(user.id, { ipAddress, userAgent });
+        const sessionCookie = lucia.createSessionCookie(session.id);
+
+        if (ctx.req?.hostname && (
+          ctx.req.hostname === "localhost" ||
+          ctx.req.hostname === "127.0.0.1" ||
+          ctx.req.hostname.startsWith("192.168.24.")
+        )) {
+          sessionCookie.attributes.secure = false;
+        }
+
+        sessionCookie.attributes.maxAge = undefined;
+        sessionCookie.attributes.expires = undefined;
+
+        if (ctx.res) {
+          if (typeof ctx.res.appendHeader === "function") {
+            ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+          } else {
+            ctx.res.append("Set-Cookie", sessionCookie.serialize());
+          }
+        }
+
+        await db
+          .update(userOauthAccounts)
+          .set({ lastUsedAt: new Date() })
+          .where(eq(userOauthAccounts.id, oauthMapping.id));
+
+        await db
+          .update(users)
+          .set({ lastSignedIn: new Date() })
+          .where(eq(users.id, user.id));
+
+        void AuditLogService.record({
+          actor: {
+            userId: user.id,
+            ipAddress,
+            userAgent,
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "OAUTH_LOGIN_SUCCESS",
+          severity: "info",
+          entityType: "user",
+          entityId: user.id,
+          newValues: { provider: input.provider, email },
+        });
+
+        return {
+          success: true,
+          status: "SUCCESS" as const,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: decrypt(user.name) || user.name,
+          },
+        };
+      }
+
+      // --- 2. CADASTRO OU TAKEOVER ---
+      const [existingUser] = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.email, email), isNull(users.deletedAt)))
+        .limit(1);
+
+      if (existingUser) {
+        // Proteção contra Takeover: E-mail existe localmente mas não há vínculo
+        void AuditLogService.record({
+          actor: {
+            userId: null,
+            ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+            userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+            requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+          },
+          module: "auth",
+          action: "OAUTH_LINK_DENIED",
+          severity: "critical",
+          entityType: "oauth_account",
+          newValues: { provider: input.provider, email, reason: "email_collision" },
+        });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Este e-mail já está associado a uma conta existente. Acesse usando sua senha e vincule a conta Google no seu perfil.",
+        });
+      }
+
+      // Auto-cadastro de novo usuário
+      const newUserId = crypto.randomUUID();
+      const ipAddress = ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1";
+      const userAgent = ctx.req?.headers?.["user-agent"] || "unknown";
+
+      await db.transaction(async (tx) => {
+        let foundReferral: string | null = null;
+        if (ctx.guestId) {
+          const guestData = await tx.query.guests.findFirst({
+            where: eq(guests.id, ctx.guestId)
+          });
+          if (guestData) foundReferral = guestData.referralCode || null;
+        }
+
+        // Criando usuário anônimo e sem senha
+        await tx.insert(users).values({
+          id: newUserId,
+          email,
+          password: null,
+          name: encrypt(name.trim()),
+          customerDocument: null,
+          phone: null,
+          documentIndex: null,
+          phoneIndex: null,
+          nameIndex: name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(),
+          role: "user",
+          needsPasswordReset: 0,
+          referralCode: foundReferral,
+          availablePoints: 0,
+          aiCredits: 2,
+          lastSignedIn: new Date(),
+        });
+
+        // Vinculando a conta social
+        await tx.insert(userOauthAccounts).values({
+          id: crypto.randomUUID(),
+          userId: newUserId,
+          provider: input.provider,
+          providerUserId,
+          email,
+          emailVerified: true,
+          lastUsedAt: new Date(),
+        });
+      });
+
+      await promoteCart(ctx.guestId, newUserId);
+
+      const session = await lucia.createSession(newUserId, { ipAddress, userAgent });
+      const sessionCookie = lucia.createSessionCookie(session.id);
+
+      if (ctx.req?.hostname && (
+        ctx.req.hostname === "localhost" ||
+        ctx.req.hostname === "127.0.0.1" ||
+        ctx.req.hostname.startsWith("192.168.24.")
+      )) {
+        sessionCookie.attributes.secure = false;
+      }
+
+      sessionCookie.attributes.maxAge = undefined;
+      sessionCookie.attributes.expires = undefined;
+
+      if (ctx.res) {
+        if (typeof ctx.res.appendHeader === "function") {
+          ctx.res.appendHeader("Set-Cookie", sessionCookie.serialize());
+        } else {
+          ctx.res.append("Set-Cookie", sessionCookie.serialize());
+        }
+      }
 
       void AuditLogService.record({
         actor: {
-          userId: ctx.user?.id || null,
-          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
-          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          userId: newUserId,
+          ipAddress,
+          userAgent,
           requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
         },
         module: "auth",
-        action: "OAUTH_CALLBACK",
+        action: "OAUTH_REGISTER_SUCCESS",
         severity: "info",
-        entityType: "oauth_flow",
-        newValues: { provider: input.provider, email, emailVerified, providerUserId },
+        entityType: "user",
+        entityId: newUserId,
+        newValues: { provider: input.provider, email },
       });
 
       return {
-        provider: input.provider,
-        providerUserId,
-        email,
-        emailVerified,
-        name,
-        picture,
+        success: true,
+        status: "SUCCESS" as const,
+        user: {
+          id: newUserId,
+          email,
+          name,
+        },
       };
     }),
 
   /**
-   * 🌐 OAUTH LINK (ACCOUNT LINKING & TAKEOVER PROTECTION)
-   * Vincula uma conta Google ao perfil logado do usuário atual com segurança estrita.
+   * 🌐 OAUTH LINK (VINCULAÇÃO DE CONTA)
+   * Processa a confirmação explícita validando o token de vinculação gerado.
    */
   oauthLink: protectedProcedure
     .input(
       z.object({
-        provider: z.literal("google"),
-        providerUserId: z.string(),
-        email: z.string().email(),
-        emailVerified: z.boolean(),
-        forceConfirm: z.boolean().default(false),
+        linkingToken: z.string(),
+        confirm: z.boolean(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
 
-      // Regra 1: email_verified deve ser true
-      if (!input.emailVerified) {
+      if (!input.confirm) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmação explícita é necessária para realizar o vínculo.",
+        });
+      }
+
+      const payload = verifyLinkingToken(input.linkingToken);
+      if (!payload) {
         void AuditLogService.record({
           actor: {
             userId: ctx.user.id,
@@ -750,121 +1192,49 @@ export const authRouter = router({
           action: "OAUTH_LINK_DENIED",
           severity: "warning",
           entityType: "oauth_account",
-          newValues: { provider: input.provider, email: input.email, reason: "email_not_verified" },
+          newValues: { reason: "invalid_or_expired_token" },
         });
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "O e-mail da conta do Google precisa estar verificado para ser vinculado.",
+          message: "O link de vinculação expirou ou é inválido. Repita o processo.",
         });
       }
 
-      // Regra 2: Verifica se esta conta externa já está vinculada a alguém
+      if (payload.userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Token de vinculação não pertence à sua sessão ativa.",
+        });
+      }
+
+      // Dupla proteção: Garante que não foi cadastrado no intervalo
       const [alreadyLinked] = await db
         .select()
         .from(userOauthAccounts)
         .where(
           and(
-            eq(userOauthAccounts.provider, input.provider),
-            eq(userOauthAccounts.providerUserId, input.providerUserId)
+            eq(userOauthAccounts.provider, payload.provider),
+            eq(userOauthAccounts.providerUserId, payload.providerUserId)
           )
         )
         .limit(1);
 
       if (alreadyLinked) {
-        if (alreadyLinked.userId !== ctx.user.id) {
-          void AuditLogService.record({
-            actor: {
-              userId: ctx.user.id,
-              ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
-              userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-              requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
-            },
-            module: "auth",
-            action: "OAUTH_LINK_DENIED",
-            severity: "critical",
-            entityType: "oauth_account",
-            newValues: { provider: input.provider, email: input.email, reason: "social_account_already_linked_to_other_user" },
-          });
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Esta conta do Google já está vinculada a outro usuário do sistema.",
-          });
-        }
-
-        // Se já for do usuário atual
-        return { success: true, message: "Esta conta já está vinculada ao seu perfil." };
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Esta conta já foi vinculada a outro perfil de usuário.",
+        });
       }
-
-      // Regra 3: Se o e-mail coincidido com o Google já pertencer a outro usuário
-      const [existingUser] = await db
-        .select()
-        .from(users)
-        .where(and(eq(users.email, input.email.toLowerCase().trim()), isNull(users.deletedAt)))
-        .limit(1);
-
-      if (existingUser) {
-        if (existingUser.id !== ctx.user.id) {
-          void AuditLogService.record({
-            actor: {
-              userId: ctx.user.id,
-              ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
-              userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-              requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
-            },
-            module: "auth",
-            action: "OAUTH_LINK_DENIED",
-            severity: "critical",
-            entityType: "oauth_account",
-            newValues: { provider: input.provider, email: input.email, reason: "email_belongs_to_other_user" },
-          });
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "O e-mail dessa conta Google é utilizado por outro perfil cadastrado.",
-          });
-        }
-
-        // Se o e-mail coincide com o dele mesmo, mas ele não confirmou a vinculação de forma explícita
-        if (!input.forceConfirm) {
-          void AuditLogService.record({
-            actor: {
-              userId: ctx.user.id,
-              ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
-              userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-              requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
-            },
-            module: "auth",
-            action: "OAUTH_LINK_ATTEMPT",
-            severity: "info",
-            entityType: "oauth_account",
-            newValues: { provider: input.provider, email: input.email, reason: "needs_explicit_confirmation" },
-          });
-          return { success: false, status: "REQUIRES_CONFIRMATION", message: "Confirme a associação de sua conta Google ao seu e-mail cadastrado." };
-        }
-      }
-
-      // Vínculo seguro
-      void AuditLogService.record({
-        actor: {
-          userId: ctx.user.id,
-          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
-          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-          requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
-        },
-        module: "auth",
-        action: "OAUTH_LINK_ATTEMPT",
-        severity: "info",
-        entityType: "oauth_account",
-        newValues: { provider: input.provider, email: input.email },
-      });
 
       const uniqueId = crypto.randomUUID();
       await db.insert(userOauthAccounts).values({
         id: uniqueId,
         userId: ctx.user.id,
-        provider: input.provider,
-        providerUserId: input.providerUserId,
-        email: input.email,
-        emailVerified: input.emailVerified,
+        provider: payload.provider,
+        providerUserId: payload.providerUserId,
+        email: payload.email,
+        emailVerified: payload.emailVerified,
+        lastUsedAt: new Date(),
       });
 
       void AuditLogService.record({
@@ -879,9 +1249,105 @@ export const authRouter = router({
         severity: "info",
         entityType: "oauth_account",
         entityId: uniqueId,
-        newValues: { provider: input.provider, email: input.email },
+        newValues: { provider: payload.provider, email: payload.email },
       });
 
       return { success: true, message: "Conta Google vinculada com sucesso!" };
+    }),
+
+  /**
+   * 🌐 UNLINK OAUTH ACCOUNT (DESVINCULAÇÃO DE CONTA SOCIAL)
+   * Impede a desvinculação se a conta não possuir senha e for a última forma de autenticação.
+   */
+  unlinkOAuthAccount: protectedProcedure
+    .input(
+      z.object({
+        provider: z.literal("google"),
+        confirm: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+
+      if (!input.confirm) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmação explícita é necessária para desvincular a conta.",
+        });
+      }
+
+      // 1. Verificar se usuário possui senha local
+      const [user] = await db
+        .select({ password: users.password })
+        .from(users)
+        .where(eq(users.id, ctx.user.id))
+        .limit(1);
+
+      if (!user) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
+      }
+
+      // 2. Contar vínculos ativos de login social
+      const socialAccounts = await db
+        .select()
+        .from(userOauthAccounts)
+        .where(eq(userOauthAccounts.userId, ctx.user.id));
+
+      const hasPassword = !!user.password;
+      const oauthCount = socialAccounts.length;
+
+      // Se não há senha Argon2 local e este é o único vínculo social, bloqueia desvinculação
+      if (!hasPassword && oauthCount <= 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Você não pode desvincular seu único método de acesso. Defina uma senha local primeiro.",
+        });
+      }
+
+      // Deletar o vínculo do provedor correspondente
+      await db
+        .delete(userOauthAccounts)
+        .where(
+          and(
+            eq(userOauthAccounts.userId, ctx.user.id),
+            eq(userOauthAccounts.provider, input.provider)
+          )
+        );
+
+      void AuditLogService.record({
+        actor: {
+          userId: ctx.user.id,
+          ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+          userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+          requestId: (ctx.req as any)?.requestId || crypto.randomUUID(),
+        },
+        module: "auth",
+        action: "OAUTH_UNLINK",
+        severity: "info",
+        entityType: "oauth_account",
+        newValues: { provider: input.provider },
+      });
+
+      return { success: true, message: "Conta desvinculada com sucesso." };
+    }),
+
+  /**
+   * 🌐 LIST OAUTH ACCOUNTS
+   * Lista as contas sociais conectadas no painel do usuário.
+   */
+  listOAuthAccounts: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      const accounts = await db
+        .select()
+        .from(userOauthAccounts)
+        .where(eq(userOauthAccounts.userId, ctx.user.id));
+
+      return accounts.map(acc => ({
+        provider: acc.provider,
+        email: acc.email,
+        createdAt: acc.createdAt,
+        lastUsedAt: acc.lastUsedAt,
+      }));
     }),
 });

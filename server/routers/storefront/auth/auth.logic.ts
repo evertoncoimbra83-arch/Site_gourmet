@@ -1,29 +1,17 @@
 // server/routers/storefront/auth/auth.logic.ts
 
 import { TRPCError } from "@trpc/server";
-import { sql, eq } from "drizzle-orm"; 
+import { sql, eq } from "drizzle-orm";
 import { users } from "../../../../drizzle/schema/index.js";
 import { piiHash } from "../../../encryption.js";
+import { isValidCpf, normalizeCpf } from "@shared/domain/checkout/cpf.js";
 import { type DrizzleDB } from "../../../db.js"; // ✅ Importando tipagem correta do DB
 
 /**
  * ✅ VALIDAÇÃO MATEMÁTICA DE CPF
  */
 export function isValidCPF(cpf: string): boolean {
-  const clean = cpf.replace(/\D/g, ''); 
-  if (clean.length !== 11 || /^(\d)\1{10}$/.test(clean)) return false;
-
-  const digits = clean.split('').map(Number);
-
-  const calculateCheckDigit = (count: number) => {
-    const sum = digits
-      .slice(0, count - 1)
-      .reduce((acc, digit, idx) => acc + digit * (count - idx), 0);
-    const remainder = (sum * 10) % 11;
-    return remainder === 10 ? 0 : remainder;
-  };
-
-  return calculateCheckDigit(10) === digits[9] && calculateCheckDigit(11) === digits[10];
+  return isValidCpf(cpf);
 }
 
 /**
@@ -31,7 +19,7 @@ export function isValidCPF(cpf: string): boolean {
  * Usa COLLATE para garantir case-insensitivity correta no MySQL
  */
 export async function checkDuplicity(
-  db: DrizzleDB, 
+  db: DrizzleDB,
   data: { email: string, cpf: string, phone?: string | null }
 ) {
   const emailLower = data.email.toLowerCase().trim();
@@ -42,22 +30,22 @@ export async function checkDuplicity(
     .from(users)
     .where(sql`${users.email} = ${emailLower} COLLATE utf8mb4_unicode_ci`)
     .limit(1);
-    
+
   if (emailExists) {
-    throw new TRPCError({ 
-      code: "BAD_REQUEST", 
-      message: "Este e-mail já está em uso." 
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Este e-mail já está em uso."
     });
   }
 
   // 2. Check CPF (Blind Index)
-  const cleanCpf = data.cpf.replace(/\D/g, "");
+  const cleanCpf = normalizeCpf(data.cpf);
   const docHash = piiHash(cleanCpf);
-  
+
   if (!docHash) {
-    throw new TRPCError({ 
-      code: "INTERNAL_SERVER_ERROR", 
-      message: "Erro ao processar dados de segurança." 
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Erro ao processar dados de segurança."
     });
   }
 
@@ -66,11 +54,11 @@ export async function checkDuplicity(
     .from(users)
     .where(sql`${users.documentIndex} = ${docHash} COLLATE utf8mb4_unicode_ci`)
     .limit(1);
-    
+
   if (cpfExists) {
-    throw new TRPCError({ 
-      code: "BAD_REQUEST", 
-      message: "Este CPF já possui uma conta ativa." 
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Este CPF já possui uma conta ativa."
     });
   }
 
@@ -78,18 +66,18 @@ export async function checkDuplicity(
   if (data.phone) {
     const cleanPhone = data.phone.replace(/\D/g, "");
     const phoneHash = piiHash(cleanPhone);
-    
+
     if (phoneHash) {
       const [phoneExists] = await db
         .select()
         .from(users)
         .where(sql`${users.phoneIndex} = ${phoneHash} COLLATE utf8mb4_unicode_ci`)
         .limit(1);
-        
+
       if (phoneExists) {
-        throw new TRPCError({ 
-          code: "BAD_REQUEST", 
-          message: "Este WhatsApp já está em uso por outra conta." 
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este WhatsApp já está em uso por outra conta."
         });
       }
     }
@@ -116,7 +104,7 @@ export async function validateReferralCode(
 
   if (!partner) {
     console.warn(`⚠️ Tentativa de registro com código inválido: ${cleanCode}`);
-    return null; 
+    return null;
   }
 
   return cleanCode;
