@@ -5,6 +5,9 @@ import {
   calculateCostPerBaseUnit,
   inferClassificationStatus,
   validatePurchaseItem,
+  normalizePurchaseDescription,
+  scoreClassificationRule,
+  findBestClassificationRule,
 } from "./purchases";
 
 describe("Sprint Financeira - Fase 2B - purchases.ts (Helpers de Entrada de Compras)", () => {
@@ -201,6 +204,85 @@ describe("Sprint Financeira - Fase 2B - purchases.ts (Helpers de Entrada de Comp
       });
       expect(res.valid).toBe(false);
       expect(res.errors).toContain("Unidades agrupadas (caixa) exigem um fator de conversão maior que zero.");
+    });
+  });
+
+  describe("Sprint Financeira - Fase 2C - Regras de Classificação Assistida", () => {
+    describe("normalizePurchaseDescription", () => {
+      it("deve normalizar descrição removendo acentos e convertendo para minúsculo", () => {
+        expect(normalizePurchaseDescription("Pêítô de Frângó!")).toBe("peito de frango");
+        expect(normalizePurchaseDescription("  ETIQUETA   zebra  ")).toBe("etiqueta zebra");
+      });
+    });
+
+    describe("scoreClassificationRule", () => {
+      it("deve retornar 100 para match exato", () => {
+        expect(scoreClassificationRule("peito de frango", "Peito de Frango")).toBe(100);
+      });
+
+      it("deve retornar 50+ se for parcial", () => {
+        expect(scoreClassificationRule("peito de frango Seara 1kg", "Peito de Frango")).toBeGreaterThanOrEqual(50);
+      });
+
+      it("deve retornar 0 se não houver match", () => {
+        expect(scoreClassificationRule("detergente Ype", "Peito de Frango")).toBe(0);
+      });
+    });
+
+    describe("findBestClassificationRule", () => {
+      const mockRules = [
+        {
+          id: 1,
+          pattern: "peito de frango",
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 10,
+          confidence: 3,
+        },
+        {
+          id: 2,
+          pattern: "pote 300g",
+          category: "PACKAGING",
+          linkedEntityType: "packaging",
+          linkedEntityId: 20,
+          conversionFactor: 100,
+          confidence: 2,
+        },
+        {
+          id: 3,
+          pattern: "etiqueta zebra",
+          category: "LABEL_PRINTING",
+          confidence: 1,
+        },
+      ];
+
+      it("deve sugerir FOOD_INGREDIENT com match exato", () => {
+        const res = findBestClassificationRule("Peito de Frango", mockRules);
+        expect(res).not.toBeNull();
+        expect(res?.category).toBe("FOOD_INGREDIENT");
+        expect(res?.linkedEntityId).toBe(10);
+        expect(res?.confidence).toBe(3);
+      });
+
+      it("deve sugerir PACKAGING com match parcial e conversionFactor", () => {
+        const res = findBestClassificationRule("Pote 300g transparente", mockRules);
+        expect(res).not.toBeNull();
+        expect(res?.category).toBe("PACKAGING");
+        expect(res?.linkedEntityId).toBe(20);
+        expect(res?.conversionFactor).toBe(100);
+      });
+
+      it("deve sugerir LABEL_PRINTING sem linkedEntityId", () => {
+        const res = findBestClassificationRule("Etiqueta Zebra rolo 1000", mockRules);
+        expect(res).not.toBeNull();
+        expect(res?.category).toBe("LABEL_PRINTING");
+        expect(res?.linkedEntityId).toBeNull();
+      });
+
+      it("não deve sugerir se a confiança/score for muito baixo", () => {
+        const res = findBestClassificationRule("detergente liquido ype", mockRules);
+        expect(res).toBeNull();
+      });
     });
   });
 });

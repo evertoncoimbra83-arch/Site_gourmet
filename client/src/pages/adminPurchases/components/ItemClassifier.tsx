@@ -31,6 +31,9 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
       { enabled: category === "FOOD_INGREDIENT" }
     );
 
+  const { data: suggestion } =
+    trpc.admin.purchases.suggestItemClassification.useQuery({ itemId });
+
   // Obter itens da compra selecionada para encontrar o item atual
   const [purchaseItem, setPurchaseItem] = useState<any>(null);
 
@@ -140,6 +143,54 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
                 Lançamento: {Number(purchaseItem.quantity)} {purchaseItem.unit} por R$ {Number(purchaseItem.totalPrice).toFixed(2)}
               </p>
             </div>
+
+            {/* Aviso de Não Atualização de Custo Vigente */}
+            <div className="flex items-start gap-2.5 p-3.5 bg-amber-50/75 border border-amber-100 rounded-2xl text-amber-800 text-[9px] font-black uppercase tracking-wider shrink-0">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span>Nota: Esta classificação não altera o custo vigente do cardápio ou do catálogo de insumos nesta fase.</span>
+            </div>
+
+            {/* Bloco de Sugestão Inteligente */}
+            {suggestion && (
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col gap-2 text-left animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">
+                    💡 Sugestão Inteligente Encontrada
+                  </span>
+                  <span className="text-[8px] font-bold text-slate-400">
+                    Confiança: {suggestion.confidence} uso(s)
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium leading-normal">{suggestion.reason}</p>
+
+                <div className="text-[10px] font-bold text-slate-700 bg-white/60 p-3 rounded-xl border border-emerald-100/30 space-y-1">
+                  <div><strong>Categoria:</strong> {suggestion.category}</div>
+                  {suggestion.linkedEntityName && (
+                    <div><strong>Insumo sugerido:</strong> {suggestion.linkedEntityName}</div>
+                  )}
+                  {suggestion.conversionFactor > 1 && (
+                    <div><strong>Conversão sugerida:</strong> {suggestion.conversionFactor} base/compra</div>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setCategory(suggestion.category);
+                    setLinkedEntityType(suggestion.linkedEntityType || "ingredient");
+                    setLinkedEntityId(suggestion.linkedEntityId);
+                    setConversionFactor(String(suggestion.conversionFactor));
+                    if (suggestion.linkedEntityType === "ingredient" && suggestion.linkedEntityName) {
+                      setItemSearchText(suggestion.linkedEntityName);
+                    }
+                    toast.success("Sugestão inteligente aplicada!");
+                  }}
+                  className="h-9 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[8px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm"
+                >
+                  Aplicar Sugestão
+                </Button>
+              </div>
+            )}
 
             {/* Categoria */}
             <div className="space-y-1">

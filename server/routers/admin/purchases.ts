@@ -15,6 +15,7 @@ import {
   calculateCostPerBaseUnit,
   inferClassificationStatus,
   normalizePurchaseUnit,
+  findBestClassificationRule,
 } from "../../finance/purchases.js";
 
 const purchaseItemInputSchema = z.object({
@@ -94,6 +95,7 @@ export const adminPurchasesRouter = router({
         page: z.number().default(1),
         limit: z.number().default(10),
         search: z.string().optional(),
+        status: z.enum(["pending", "partial", "classified", "ignored"]).optional(),
       }).optional()
     )
     .query(async ({ input }) => {
@@ -102,10 +104,14 @@ export const adminPurchasesRouter = router({
       const limit = input?.limit ?? 10;
       const offset = (page - 1) * limit;
 
-      let whereClause = undefined;
+      const conditions = [];
       if (input?.search) {
-        whereClause = like(purchaseEntries.supplierNameSnapshot, `%${input.search}%`);
+        conditions.push(like(purchaseEntries.supplierNameSnapshot, `%${input.search}%`));
       }
+      if (input?.status) {
+        conditions.push(eq(purchaseEntries.classificationStatus, input.status));
+      }
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
       // Contagem total
       const [countResult] = await db
@@ -133,8 +139,32 @@ export const adminPurchasesRouter = router({
         .limit(limit)
         .offset(offset);
 
+      // Registros paginados com contagens de itens
+      const recordsWithCounts = await Promise.all(
+        records.map(async (entry) => {
+          const items = await db
+            .select({
+              classificationStatus: purchaseEntryItems.classificationStatus,
+            })
+            .from(purchaseEntryItems)
+            .where(eq(purchaseEntryItems.purchaseEntryId, entry.id));
+
+          const pendingCount = items.filter((it) => it.classificationStatus === "pending").length;
+          const classifiedCount = items.filter((it) => it.classificationStatus === "classified").length;
+          const ignoredCount = items.filter((it) => it.classificationStatus === "ignored").length;
+
+          return {
+            ...entry,
+            pendingCount,
+            classifiedCount,
+            ignoredCount,
+            totalItemsCount: items.length,
+          };
+        })
+      );
+
       return {
-        records,
+        records: recordsWithCounts,
         pagination: {
           total,
           page,
@@ -165,9 +195,17 @@ export const adminPurchasesRouter = router({
         .from(purchaseEntryItems)
         .where(eq(purchaseEntryItems.purchaseEntryId, input.id));
 
+      const pendingCount = items.filter((it) => it.classificationStatus === "pending").length;
+      const classifiedCount = items.filter((it) => it.classificationStatus === "classified").length;
+      const ignoredCount = items.filter((it) => it.classificationStatus === "ignored").length;
+
       return {
         ...entry,
         items,
+        pendingCount,
+        classifiedCount,
+        ignoredCount,
+        totalItemsCount: items.length,
       };
     }),
 
@@ -387,5 +425,125 @@ export const adminPurchasesRouter = router({
           globalStatus,
         };
       });
+    }),
+
+  // ==========================================
+  // REGRAS DE CLASSIFICAÇÃO & SUGESTÃO
+  // ==========================================
+  listClassificationRules: adminProcedure
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      let query = db.select().from(purchaseClassificationRules);
+      if (input?.search) {
+        query = query.where(like(purchaseClassificationRules.pattern, `%${input.search}%`)) as any;
+      }
+      return query.orderBy(desc(purchaseClassificationRules.confidence));
+    }),
+
+  createClassificationRule: adminProcedure
+    .input(z.object({
+      pattern: z.string().min(1, "Padrão é obrigatório"),
+      category: z.enum([
+        "FOOD_INGREDIENT",
+        "PACKAGING",
+        "LABEL_PRINTING",
+        "CLEANING",
+        "LOGISTICS",
+        "PAYMENT_OR_SERVICE_FEE",
+        "OPERATIONAL_EXPENSE",
+        "IGNORE",
+      ]),
+      linkedEntityType: z.enum(["ingredient", "packaging", "operational"]).optional().nullable(),
+      linkedEntityId: z.number().optional().nullable(),
+      defaultUnit: z.string().optional().nullable(),
+      conversionFactor: z.coerce.number().optional().nullable(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const cleanPattern = input.pattern.trim().toLowerCase();
+
+      const [existing] = await db
+        .select()
+        .from(purchaseClassificationRules)
+        .where(eq(purchaseClassificationRules.pattern, cleanPattern));
+
+      if (existing) {
+        await db
+          .update(purchaseClassificationRules)
+          .set({
+            category: input.category,
+            linkedEntityType: input.linkedEntityType,
+            linkedEntityId: input.linkedEntityId,
+            defaultUnit: input.defaultUnit,
+            conversionFactor: input.conversionFactor ? String(input.conversionFactor) : "1.0000",
+          })
+          .where(eq(purchaseClassificationRules.id, existing.id));
+        return {
+          success: true,
+          id: existing.id,
+          message: `Regra para "${cleanPattern}" atualizada com sucesso.`,
+        };
+      }
+
+      const result = await db.insert(purchaseClassificationRules).values({
+        pattern: cleanPattern,
+        category: input.category,
+        linkedEntityType: input.linkedEntityType,
+        linkedEntityId: input.linkedEntityId,
+        defaultUnit: input.defaultUnit,
+        conversionFactor: input.conversionFactor ? String(input.conversionFactor) : "1.0000",
+        confidence: 1,
+      });
+
+      return {
+        success: true,
+        id: result[0]?.insertId,
+        message: `Regra para "${cleanPattern}" criada com sucesso.`,
+      };
+    }),
+
+  deleteClassificationRule: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      await db
+        .delete(purchaseClassificationRules)
+        .where(eq(purchaseClassificationRules.id, input.id));
+      return {
+        success: true,
+        message: "Regra de classificação removida com sucesso.",
+      };
+    }),
+
+  suggestItemClassification: adminProcedure
+    .input(z.object({ itemId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const [item] = await db
+        .select()
+        .from(purchaseEntryItems)
+        .where(eq(purchaseEntryItems.id, input.itemId));
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Item da compra não encontrado.",
+        });
+      }
+
+      const rules = await db.select().from(purchaseClassificationRules);
+      const suggestion = findBestClassificationRule(item.rawDescription, rules);
+      if (suggestion && suggestion.linkedEntityType === "ingredient" && suggestion.linkedEntityId) {
+        const [ing] = await db
+          .select({ name: ingredients.name })
+          .from(ingredients)
+          .where(eq(ingredients.id, suggestion.linkedEntityId));
+        return {
+          ...suggestion,
+          linkedEntityName: ing?.name || null,
+        };
+      }
+      return suggestion ? { ...suggestion, linkedEntityName: null } : null;
     }),
 });

@@ -155,3 +155,98 @@ export function validatePurchaseItem(item: {
     errors,
   };
 }
+
+/**
+ * Normaliza a descrição do item de compra (case-insensitive, sem acentos, sem caracteres especiais).
+ */
+export function normalizePurchaseDescription(desc: string): string {
+  if (!desc) return "";
+  return desc
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .replace(/[^a-z0-9\s]/g, "") // remove caracteres especiais, mantém letras, números e espaços
+    .replace(/\s+/g, " "); // simplifica espaços múltiplos
+}
+
+/**
+ * Calcula a pontuação de match entre a descrição limpa e o padrão da regra.
+ * 100 para correspondência exata.
+ * 50+ se for parcial (includes).
+ */
+export function scoreClassificationRule(cleanDesc: string, pattern: string): number {
+  const cleanPattern = normalizePurchaseDescription(pattern);
+  if (!cleanDesc || !cleanPattern) return 0;
+
+  if (cleanDesc === cleanPattern) {
+    return 100;
+  }
+
+  if (cleanDesc.includes(cleanPattern)) {
+    return 50 + cleanPattern.length;
+  }
+
+  return 0;
+}
+
+export interface ClassificationSuggestion {
+  category: string;
+  linkedEntityType: string | null;
+  linkedEntityId: number | null;
+  defaultUnit: string | null;
+  conversionFactor: number;
+  confidence: number;
+  reason: string;
+}
+
+/**
+ * Busca a melhor regra aplicável e formata a sugestão correspondente.
+ */
+export function findBestClassificationRule(
+  rawDescription: string,
+  rules: {
+    id: number;
+    pattern: string;
+    category: string;
+    linkedEntityType?: string | null;
+    linkedEntityId?: number | null;
+    defaultUnit?: string | null;
+    conversionFactor?: string | number | null;
+    confidence: number;
+  }[]
+): ClassificationSuggestion | null {
+  const cleanDesc = normalizePurchaseDescription(rawDescription);
+  if (!cleanDesc) return null;
+
+  let bestRule: any = null;
+  let highestScore = 0;
+
+  for (const rule of rules) {
+    const score = scoreClassificationRule(cleanDesc, rule.pattern);
+    if (score > highestScore) {
+      highestScore = score;
+      bestRule = rule;
+    }
+  }
+
+  if (highestScore >= 50 && bestRule) {
+    const factor = bestRule.conversionFactor ? parseFloat(String(bestRule.conversionFactor)) : 1;
+    const reason =
+      highestScore === 100
+        ? "Correspondência exata encontrada com base no histórico."
+        : `Correspondência parcial encontrada com o padrão "${bestRule.pattern}".`;
+
+    return {
+      category: bestRule.category,
+      linkedEntityType: bestRule.linkedEntityType || null,
+      linkedEntityId: bestRule.linkedEntityId || null,
+      defaultUnit: bestRule.defaultUnit || null,
+      conversionFactor: isNaN(factor) || factor <= 0 ? 1 : factor,
+      confidence: bestRule.confidence,
+      reason,
+    };
+  }
+
+  return null;
+}

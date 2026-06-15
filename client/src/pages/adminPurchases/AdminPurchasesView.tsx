@@ -26,16 +26,19 @@ import { ItemClassifier } from "./components/ItemClassifier";
 
 export default function AdminPurchasesView() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [classifyingItemId, setClassifyingItemId] = useState<number | null>(null);
+  const [onlyShowPendingInDialog, setOnlyShowPendingInDialog] = useState(false);
 
   // Queries
   const { data, isLoading, refetch } = trpc.admin.purchases.listEntries.useQuery({
     page,
     limit: 10,
     search: searchTerm || undefined,
+    status: (statusFilter as any) || undefined,
   });
 
   const { data: selectedEntry, isLoading: isLoadingEntry, refetch: refetchEntry } =
@@ -43,6 +46,11 @@ export default function AdminPurchasesView() {
       { id: selectedEntryId ?? 0 },
       { enabled: !!selectedEntryId }
     );
+
+  const handleOpenDetails = (entryId: number, showOnlyPending = false) => {
+    setOnlyShowPendingInDialog(showOnlyPending);
+    setSelectedEntryId(entryId);
+  };
 
   const formatMoney = (val: string | number) => {
     const num = typeof val === "string" ? parseFloat(val) : val;
@@ -145,21 +153,37 @@ export default function AdminPurchasesView() {
         </Button>
       </div>
 
-      {/* Busca */}
-      <div className="relative w-full">
-        <Search
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-          size={18}
-        />
-        <Input
-          placeholder="Filtrar por nome do fornecedor..."
-          className="h-14 pl-12 rounded-2xl bg-white border-none shadow-sm focus:ring-2 focus:ring-emerald-500/10 font-bold text-slate-700"
-          value={searchTerm}
+      {/* Busca e Filtros */}
+      <div className="flex flex-col md:flex-row gap-4 w-full">
+        <div className="relative flex-1">
+          <Search
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+            size={18}
+          />
+          <Input
+            placeholder="Filtrar por nome do fornecedor..."
+            className="h-14 pl-12 rounded-2xl bg-white border-none shadow-sm focus:ring-2 focus:ring-emerald-500/10 font-bold text-slate-700 w-full"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <select
+          value={statusFilter}
           onChange={(e) => {
-            setSearchTerm(e.target.value);
+            setStatusFilter(e.target.value);
             setPage(1);
           }}
-        />
+          className="h-14 px-4 rounded-2xl bg-white border-none shadow-sm focus:ring-2 focus:ring-emerald-500/10 font-bold text-slate-700 text-xs focus:outline-none min-w-[200px]"
+        >
+          <option value="">Todos os Status</option>
+          <option value="pending">Pendente</option>
+          <option value="partial">Parcial</option>
+          <option value="classified">Classificado</option>
+          <option value="ignored">Ignorado</option>
+        </select>
       </div>
 
       {/* Lista de Compras */}
@@ -189,39 +213,63 @@ export default function AdminPurchasesView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {data.records.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-5">
-                        <p className="font-bold text-slate-800 text-sm">{entry.supplierNameSnapshot}</p>
-                        {entry.invoiceNumber && (
-                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">NF: {entry.invoiceNumber}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-5 text-slate-600 font-bold text-xs">
-                        {new Date(entry.purchasedAt).toLocaleDateString("pt-BR")}
-                      </td>
-                      <td className="px-6 py-5 font-black text-slate-900 text-sm">
-                        {formatMoney(entry.totalAmount)}
-                      </td>
-                      <td className="px-6 py-5">
-                        {getStatusBadge(entry.classificationStatus)}
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase bg-slate-100 text-slate-600">
-                          {entry.source}
-                        </span>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <Button
-                          onClick={() => setSelectedEntryId(entry.id)}
-                          className="h-9 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold uppercase text-[9px] tracking-wider rounded-xl transition-all inline-flex items-center gap-1.5"
-                        >
-                          <Eye size={12} />
-                          Ver Detalhes
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {data.records.map((entry) => {
+                    const borderHighlight =
+                      entry.classificationStatus === "partial"
+                        ? "border-l-4 border-l-sky-500 bg-sky-50/5"
+                        : entry.classificationStatus === "pending"
+                        ? "border-l-4 border-l-amber-500 bg-amber-50/5"
+                        : "";
+                    return (
+                      <tr key={entry.id} className={`hover:bg-slate-50/50 transition-colors ${borderHighlight}`}>
+                        <td className="px-6 py-5">
+                          <p className="font-bold text-slate-800 text-sm">{entry.supplierNameSnapshot}</p>
+                          {entry.invoiceNumber && (
+                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">NF: {entry.invoiceNumber}</p>
+                          )}
+                        </td>
+                        <td className="px-6 py-5 text-slate-600 font-bold text-xs">
+                          {new Date(entry.purchasedAt).toLocaleDateString("pt-BR")}
+                        </td>
+                        <td className="px-6 py-5 font-black text-slate-900 text-sm">
+                          {formatMoney(entry.totalAmount)}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex flex-col gap-1 items-start">
+                            {getStatusBadge(entry.classificationStatus)}
+                            <span className="text-[9px] text-slate-400 font-semibold">
+                              {entry.classifiedCount} de {entry.totalItemsCount} classificados
+                              {entry.pendingCount > 0 && ` (${entry.pendingCount} pendentes)`}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase bg-slate-100 text-slate-600">
+                            {entry.source}
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 text-right">
+                          <div className="flex justify-end gap-2 items-center">
+                            <Button
+                              onClick={() => handleOpenDetails(entry.id, false)}
+                              className="h-9 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold uppercase text-[9px] tracking-wider rounded-xl transition-all inline-flex items-center gap-1.5"
+                            >
+                              <Eye size={12} />
+                              Ver Detalhes
+                            </Button>
+                            {(entry.classificationStatus === "pending" || entry.classificationStatus === "partial") && (
+                              <Button
+                                onClick={() => handleOpenDetails(entry.id, true)}
+                                className="h-9 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold uppercase text-[9px] tracking-wider rounded-xl transition-all inline-flex items-center gap-1.5 shadow-sm active:scale-95"
+                              >
+                                Revisar Pendentes
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -299,6 +347,25 @@ export default function AdminPurchasesView() {
                 </div>
               </div>
 
+              {/* Filtro de Itens do Dialog */}
+              <div className="flex items-center justify-between px-1 shrink-0">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Itens da Compra ({selectedEntry.items?.length || 0})
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="dialogOnlyPending"
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    checked={onlyShowPendingInDialog}
+                    onChange={(e) => setOnlyShowPendingInDialog(e.target.checked)}
+                  />
+                  <label htmlFor="dialogOnlyPending" className="text-[10px] font-bold text-slate-500 uppercase cursor-pointer select-none">
+                    Mostrar apenas pendentes
+                  </label>
+                </div>
+              </div>
+
               {/* Lista de Itens */}
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 border border-slate-100 rounded-2xl bg-white">
                 <table className="w-full text-left border-collapse">
@@ -313,7 +380,20 @@ export default function AdminPurchasesView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {selectedEntry.items?.map((item) => (
+                    {(() => {
+                      const filteredItems = selectedEntry.items?.filter(
+                        (item) => !onlyShowPendingInDialog || item.classificationStatus === "pending"
+                      ) || [];
+                      if (filteredItems.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-8 text-center text-xs font-bold text-slate-400 uppercase">
+                              Nenhum item pendente de classificação.
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return filteredItems.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
                         <td className="px-4 py-4 text-xs font-bold text-slate-700">{item.rawDescription}</td>
                         <td className="px-4 py-4 text-xs font-medium text-slate-600">
@@ -353,7 +433,8 @@ export default function AdminPurchasesView() {
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                    ));
+                    })()}
                   </tbody>
                 </table>
               </div>
