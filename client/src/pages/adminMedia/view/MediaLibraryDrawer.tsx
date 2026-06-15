@@ -1,7 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { CheckCircle2, ChevronLeft, Folder, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Folder, Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { normalizeImageUrlForStorage } from "@shared/utils/image-url";
+
+export interface MediaSelection {
+  id?: string | number;
+  url: string;
+  publicId?: string;
+  folder?: string;
+  filename?: string;
+  alt?: string;
+  type?: string;
+}
 
 interface CloudinaryResource {
   id: string;
@@ -13,8 +25,11 @@ interface CloudinaryResource {
 interface MediaLibraryDrawerProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (url: string) => void;
-  defaultFolder?: string;
+  onSelect: (url: string, media?: MediaSelection) => void;
+  initialFolder?: string;
+  title?: string;
+  allowedTypes?: string[];
+  allowUpload?: boolean;
 }
 
 const DEFAULT_FOLDERS = ["logo", "pratos", "banners", "nutris", "geral"];
@@ -28,18 +43,25 @@ export const MediaLibraryDrawer = ({
   open,
   onClose,
   onSelect,
-  defaultFolder,
+  initialFolder,
+  title,
 }: MediaLibraryDrawerProps) => {
   const [currentFolder, setCurrentFolder] = useState<string | null>(
-    defaultFolder || null,
+    initialFolder || null,
   );
+  const [searchTerm, setSearchTerm] = useState("");
   const normalizedFolder = normalizeFolder(currentFolder);
 
   useEffect(() => {
     if (open) {
-      setCurrentFolder(defaultFolder || null);
+      setCurrentFolder(initialFolder || null);
+      setSearchTerm("");
     }
-  }, [defaultFolder, open]);
+  }, [initialFolder, open]);
+
+  useEffect(() => {
+    setSearchTerm("");
+  }, [currentFolder]);
 
   const { data: folders = [] } = trpc.admin.media.listFolders.useQuery(undefined, {
     enabled: open,
@@ -57,15 +79,40 @@ export const MediaLibraryDrawer = ({
     });
   }, [folders]);
 
+  const filteredImages = useMemo(() => {
+    const list = (images as CloudinaryResource[]) || [];
+    if (!searchTerm.trim()) return list;
+    const search = searchTerm.toLowerCase().trim();
+    return list.filter((img) => img.name.toLowerCase().includes(search));
+  }, [images, searchTerm]);
+
+  const handleSelect = (image: CloudinaryResource) => {
+    const cleanUrl = normalizeImageUrlForStorage(image.url);
+    if (!cleanUrl) return;
+
+    onSelect(cleanUrl, {
+      id: image.id,
+      url: cleanUrl,
+      folder: image.folder,
+      filename: image.name,
+    });
+    onClose();
+  };
+
   return (
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent
         side="right"
-        className="flex h-screen w-full flex-col border-none bg-slate-50 p-0 outline-none sm:max-w-3xl"
+        className="flex h-screen w-full flex-col border-none bg-slate-50 p-0 outline-none sm:max-w-3xl z-[130]"
+        overlayClassName="z-[120]"
       >
         <div className="shrink-0 bg-slate-900 p-8 text-white">
           <SheetTitle className="text-3xl font-black uppercase italic tracking-tighter text-white">
-            Biblioteca <span className="text-emerald-400">Cloud</span>
+            {title || (
+              <>
+                Biblioteca <span className="text-emerald-400">Cloud</span>
+              </>
+            )}
           </SheetTitle>
           <SheetDescription className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             Selecione assets otimizados do Cloudinary
@@ -74,13 +121,28 @@ export const MediaLibraryDrawer = ({
 
         <div className="flex-1 overflow-y-auto p-6">
           {currentFolder ? (
-            <button
-              type="button"
-              onClick={() => setCurrentFolder(null)}
-              className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase text-emerald-600 transition-colors hover:text-emerald-700"
-            >
-              <ChevronLeft size={14} /> Voltar para Pastas
-            </button>
+            <div className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={() => setCurrentFolder(null)}
+                className="self-start flex items-center gap-2 text-[10px] font-black uppercase text-emerald-600 transition-colors hover:text-emerald-700"
+              >
+                <ChevronLeft size={14} /> Voltar para Pastas
+              </button>
+
+              <div className="relative w-full">
+                <Search
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={14}
+                />
+                <Input
+                  placeholder="Buscar pelo nome..."
+                  className="h-10 rounded-xl border-none bg-white pl-10 text-[10px] font-bold uppercase tracking-widest transition-all focus-visible:ring-emerald-500 shadow-sm"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+              </div>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               {availableFolders.map((folder) => (
@@ -117,14 +179,11 @@ export const MediaLibraryDrawer = ({
                       Carregando...
                     </span>
                   </div>
-                ) : (images as CloudinaryResource[])?.length ? (
-                  (images as CloudinaryResource[]).map((image) => (
+                ) : filteredImages.length ? (
+                  filteredImages.map((image) => (
                     <div
                       key={image.id}
-                      onClick={() => {
-                        onSelect(image.url);
-                        onClose();
-                      }}
+                      onClick={() => handleSelect(image)}
                       className="group relative aspect-square cursor-pointer overflow-hidden rounded-[2rem] border border-slate-100 bg-white shadow-sm transition-all hover:shadow-lg"
                     >
                       <img
@@ -147,7 +206,7 @@ export const MediaLibraryDrawer = ({
                   <div className="col-span-full flex flex-col items-center justify-center py-20 text-slate-300">
                     <Folder size={48} strokeWidth={1} className="opacity-20" />
                     <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Nenhuma imagem nesta pasta
+                      Nenhuma imagem correspondente
                     </p>
                   </div>
                 )}

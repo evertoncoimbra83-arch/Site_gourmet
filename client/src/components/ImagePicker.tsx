@@ -1,23 +1,25 @@
 import React, { useState, forwardRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ImagePlus, X, RefreshCw, AlertCircle } from "lucide-react";
-import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 import { normalizeImageUrl } from "@shared/utils/assets"; // ✅ substitui getFullUrl com localhost hardcoded
 
 interface ImagePickerProps {
   value?: string;
   onChange: (url: string) => void;
   label?: string;
+  initialFolder?: string;
 }
 
 const ImagePicker = forwardRef<HTMLDivElement, ImagePickerProps>(
-  ({ value, onChange, label = "Imagem" }, ref) => {
+  ({ value, onChange, label = "Imagem", initialFolder = "geral" }, ref) => {
     const [open, setOpen] = useState(false);
     const [hasError, setHasError] = useState(false);
 
     // ✅ normalizeImageUrl lida com Cloudinary (https), caminhos relativos e legados
     // Elimina o fallback hardcoded "http://localhost:3001"
-    const imageUrl = value ? (normalizeImageUrl(value) || "") : "";
+    const imageUrl = value ? resolveImageUrl(value, "generic") : "";
 
     return (
       <div className="space-y-2 text-left" ref={ref}>
@@ -33,7 +35,10 @@ const ImagePicker = forwardRef<HTMLDivElement, ImagePickerProps>(
                 alt="Preview"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                 onLoad={() => setHasError(false)}
-                onError={() => setHasError(true)}
+                onError={(event) => {
+                  setHasError(true);
+                  event.currentTarget.src = getImageFallback("generic");
+                }}
               />
 
               <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
@@ -87,14 +92,14 @@ const ImagePicker = forwardRef<HTMLDivElement, ImagePickerProps>(
           </div>
         )}
 
-        <MediaPickerModal
+        <MediaLibraryDrawer
           open={open}
           onClose={() => setOpen(false)}
           onSelect={(url: string) => {
             onChange(url);
             setOpen(false);
           }}
-          defaultFolder="geral"
+          initialFolder={initialFolder}
         />
       </div>
     );

@@ -9,6 +9,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Folder, ChevronLeft, Image as ImageIcon, Loader2 } from "lucide-react";
+import {
+  getImageFallback,
+  normalizeImageUrlForStorage,
+  resolveImageUrl,
+} from "@shared/utils/image-url";
 
 interface CloudinaryImage {
   id: string;
@@ -65,7 +70,9 @@ export function MediaLibraryModal({
   }, [folders]);
 
   const handleSelect = (url: string) => {
-    onSelect(url);
+    const storageUrl = normalizeImageUrlForStorage(url);
+    if (!storageUrl) return;
+    onSelect(storageUrl);
     setIsOpen(false);
   };
 
@@ -147,9 +154,15 @@ export function MediaLibraryModal({
                     className="group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border-2 border-transparent bg-white shadow-sm transition-all hover:border-emerald-500"
                   >
                     <img
-                      src={image.url.replace("/upload/", "/upload/w_400,f_auto,q_auto/")}
+                      src={resolveImageUrl(image.url, "generic").replace(
+                        "/upload/",
+                        "/upload/w_400,f_auto,q_auto/",
+                      )}
                       alt={image.name}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      onError={(event) => {
+                        event.currentTarget.src = getImageFallback("generic");
+                      }}
                     />
                     <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-700 shadow-sm">
                       {image.folder || "geral"}

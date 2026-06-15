@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
-import { normalizeImageUrl } from "@shared/utils/assets";
+import { resolveImageUrl } from "@shared/utils/image-url";
 import { useAdminMedia } from "../logic/useAdminMedia";
 import { MediaCard } from "../components/MediaCard";
 import { UploadZone } from "../components/UploadZone";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ function normalizeFolder(folder?: string | null) {
 export function AdminMediaView() {
   const [currentFolder, setCurrentFolder] = useState<string>("all");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [mediaIdToDelete, setMediaIdToDelete] = useState<string | number | null>(null);
   const normalizedFolder = normalizeFolder(currentFolder);
   const { state, actions, data, refs } = useAdminMedia(normalizedFolder);
   const utils = trpc.useUtils();
@@ -81,6 +83,22 @@ export function AdminMediaView() {
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      <ConfirmDialog
+        open={mediaIdToDelete !== null}
+        title="Excluir imagem?"
+        description="A imagem sera removida da biblioteca e podera deixar produtos sem foto."
+        confirmLabel="Excluir imagem"
+        cancelLabel="Manter imagem"
+        destructive
+        loading={state.isDeleting}
+        onCancel={() => setMediaIdToDelete(null)}
+        onConfirm={async () => {
+          if (mediaIdToDelete === null) return;
+          const deleted = await actions.handleDelete(mediaIdToDelete);
+          if (deleted) setMediaIdToDelete(null);
+        }}
+      />
+
       <header className="flex flex-col items-start justify-between gap-6 pt-4 md:flex-row md:items-end">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-emerald-600">
@@ -192,8 +210,8 @@ export function AdminMediaView() {
               <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {mediaItems.length > 0 ? (
                   mediaItems.map((item) => {
-                    const finalUrl = item.url || item.filePath || "";
-                    const displayUrl = normalizeImageUrl(finalUrl) || "";
+                    const finalUrl = item.url || "";
+                    const displayUrl = resolveImageUrl(finalUrl, "generic");
 
                     return (
                       <MediaCard
@@ -205,7 +223,7 @@ export function AdminMediaView() {
                           originalFilename: item.originalFilename || "imagem",
                         }}
                         onCopy={() => actions.copyToClipboard(displayUrl)}
-                        onDelete={() => actions.handleDelete(item.id)}
+                        onDelete={() => setMediaIdToDelete(item.id)}
                       />
                     );
                   })

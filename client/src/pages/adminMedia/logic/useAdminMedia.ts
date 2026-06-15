@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { trpc } from "../../../_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
-import { normalizeImageUrl } from "@shared/utils/assets";
+import { normalizeImageUrlForStorage } from "@shared/utils/image-url";
 
 function normalizeFolder(folder?: string | null) {
   const normalized = (folder || "all").toLowerCase().trim();
@@ -84,28 +84,33 @@ export function useAdminMedia(currentFolder?: string | null) {
   const copyToClipboard = (text: string) => {
     if (!text) return;
 
-    const absoluteUrl = normalizeImageUrl(text) || "";
+    const cloudinaryUrl = normalizeImageUrlForStorage(text);
+    if (!cloudinaryUrl) {
+      toast.error("Apenas URLs Cloudinary podem ser copiadas como link oficial.");
+      return;
+    }
+
     navigator.clipboard
-      .writeText(absoluteUrl)
+      .writeText(cloudinaryUrl)
       .then(() => toast.success("Link copiado para a area de transferencia!"))
       .catch(() => toast.error("Falha ao copiar link."));
   };
 
   const handleDelete = async (id: string | number) => {
-    if (!confirm("Excluir imagem permanentemente da nuvem e do banco?")) return;
-
     try {
       await deleteMutation.mutateAsync({ id });
       await invalidateMediaQueries();
       toast.success("Arquivo removido com sucesso.");
+      return true;
     } catch (error) {
       console.error("Erro ao deletar:", error);
       toast.error("Erro ao excluir imagem.");
+      return false;
     }
   };
 
   return {
-    state: { isUploading, isLoading },
+    state: { isUploading, isLoading, isDeleting: deleteMutation.isPending },
     actions: {
       processFiles,
       handleDelete,
