@@ -22,6 +22,12 @@ import {
   validateCostApplication,
 } from "../../finance/purchases.js";
 import { parseFiscalXml } from "../../finance/fiscalXml.js";
+import {
+  extractNfceAccessKey,
+  validateNfceAccessKey,
+  maskNfceAccessKey,
+  detectNfceStateFromUrl,
+} from "../../finance/nfceQr.js";
 
 const purchaseItemInputSchema = z.object({
   rawDescription: z.string().min(1, "Descrição do item é obrigatória"),
@@ -1008,6 +1014,23 @@ export const adminPurchasesRouter = router({
           message: "Entrada de compra importada do XML com sucesso!",
         };
       });
+    }),
+
+  parseNfceQrUrl: adminProcedure
+    .input(z.object({ urlOrKey: z.string().min(1, "URL ou chave é obrigatória") }))
+    .mutation(async ({ input }) => {
+      const accessKey = extractNfceAccessKey(input.urlOrKey);
+      if (!accessKey) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Não foi possível extrair uma chave de acesso de 44 dígitos do texto fornecido.",
+        });
+      }
+      const isValid = validateNfceAccessKey(accessKey);
+      const maskedKey = maskNfceAccessKey(accessKey);
+      const state = detectNfceStateFromUrl(input.urlOrKey);
+      return { accessKey, isValid, maskedKey, state };
     }),
 
   searchLinkableIngredients: adminProcedure

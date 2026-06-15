@@ -12,6 +12,7 @@ import {
   Eye,
   Upload,
   AlertTriangle,
+  QrCode,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
 import { appToast as toast } from "@/lib/app-toast";
 import { PurchaseEntryForm } from "./components/PurchaseEntryForm";
 import { ItemClassifier } from "./components/ItemClassifier";
+import { NfceQrScanner } from "./components/NfceQrScanner";
 
 export default function AdminPurchasesView() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -34,6 +36,7 @@ export default function AdminPurchasesView() {
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [classifyingItemId, setClassifyingItemId] = useState<number | null>(null);
   const [onlyShowPendingInDialog, setOnlyShowPendingInDialog] = useState(false);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
 
   // XML Import states
   const [isImportingXml, setIsImportingXml] = useState(false);
@@ -266,6 +269,13 @@ export default function AdminPurchasesView() {
         </div>
 
         <div className="flex gap-3">
+          <Button
+            onClick={() => setIsQrScannerOpen(true)}
+            className="h-14 px-8 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-black uppercase text-[10px] tracking-widest transition-all shadow-lg active:scale-95 flex items-center gap-2"
+          >
+            <QrCode size={18} />
+            Escanear QR
+          </Button>
           <Button
             onClick={() => setIsImportingXml(true)}
             className="h-14 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-widest transition-all shadow-lg active:scale-95 flex items-center gap-2"
@@ -603,6 +613,11 @@ export default function AdminPurchasesView() {
           onClose={() => setClassifyingItemId(null)}
           onSuccess={handleClassifySuccess}
         />
+      )}
+
+      {/* Modal de Scanner NFC-e QR Code */}
+      {isQrScannerOpen && (
+        <NfceQrScanner onClose={() => setIsQrScannerOpen(false)} />
       )}
 
       {/* Modal de Importação de XML Fiscal */}
