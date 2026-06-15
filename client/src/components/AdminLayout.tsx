@@ -7,7 +7,7 @@ import {
   History, BellRing, ShoppingBag, Zap,
   Mail, BarChart3, Megaphone, Monitor,
   Gift, Tags, Share2, Palette, Printer,
-  Store, PackageCheck, ServerCog, BrainCircuit, ShieldAlert} from "lucide-react";
+  Store, PackageCheck, ServerCog, BrainCircuit, ShieldAlert, FileText} from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -149,6 +149,7 @@ export default function AdminLayout() {
         },
         { label: "Carrinhos Perdidos", href: "/admin/abandoned-carts", icon: ShoppingBag, badge: newAbandonedCount, badgeColor: "bg-amber-500" },
         { label: "Clientes", href: "/admin/users", icon: Users, permission: "customers:manage" },
+        { label: "Entrada de Compras", href: "/admin/purchases", icon: FileText },
       ],
     },
     {

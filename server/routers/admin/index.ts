@@ -20,6 +20,8 @@ import { adminFinanceRouter } from "./finance.js";
 import { adminPaymentMethodsRouter } from "./payment-methods.js";
 import { ingredientsRouter } from "./ingredients.js";
 import { dishCompositionRouter } from "./dishComposition.js";
+import { adminPurchasesRouter } from "./purchases.js";
+
 import { adminDishesRouter } from "./dishes.js";
 import { adminCategoriesRouter } from "./categories.js";
 import { adminReviewsRouter } from "./reviews.js";
@@ -97,6 +99,8 @@ export const adminRouter = router({
   // 💰 FINANCEIRO & PAGAMENTOS
   finance: adminFinanceRouter,
   paymentMethods: adminPaymentMethodsRouter,
+  purchases: adminPurchasesRouter,
+
 
   // 🍳 CARDÁPIO & COZINHA (Operação Real)
   ingredients: ingredientsRouter,

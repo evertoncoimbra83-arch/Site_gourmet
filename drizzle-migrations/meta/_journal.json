@@ -1,0 +1,97 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1773795291041,
+      "tag": "0000_square_gabe_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1779833717917,
+      "tag": "0001_numerous_ender_wiggin",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1779840000000,
+      "tag": "0002_audit_logs_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1779920000000,
+      "tag": "0003_rbac_admin_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1779971894999,
+      "tag": "0004_mysterious_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1780010475985,
+      "tag": "0005_panoramic_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1780067850004,
+      "tag": "0006_flimsy_vertigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1780104115082,
+      "tag": "0007_previous_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1780200000000,
+      "tag": "0008_coupon_usage_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1780159853641,
+      "tag": "0009_regular_may_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1780292400000,
+      "tag": "0010_segmented_announcements",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1781477666767,
+      "tag": "0011_lively_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1781540930632,
+      "tag": "0012_glossy_sharon_ventura",
+      "breakpoints": true
+    }
+  ]
+}

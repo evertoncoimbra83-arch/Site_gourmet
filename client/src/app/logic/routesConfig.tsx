@@ -134,7 +134,9 @@ export const adminRoutes: RouteConfig[] = [
   { path: "announcements", element: lazy(() => import("../../pages/AdminAnnouncements")), role: ["super_admin", "admin"] }, // Central de Avisos
 
   // Catálogo
+  { path: "purchases", element: lazy(() => import("../../pages/adminPurchases/AdminPurchasesView")), role: ["super_admin", "admin"] },
   { path: "dishes", element: lazy(() => import("../../pages/AdminDishes")), role: ["super_admin", "admin"] },
+
   { path: "packages", element: lazy(() => import("../../pages/adminPackages/view/AdminPackagesView")), role: ["super_admin", "admin"] },
   { path: "sizes-accompaniments", element: lazy(() => import("../../pages/AdminSizesAccompaniments")), role: ["super_admin", "admin"] },
   { path: "showcases", element: lazy(() => import("../../pages/AdminShowcases")), role: ["super_admin", "admin"] },
