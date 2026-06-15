@@ -1,0 +1,53 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve escapar carets e tildes e injetar quebras de linha corretamente 1`] = `
+"^XA
+^PW800
+^LL480
+^LH0,0
+^CI28
+^FO21,21
+^A0N,25,23
+^FB169,1,0,C,0
+^FH_
+^FDFrango _5EEspecial_7E^FS
+^FO21,53
+^A0N,21,19
+^FB169,1,0,L,0
+^FH_
+^FDAna_5CMaria^FS
+^FO21,85
+^A0N,17,15
+^FB169,2,0,L,0
+^FH_
+^FDLinha 1\\&Linha 2^FS
+^XZ
+
+"
+`;
+
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve gerar ZPL correto para payload completo 1`] = `
+"^XA
+^PW800
+^LL480
+^LH0,0
+^CI28
+^FO21,21
+^A0N,25,23
+^FB169,1,0,C,0
+^FH_
+^FDLasanha de Berinjela^FS
+^FO21,53
+^A0N,21,19
+^FB169,1,0,L,0
+^FH_
+^FDJoão Da Silva^FS
+^FO21,85
+^A0N,17,15
+^FB169,2,0,L,0
+^FH_
+^FDBerinjela, molho de tomate, queijo.^FS
+^XZ
+
+"
+`;

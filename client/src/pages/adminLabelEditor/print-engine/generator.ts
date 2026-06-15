@@ -3,6 +3,8 @@ import {
   formatNutritionLinear,
   type NutritionData,
 } from "./logic";
+import { sanitizeZplText as zplSanitize } from "./zplEscaping";
+
 
 export type ZebraDPI = 203 | 300;
 
@@ -41,16 +43,8 @@ function normalizeZplContent(value: unknown): string {
 }
 
 function sanitizeZplText(value: unknown): string {
-  const normalized = normalizeZplContent(value)
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
-
-  const safeLines = normalized.split("\n").map((line) =>
-    line.replace(/\\/g, "_5C").replace(/\^/g, "_5E").replace(/~/g, "_7E"),
-  );
-
-  return safeLines.join("\\&");
+  const normalized = normalizeZplContent(value);
+  return zplSanitize(normalized);
 }
 
 export function generateZPLForBatch(

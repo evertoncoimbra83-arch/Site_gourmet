@@ -1,6 +1,8 @@
 // client/src/pages/adminLabelEditor/print-engine/logic.ts
 import { addDays, format } from "date-fns";
 import { safeJsonParse, safeNumber } from "@/lib/safe-parse";
+import { cleanText } from "./zplEscaping";
+
 
 export interface NutritionData {
   energyKcal?: number;
@@ -132,16 +134,8 @@ export function normalizeOrderItems(items: OrderItem[]): OrderItem[] {
 /**
  * ✅ MELHORIA CODEX: Sanitização Universal
  */
-export function cleanText(val: unknown): string {
-  const str = String(val ?? "").trim();
-  return str
-    .replace(/Ã§/g, 'ç')
-    .replace(/Ã£/g, 'ã')
-    .replace(/Ã©/g, 'é')
-    .replace(/Â/g, '')
-    .replace(/adddim$/i, "") 
-    .trim();
-}
+export { cleanText };
+
 
 function toUpperSafe(val: unknown): string {
   return cleanText(val).toUpperCase();

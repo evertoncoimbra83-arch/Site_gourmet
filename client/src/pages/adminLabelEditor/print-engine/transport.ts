@@ -71,6 +71,7 @@ export function useZebraTransport() {
     isLocalPrintTransportAllowed({
       hostname: window.location.hostname,
       isDev: import.meta.env.DEV,
+      protocol: window.location.protocol,
     });
 
   const checkBrowserPrint = useCallback(async (): Promise<ZebraBrowserDevice | null> => {
