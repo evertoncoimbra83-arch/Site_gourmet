@@ -39,6 +39,7 @@ import {
   useZebraTransport,
   type AdminLabelTemplate,
 } from "../print-engine";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 interface OrderItem {
   id: string | number;
@@ -108,6 +109,8 @@ export function LabelProductionPanel({
     useState<ProductionOverrideMap>({});
   const [isEditingTemplateContent, setIsEditingTemplateContent] =
     useState(false);
+  const [showConfirmTemplateChange, setShowConfirmTemplateChange] = useState(false);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
 
   const { data: templatesRaw = [] } = trpc.admin.labels.getTemplates.useQuery();
   const { data: legacyRaw } = trpc.admin.storeSettings.getByKey.useQuery(
@@ -358,10 +361,9 @@ export function LabelProductionPanel({
 
   const handleTemplateChange = (templateId: string) => {
     if (totalOverrides > 0) {
-      const confirmChange = window.confirm(
-        "Trocar o modelo irá limpar os ajustes manuais desta impressão. Deseja continuar?",
-      );
-      if (!confirmChange) return;
+      setPendingTemplateId(templateId);
+      setShowConfirmTemplateChange(true);
+      return;
     }
     setPrintOverrides({});
     setSelectedTemplateId(templateId);
@@ -740,6 +742,27 @@ export function LabelProductionPanel({
           </button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showConfirmTemplateChange}
+        title="Trocar Modelo"
+        description="Trocar o modelo irá limpar os ajustes manuais desta impressão. Deseja continuar?"
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        onConfirm={() => {
+          if (pendingTemplateId) {
+            setPrintOverrides({});
+            setSelectedTemplateId(pendingTemplateId);
+          }
+          setShowConfirmTemplateChange(false);
+          setPendingTemplateId(null);
+        }}
+        onCancel={() => {
+          setShowConfirmTemplateChange(false);
+          setPendingTemplateId(null);
+        }}
+      />
     </div>
   );
 }

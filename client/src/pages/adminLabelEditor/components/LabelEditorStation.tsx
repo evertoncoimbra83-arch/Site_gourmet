@@ -29,6 +29,7 @@ import {
 import { LabelCanvas, type LabelElement } from "./editor/LabelCanvas";
 import { LabelProperties } from "./editor/LabelProperties";
 import { LabelToolbar } from "./editor/LabelToolbar";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export interface LabelTemplate {
   id: number | string | null;
@@ -79,6 +80,7 @@ export function LabelEditorStation({
   const [labelHeightMm, setLabelHeightMm] = useState(60);
   const [elements, setElements] = useState<LabelElement[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
   const { data: templatesRaw = [] } = trpc.admin.labels.getTemplates.useQuery();
   const { data: legacyRaw } = trpc.admin.storeSettings.getByKey.useQuery(
@@ -229,6 +231,12 @@ export function LabelEditorStation({
     });
   }, [elements, labelHeightMm, labelWidthMm, templateId, templateName, upsertTemplate]);
 
+  const isDefaultTemplate = useMemo(() => {
+    if (!templateId) return false;
+    const targetTemplate = templates.find((t) => t.id === templateId);
+    return targetTemplate ? Boolean(targetTemplate.isDefault) : false;
+  }, [templateId, templates]);
+
   const handleDelete = useCallback(() => {
     if (!templateId) {
       toast.error("Selecione um layout salvo para excluir.");
@@ -252,21 +260,8 @@ export function LabelEditorStation({
       return;
     }
 
-    const targetTemplate = templates.find((t) => t.id === templateId);
-    const isDefault = targetTemplate ? Boolean(targetTemplate.isDefault) : false;
-
-    if (isDefault) {
-      if (!window.confirm("Este é o modelo padrão de etiqueta do sistema. Tem certeza que deseja excluí-lo?")) {
-        return;
-      }
-    } else {
-      if (!window.confirm("Tem certeza que deseja excluir este modelo de etiqueta?")) {
-        return;
-      }
-    }
-
-    deleteTemplate.mutate({ id: numericId });
-  }, [deleteTemplate, templateId, templates]);
+    setShowConfirmDelete(true);
+  }, [templateId]);
 
   const handlePrintSingle = useReactToPrint({ contentRef: printRef });
   const handlePrintAll = useReactToPrint({ contentRef: printAllRef });
@@ -591,6 +586,38 @@ export function LabelEditorStation({
           </div>
         </div>
       </main>
+
+      <ConfirmDialog
+        open={showConfirmDelete}
+        title="Excluir Modelo"
+        description={
+          isDefaultTemplate
+            ? "Este é o modelo padrão de etiqueta do sistema. Tem certeza que deseja excluí-lo?"
+            : "Tem certeza que deseja excluir este modelo de etiqueta?"
+        }
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        loading={deleteTemplate.isPending}
+        onConfirm={() => {
+          let numericId: number = NaN;
+          if (typeof templateId === "number") {
+            numericId = templateId;
+          } else if (typeof templateId === "string") {
+            if (templateId.startsWith("new:")) {
+              const parsed = Number(templateId.replace("new:", ""));
+              if (Number.isFinite(parsed)) {
+                numericId = parsed;
+              }
+            }
+          }
+          if (Number.isFinite(numericId)) {
+            deleteTemplate.mutate({ id: numericId });
+          }
+          setShowConfirmDelete(false);
+        }}
+        onCancel={() => setShowConfirmDelete(false)}
+      />
     </div>
   );
 }

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { appToast as toast } from "@/lib/app-toast";
 import { generateZPLForBatch, type ZebraPhysicalConfig } from "./generator";
 import type { PrintLabelElement } from "./templates";
+import { isLocalPrintTransportAllowed, validateZplPayload } from "./transportGuards";
 
 const ZEBRA_VENDOR_ID = 0x0a5f;
 const BULK_OUT_ENDPOINT = 1;
@@ -62,10 +63,22 @@ export function useZebraTransport() {
   const [usbDevice, setUsbDevice] = useState<USBDeviceLike | null>(null);
   const [browserDevice, setBrowserDevice] = useState<ZebraBrowserDevice | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+  const isPrintingRef = useRef(false);
 
   const isUSBSupported = typeof navigator !== "undefined" && "usb" in navigator;
+  const isBrowserPrintAllowed =
+    typeof window !== "undefined" &&
+    isLocalPrintTransportAllowed({
+      hostname: window.location.hostname,
+      isDev: import.meta.env.DEV,
+    });
 
   const checkBrowserPrint = useCallback(async (): Promise<ZebraBrowserDevice | null> => {
+    if (!isBrowserPrintAllowed) {
+      setBrowserDevice(null);
+      return null;
+    }
+
     try {
       const response = await fetch(`${BROWSER_PRINT_URL}/default`, { method: "GET", mode: "cors" });
       if (!response.ok) return null;
@@ -79,11 +92,13 @@ export function useZebraTransport() {
     }
     setBrowserDevice(null);
     return null;
-  }, []);
+  }, [isBrowserPrintAllowed]);
 
   useEffect(() => {
-    checkBrowserPrint();
-  }, [checkBrowserPrint]);
+    if (isBrowserPrintAllowed) {
+      checkBrowserPrint();
+    }
+  }, [checkBrowserPrint, isBrowserPrintAllowed]);
 
   const connectUSB = useCallback(async (): Promise<boolean> => {
     if (!isUSBSupported) {
@@ -178,7 +193,18 @@ export function useZebraTransport() {
 
   const sendZpl = useCallback(
     async (zpl: string): Promise<boolean> => {
-      if (!zpl) return false;
+      const payloadCheck = validateZplPayload(zpl);
+      if (!payloadCheck.isValid) {
+        toast.error(payloadCheck.error || "Código ZPL inválido.");
+        return false;
+      }
+
+      if (isPrintingRef.current) {
+        toast.warning("Uma impressão já está em andamento. Aguarde.");
+        return false;
+      }
+
+      isPrintingRef.current = true;
       setIsPrinting(true);
       const toastId = toast.loading("Enviando para a Zebra...");
 
@@ -195,6 +221,7 @@ export function useZebraTransport() {
         toast.dismiss(toastId);
         return await sendViaBrowserPrint(zpl);
       } finally {
+        isPrintingRef.current = false;
         setIsPrinting(false);
       }
     },
@@ -237,4 +264,3 @@ export function useZebraTransport() {
     printBatch,
   };
 }
-
