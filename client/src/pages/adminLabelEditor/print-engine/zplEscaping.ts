@@ -69,3 +69,55 @@ export function sanitizeZplText(value: unknown, maxLength = 1000): string {
   // Executa escaping do ZPL
   return escapeZplChars(text);
 }
+
+export interface SanitizedBarcodeValue {
+  value: string;
+  isValid: boolean;
+  reason?: string;
+}
+
+const BARCODE_MAX_LENGTH = 32;
+
+function hasSensitiveBarcodePattern(value: string): boolean {
+  const compactDigits = value.replace(/\D/g, "");
+  return (
+    /https?:\/\//i.test(value) ||
+    /www\./i.test(value) ||
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value) ||
+    /\b[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value) ||
+    compactDigits.length === 11 ||
+    (/^\+?\d[\d\s().-]{8,}\d$/.test(value) && compactDigits.length >= 10) ||
+    /^[A-Za-z0-9_-]{24,}$/.test(value)
+  );
+}
+
+export function sanitizeCode128BarcodeValue(value: unknown): SanitizedBarcodeValue {
+  const raw = cleanText(value);
+
+  if (!raw || /\{\{[^}]+\}\}/.test(raw)) {
+    return { value: "", isValid: false, reason: "empty-or-placeholder" };
+  }
+
+  if (hasSensitiveBarcodePattern(raw)) {
+    return { value: "", isValid: false, reason: "sensitive-pattern" };
+  }
+
+  const cleaned = raw
+    .replace(/[\r\n]/g, "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/[\^~\\]/g, "")
+    .replace(/[^A-Za-z0-9._#-]/g, "")
+    .trim();
+
+  const meaningfulLength = cleaned.replace(/[^A-Za-z0-9]/g, "").length;
+
+  if (!cleaned || meaningfulLength < 2) {
+    return { value: "", isValid: false, reason: "empty-after-cleaning" };
+  }
+
+  if (cleaned.length > BARCODE_MAX_LENGTH || hasSensitiveBarcodePattern(cleaned)) {
+    return { value: "", isValid: false, reason: "unsafe-length-or-pattern" };
+  }
+
+  return { value: cleaned, isValid: true };
+}

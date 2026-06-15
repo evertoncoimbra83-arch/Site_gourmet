@@ -8,9 +8,16 @@ import {
   getZplTextMaxLines,
   PX_PER_MM,
 } from "./zplTextBlock";
+import { sanitizeCode128BarcodeValue } from "./zplEscaping";
 
 
 export type ZebraDPI = 203 | 300;
+
+type Code128BarcodeElement = Omit<PrintLabelElement, "type"> & {
+  type: "barcode";
+};
+
+type ZplLabelElement = PrintLabelElement | Code128BarcodeElement;
 
 const DPI_CONFIG: Record<ZebraDPI, { dotsPerMm: number; pxToDots: number }> = {
   203: { dotsPerMm: 8, pxToDots: 8 / PX_PER_MM },
@@ -48,15 +55,55 @@ function normalizeZplContent(value: unknown, options: { compactNutrition?: boole
   return String(value);
 }
 
+function generateCode128BarcodeZpl({
+  x,
+  y,
+  width,
+  height,
+  fontSize,
+  value,
+}: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  value: unknown;
+}): string {
+  const barcode = sanitizeCode128BarcodeValue(value);
+
+  if (!barcode.isValid) {
+    return generateZplTextBlock({
+      x,
+      y,
+      width,
+      fontSize: Math.max(12, fontSize),
+      fontWidth: Math.max(11, Math.round(fontSize * 0.9)),
+      text: "CODIGO DE BARRAS INVALIDO",
+      maxLines: 2,
+      alignment: "center",
+    });
+  }
+
+  const safeHeight = Math.max(40, Math.min(240, height || 80));
+
+  return [
+    `^FO${x},${y}`,
+    "^BY2",
+    `^BCN,${safeHeight},Y,N,N`,
+    `^FD${barcode.value}^FS`,
+  ].join("\n");
+}
+
 export function generateZPLForBatch(
-  layoutElements: PrintLabelElement[],
+  layoutElements: ZplLabelElement[],
   labelWidthMm: number,
   labelHeightMm: number,
   flatLabels: unknown[],
   parseContent: (
     content: string,
     index: number,
-    element?: PrintLabelElement,
+    element?: ZplLabelElement,
   ) => unknown,
   physical: ZebraPhysicalConfig = {},
 ): string {
@@ -106,6 +153,18 @@ export function generateZPLForBatch(
       if (element.type === "image") {
         zplBatch += `^FO${x},${y}\n`;
         zplBatch += `^GB${w},${h},1^FS\n`;
+        return;
+      }
+
+      if ((element.type as string) === "barcode") {
+        zplBatch += `${generateCode128BarcodeZpl({
+          x,
+          y,
+          width: w,
+          height: h,
+          fontSize,
+          value: rawContent,
+        })}\n`;
         return;
       }
 

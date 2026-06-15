@@ -2,10 +2,11 @@ import React from "react";
 import { Rnd } from "react-rnd";
 import { cn } from "@/lib/utils";
 import { LabelNutritionTable } from "./LabelNutritionTable";
+import { sanitizeCode128BarcodeValue } from "../../print-engine/zplEscaping";
 
 export interface LabelElement {
   id: string;
-  type: "text" | "variable" | "image" | "box";
+  type: "text" | "variable" | "image" | "box" | "barcode";
   content: string;
   x: number;
   y: number;
@@ -34,6 +35,31 @@ interface LabelCanvasProps {
   labelRef?: React.RefObject<HTMLDivElement>;
   zoom?: number;
   isPrintMode?: boolean;
+}
+
+function BarcodePreview({ value }: { value: unknown }) {
+  const barcode = sanitizeCode128BarcodeValue(value);
+  const bars = [3, 1, 2, 4, 1, 3, 2, 1, 4, 2, 1, 3, 1, 2, 4, 1, 2, 3, 1, 4];
+
+  return (
+    <div className="flex h-full w-full flex-col justify-between overflow-hidden bg-white px-1 py-0.5 text-black">
+      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[1px] overflow-hidden">
+        {bars.map((barWidth, index) => (
+          <div
+            key={`${barWidth}-${index}`}
+            className={index % 2 === 0 ? "bg-black" : "bg-transparent"}
+            style={{
+              width: `${barWidth}px`,
+              minWidth: `${barWidth}px`,
+            }}
+          />
+        ))}
+      </div>
+      <div className="truncate pt-0.5 text-center font-mono text-[8px] font-black leading-none">
+        {barcode.isValid ? barcode.value : "CODIGO INVALIDO"}
+      </div>
+    </div>
+  );
 }
 
 export function LabelCanvas({
@@ -111,6 +137,10 @@ export function LabelCanvas({
         const renderContent = () => {
           if (el.type === "image") {
             return <img src={el.content} className="h-full w-full object-contain" alt="" />;
+          }
+
+          if (el.type === "barcode") {
+            return <BarcodePreview value={displayContent} />;
           }
 
           if (isGraphicTable) {

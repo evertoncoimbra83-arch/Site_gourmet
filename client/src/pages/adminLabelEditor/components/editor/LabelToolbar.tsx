@@ -2,6 +2,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import {
   Activity,
+  Barcode,
   Calendar,
   Clock,
   Hash,
@@ -16,7 +17,7 @@ import {
 
 interface LabelToolbarProps {
   onAdd: (
-    type: "text" | "variable" | "image" | "box",
+    type: "text" | "variable" | "image" | "box" | "barcode",
     content?: string,
     fontSize?: number,
     width?: number,
@@ -237,6 +238,13 @@ export function LabelToolbar({ onAdd, onImageUpload }: LabelToolbarProps) {
             className="h-9 flex-col gap-1 border-dashed bg-white p-0 text-[9px] font-bold"
           >
             <Square size={12} /> <span>Caixa</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onAdd("barcode", "{{PEDIDO_ID}}", 8, 140)}
+            className="h-9 flex-col gap-1 border-dashed bg-white p-0 text-[9px] font-bold hover:text-emerald-600"
+          >
+            <Barcode size={12} /> <span>Barras</span>
           </Button>
           <Button
             variant="outline"

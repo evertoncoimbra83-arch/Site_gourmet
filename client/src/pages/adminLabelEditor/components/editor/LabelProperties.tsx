@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Box, FlipHorizontal, Image as ImageIcon, Trash2, Type, X } from "lucide-react";
+import { Barcode, Box, FlipHorizontal, Image as ImageIcon, Trash2, Type, X } from "lucide-react";
 import type { LabelElement } from "./LabelCanvas";
+import { sanitizeCode128BarcodeValue } from "../../print-engine/zplEscaping";
 
 interface LabelPropertiesProps {
   selectedElement: LabelElement | undefined;
@@ -33,6 +34,12 @@ export function LabelProperties({
     );
   };
 
+  const updateBarcodeContent = (content: string) => {
+    const allowsTemplate = /^\{\{(?:PEDIDO_ID|LOTE)\}\}$/i.test(content.trim());
+    if (!allowsTemplate && content && !sanitizeCode128BarcodeValue(content).isValid) return;
+    updateElement({ content });
+  };
+
   const deleteElement = () => {
     setElements((prev) => prev.filter((el) => el.id !== selectedElement.id));
     setSelectedId(null);
@@ -45,6 +52,7 @@ export function LabelProperties({
           {selectedElement.type === "text" && <Type size={12} className="text-slate-400" />}
           {selectedElement.type === "box" && <Box size={12} className="text-slate-400" />}
           {selectedElement.type === "image" && <ImageIcon size={12} className="text-slate-400" />}
+          {selectedElement.type === "barcode" && <Barcode size={12} className="text-slate-400" />}
           <span className="text-[9px] font-black uppercase italic tracking-tighter text-slate-500">
             Propriedades
           </span>
@@ -123,7 +131,7 @@ export function LabelProperties({
             />
           </div>
 
-          {selectedElement.type !== "image" && (
+          {selectedElement.type !== "image" && selectedElement.type !== "barcode" && (
             <div className="flex flex-1 flex-col justify-end">
               <Button
                 size="sm"
@@ -168,6 +176,22 @@ export function LabelProperties({
                 💡 Dica: Use <code className="font-mono font-bold text-blue-800 bg-blue-100/60 px-1 rounded">{"{{COMPOSICAO_LINHAS}}"}</code> para quebrar o prato e acompanhamentos em linhas.
               </div>
             )}
+          </div>
+        )}
+
+        {selectedElement.type === "barcode" && (
+          <div className="space-y-1.5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
+            <p className="ml-1 text-[8px] font-black uppercase tracking-wider text-emerald-600">
+              Valor Code 128
+            </p>
+            <Input
+              className="h-8 border-none bg-white font-mono text-xs font-bold shadow-sm"
+              value={selectedElement.content}
+              onChange={(event) => updateBarcodeContent(event.target.value)}
+            />
+            <p className="ml-1 text-[8px] font-semibold leading-normal text-slate-500">
+              Use um identificador curto, como {"{{PEDIDO_ID}}"} ou {"{{LOTE}}"}.
+            </p>
           </div>
         )}
       </div>

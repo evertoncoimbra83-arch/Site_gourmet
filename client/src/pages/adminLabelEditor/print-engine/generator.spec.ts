@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeZplText, cleanText, escapeZplChars } from "./zplEscaping";
+import {
+  sanitizeCode128BarcodeValue,
+  sanitizeZplText,
+  cleanText,
+  escapeZplChars,
+} from "./zplEscaping";
 import { isLocalPrintTransportAllowed, validateZplPayload } from "./transportGuards";
 import { mapToLabelDataContract, normalizeLabelData } from "./labelDataContract";
 import { generateZPLForBatch } from "./generator";
@@ -35,6 +40,22 @@ describe("Sprint Zebra - Fase 1 - Contratos, Escaping e Guards", () => {
       const sanitized = sanitizeZplText(longText, 50);
       expect(sanitized.length).toBe(53); // 50 caracteres + "..."
       expect(sanitized.endsWith("...")).toBe(true);
+    });
+
+    it("deve sanitizar valores seguros para Code 128", () => {
+      expect(sanitizeCode128BarcodeValue("PED-12345").value).toBe("PED-12345");
+      expect(sanitizeCode128BarcodeValue("LOTE_07").value).toBe("LOTE_07");
+      expect(sanitizeCode128BarcodeValue("ABC^12~3\n").value).toBe("ABC123");
+    });
+
+    it("deve bloquear placeholders e dados sensiveis em Code 128", () => {
+      expect(sanitizeCode128BarcodeValue("").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("{{CAMPO}}").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("https://gourmet.example.com/pedido/123").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("cliente@example.com").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("(11) 99999-8888").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("123.456.789-09").isValid).toBe(false);
+      expect(sanitizeCode128BarcodeValue("LONGVALUE-123456789012345678901234").isValid).toBe(false);
     });
   });
 
@@ -327,6 +348,107 @@ describe("Sprint Zebra - Fase 1 - Contratos, Escaping e Guards", () => {
       expect(zpl).not.toContain("undefined");
       expect(zpl).not.toContain("null");
       expect(zpl).toMatchSnapshot();
+    });
+
+    it("deve gerar barcode Code 128 nativo para ID curto", () => {
+      const barcodeElement = {
+        id: "barcode",
+        type: "barcode",
+        content: "{{PEDIDO_ID}}",
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 30,
+        fontSize: 8,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      const zpl = generateZPLForBatch(
+        [barcodeElement],
+        100,
+        60,
+        [{}],
+        () => "#123456",
+      );
+
+      expect(zpl).toContain("^BY2");
+      expect(zpl).toContain("^BCN,64,Y,N,N");
+      expect(zpl).toContain("^FD#123456^FS");
+      expect(zpl).not.toContain("undefined");
+      expect(zpl).not.toContain("null");
+      expect(zpl).not.toContain("{{");
+      expect(zpl).toMatchSnapshot();
+    });
+
+    it("deve gerar barcode Code 128 para lote em 300dpi", () => {
+      const barcodeElement = {
+        id: "barcode-lote",
+        type: "barcode",
+        content: "{{LOTE}}",
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 30,
+        fontSize: 8,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      const zpl = generateZPLForBatch(
+        [barcodeElement],
+        100,
+        60,
+        [{}],
+        () => "LOTE-07",
+        { dpi: 300 },
+      );
+
+      expect(zpl).toContain("^FO32,32");
+      expect(zpl).toContain("^BCN,95,Y,N,N");
+      expect(zpl).toContain("^FDLOTE-07^FS");
+      expect(zpl).toMatchSnapshot();
+    });
+
+    it("deve usar fallback textual quando barcode for vazio ou inseguro", () => {
+      const barcodeElement = {
+        id: "barcode-invalid",
+        type: "barcode",
+        content: "{{PEDIDO_ID}}",
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 30,
+        fontSize: 8,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      const invalidValues = [
+        "",
+        "{{CAMPO}}",
+        "https://gourmet.example.com/pedido/123",
+        "cliente@example.com",
+        "(11) 99999-8888",
+        "LONGVALUE-123456789012345678901234",
+      ];
+
+      invalidValues.forEach((value) => {
+        const zpl = generateZPLForBatch(
+          [barcodeElement],
+          100,
+          60,
+          [{}],
+          () => value,
+        );
+
+        expect(zpl).not.toContain("^BCN");
+        expect(zpl).not.toContain("^FD^FS");
+        expect(zpl).toContain("CODIGO DE BARRAS INVALIDO");
+        expect(zpl).not.toContain("undefined");
+        expect(zpl).not.toContain("null");
+        expect(zpl).not.toContain("{{");
+      });
     });
   });
 });

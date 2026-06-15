@@ -52,6 +52,36 @@ exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Genera
 "
 `;
 
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve gerar barcode Code 128 nativo para ID curto 1`] = `
+"^XA
+^PW800
+^LL480
+^LH0,0
+^CI28
+^FO21,21
+^BY2
+^BCN,64,Y,N,N
+^FD#123456^FS
+^XZ
+
+"
+`;
+
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve gerar barcode Code 128 para lote em 300dpi 1`] = `
+"^XA
+^PW1200
+^LL720
+^LH0,0
+^CI28
+^FO32,32
+^BY2
+^BCN,95,Y,N,N
+^FDLOTE-07^FS
+^XZ
+
+"
+`;
+
 exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve renderizar tabela nutricional textual estruturada no lote 1`] = `
 "^XA
 ^PW800

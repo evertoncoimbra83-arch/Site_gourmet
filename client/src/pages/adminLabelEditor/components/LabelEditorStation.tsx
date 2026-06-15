@@ -168,7 +168,7 @@ export function LabelEditorStation({
   }, [initialTemplateId, isInitialized, loadTemplate, templates]);
 
   const addElement = (
-    type: "text" | "variable" | "image" | "box",
+    type: "text" | "variable" | "image" | "box" | "barcode",
     content?: string,
     fontSize = 12,
     width = 80,
@@ -185,13 +185,15 @@ export function LabelEditorStation({
       height:
         type === "image" || type === "box"
           ? 40
-          : content === "{{TABELA_NUTRI}}"
-            ? 60
-            : content === "{{COMPOSICAO_LINHAS}}"
-              ? 35
-              : content === "{{MACROS_LINHAS}}"
+          : type === "barcode"
+            ? 45
+            : content === "{{TABELA_NUTRI}}"
+              ? 60
+              : content === "{{COMPOSICAO_LINHAS}}"
                 ? 35
-                : 15,
+                : content === "{{MACROS_LINHAS}}"
+                  ? 35
+                  : 15,
       fontSize,
       fontWeight: "700",
       zIndex: elements.length + 1,
