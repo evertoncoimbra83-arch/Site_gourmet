@@ -3,14 +3,18 @@ import {
   formatNutritionLinear,
   type NutritionData,
 } from "./logic";
-import { sanitizeZplText as zplSanitize } from "./zplEscaping";
+import {
+  generateZplTextBlock,
+  getZplTextMaxLines,
+  PX_PER_MM,
+} from "./zplTextBlock";
 
 
 export type ZebraDPI = 203 | 300;
 
 const DPI_CONFIG: Record<ZebraDPI, { dotsPerMm: number; pxToDots: number }> = {
-  203: { dotsPerMm: 8, pxToDots: 8 / 3.779 },
-  300: { dotsPerMm: 12, pxToDots: 12 / 3.779 },
+  203: { dotsPerMm: 8, pxToDots: 8 / PX_PER_MM },
+  300: { dotsPerMm: 12, pxToDots: 12 / PX_PER_MM },
 };
 
 export interface ZebraPhysicalConfig {
@@ -40,11 +44,6 @@ function normalizeZplContent(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (isNutritionData(value)) return formatNutritionLinear(value);
   return String(value);
-}
-
-function sanitizeZplText(value: unknown): string {
-  const normalized = normalizeZplContent(value);
-  return zplSanitize(normalized);
 }
 
 export function generateZPLForBatch(
@@ -85,7 +84,7 @@ export function generateZPLForBatch(
     zplBatch += "^CI28\n";
 
     layoutElements.forEach((element) => {
-      const content = sanitizeZplText(parseContent(element.content, index, element));
+      const content = normalizeZplContent(parseContent(element.content, index, element));
 
       const x = Math.round((element.x || 0) * pxToDots);
       const y = Math.round((element.y || 0) * pxToDots);
@@ -93,14 +92,14 @@ export function generateZPLForBatch(
       const h = Math.round((element.height || 0) * pxToDots);
       const fontSize = Math.round((element.fontSize || 12) * pxToDots);
 
-      zplBatch += `^FO${x},${y}\n`;
-
       if (element.type === "box") {
+        zplBatch += `^FO${x},${y}\n`;
         zplBatch += `^GB${w},${h},3^FS\n`;
         return;
       }
 
       if (element.type === "image") {
+        zplBatch += `^FO${x},${y}\n`;
         zplBatch += `^GB${w},${h},1^FS\n`;
         return;
       }
@@ -112,12 +111,16 @@ export function generateZPLForBatch(
             ? "R"
             : "L";
 
-      const maxLines = Math.max(1, Math.floor(h / (fontSize || 1)));
-
-      zplBatch += `^A0N,${fontSize},${Math.round(fontSize * 0.9)}\n`;
-      zplBatch += `^FB${w},${maxLines},0,${align},0\n`;
-      zplBatch += "^FH_\n";
-      zplBatch += `^FD${content}^FS\n`;
+      zplBatch += `${generateZplTextBlock({
+        x,
+        y,
+        width: w,
+        fontSize,
+        fontWidth: Math.round(fontSize * 0.9),
+        text: content,
+        maxLines: getZplTextMaxLines(h, fontSize),
+        alignment: align,
+      })}\n`;
     });
 
     zplBatch += "^XZ\n\n";

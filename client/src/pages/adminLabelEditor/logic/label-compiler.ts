@@ -1,5 +1,6 @@
 // client/src/pages/adminLabelEditor/logic/label-compiler.ts
 import { safeJsonParse } from "@/lib/safe-parse";
+import { mmToZplDots, pxToZplDots } from "../print-engine/zplTextBlock";
 import { generateZplText } from "./generators/zplText";
 import { generateZplBarcode } from "./generators/zplBarcode";
 import { generateZplNutritionTable } from "./generators/zplNutritionTable";
@@ -16,6 +17,9 @@ export interface LabelElement {
   staticText: string;
   width: number;
   height: number;
+  textAlign?: "left" | "center" | "right";
+  maxLines?: number;
+  lineSpacing?: number;
 }
 
 export interface LabelConfig {
@@ -51,16 +55,12 @@ export interface LabelData {
 //   dots = px * (dots_per_mm) / (px_per_mm)
 //   dots = px * (dots_per_mm) / 3.7795
 
-const PX_PER_MM = 3.7795; // 96dpi
-
 export function pxToDots(px: number, dpi: 203 | 300): number {
-  const dotsPerMm = dpi === 300 ? 12 : 8;
-  return Math.round(px * (dotsPerMm / PX_PER_MM));
+  return pxToZplDots(px, dpi);
 }
 
 export function mmToDots(mm: number, dpi: 203 | 300): number {
-  const dotsPerMm = dpi === 300 ? 12 : 8;
-  return Math.round(mm * dotsPerMm);
+  return mmToZplDots(mm, dpi);
 }
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────

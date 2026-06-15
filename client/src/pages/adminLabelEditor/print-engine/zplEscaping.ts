@@ -56,7 +56,10 @@ export function sanitizeZplText(value: unknown, maxLength = 1000): string {
   if (value == null) return "";
 
   // Converte para string e executa limpeza de acentos
-  let text = cleanText(value);
+  let text = cleanText(value)
+    .replace(/\{\{[^}]+\}\}/g, "")
+    .replace(/\b(?:undefined|null)\b/gi, "")
+    .trim();
 
   // Proteção contra overflow de texto
   if (text.length > maxLength) {
