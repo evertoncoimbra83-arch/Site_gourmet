@@ -73,7 +73,7 @@ export function ProfileDashboardHome({ vm }: { vm: ProfileVM }) {
   const { activeOrder } = useMemo(() => {
     const activeStatuses = ["pending", "processing", "shipped", "on_hold"];
     const active = ordersList.find(o => activeStatuses.includes(o.status.toLowerCase()));
-    
+
     return {
       activeOrder: active || null,
     };
@@ -81,7 +81,7 @@ export function ProfileDashboardHome({ vm }: { vm: ProfileVM }) {
 
   return (
     <div className="space-y-6 text-left animate-in fade-in duration-500">
-      
+
       {/* 1. Header com Saudação */}
       <header className="mb-2">
         <h2 className="text-2xl md:text-3xl font-black uppercase italic text-slate-900 leading-none">
@@ -92,14 +92,45 @@ export function ProfileDashboardHome({ vm }: { vm: ProfileVM }) {
         </p>
       </header>
 
+      {/* Alerta de Perfil Incompleto */}
+      {vm.user?.isIncomplete && (
+        <Card className="rounded-[2.5rem] border-2 border-amber-100 bg-amber-50/40 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300">
+          <CardContent className="p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4 text-left">
+              <div className="h-14 w-14 rounded-2xl bg-amber-500/10 flex flex-col items-center justify-center shrink-0 border border-amber-200">
+                <span className="text-sm font-black text-amber-700">{vm.user?.completionPercentage}%</span>
+                <span className="text-[7px] font-black uppercase text-amber-600 leading-none">Completo</span>
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-amber-900 uppercase tracking-tight">
+                  Seu perfil está incompleto ({vm.user?.completionPercentage}% preenchido)
+                </h4>
+                <p className="text-xs text-amber-800/80 font-medium leading-relaxed max-w-xl">
+                  {!vm.user?.birthDate
+                    ? "Complete sua data de nascimento para receber comunicações e benefícios futuros."
+                    : "Seu cadastro está incompleto. Complete seus dados para aproveitar futuras campanhas, novidades e benefícios."}
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={() => navigate("/perfil/dados")}
+              className="w-full md:w-auto h-11 px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black uppercase text-[10px] tracking-widest shadow-md transition-all shrink-0 flex items-center justify-center gap-2 group"
+            >
+              Completar Cadastro
+              <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Recompra Rápida Visual */}
       <ReorderDashboardCard orders={ordersList} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Coluna da Esquerda e Centro (Pedidos, Dieta, Fidelidade) */}
         <div className="lg:col-span-2 space-y-6">
-          
+
           {/* Card de Pedido Ativo */}
           {activeOrder && (
             <Card className="rounded-[2rem] border-2 border-emerald-100 shadow-lg overflow-hidden bg-white">
@@ -186,7 +217,7 @@ export function ProfileDashboardHome({ vm }: { vm: ProfileVM }) {
                     {loyaltyData.rulesText} {loyaltyData.limitsText && `(${loyaltyData.limitsText})`}
                   </p>
                 </div>
-                
+
                 <Button
                   onClick={() => navigate("/perfil/fidelidade")}
                   className="w-full md:w-auto h-11 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-widest shadow-md transition-all shrink-0 flex items-center justify-center gap-2 group"

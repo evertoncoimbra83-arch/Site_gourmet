@@ -1,28 +1,28 @@
 // server/routers/storefront/public.ts
 
-import { router, publicProcedure, createRateLimitMiddleware } from "../../_core/trpc.js"; 
+import { router, publicProcedure, createRateLimitMiddleware } from "../../_core/trpc.js";
 import { AuditLogService } from "../../services/AuditLogService.js";
 import { z } from "zod";
-import { eq, asc, and, like, inArray, sql } from "drizzle-orm"; 
+import { eq, asc, and, like, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../db.js";
-import { getStoreSettings as fetchSettingsFromDb } from "../../storeSettings.js"; 
+import { getStoreSettings as fetchSettingsFromDb } from "../../storeSettings.js";
 import { getDishDetails } from "../../dishes.js";
 import axios from "axios";
 import { decrypt } from "../../encryption.js";
 import { safeInteger, safeJsonParse, safeNumber } from "../../lib/safe-parse.js";
 
-import * as schema from "../../../drizzle/schema/index.js"; 
-import { 
-  appConfigs, 
-  shippingSettings, 
-  referrals, 
-  professionalReviews, 
+import * as schema from "../../../drizzle/schema/index.js";
+import {
+  appConfigs,
+  shippingSettings,
+  referrals,
+  professionalReviews,
   users,
   user_profiles,
-  showcases, 
-  dishes,    
+  showcases,
+  dishes,
   categories
-} from "../../../drizzle/schema/index.js"; 
+} from "../../../drizzle/schema/index.js";
 
 import { paymentMethodsRouter } from "./paymentMethods.js";
 
@@ -59,6 +59,12 @@ interface DishRecord {
   fatTotal?: number;
 }
 
+function getPublicGtmId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim().toUpperCase();
+  return /^GTM-[A-Z0-9]+$/i.test(id) ? id : null;
+}
+
 /**
  * 🛠️ BUSCA DE CONFIGURAÇÕES DA LOJA
  */
@@ -67,12 +73,12 @@ async function fetchAllStoreSettings() {
     const db = await getDb();
     const general = (await fetchSettingsFromDb()) || {};
     const [shipping] = await db.select().from(shippingSettings).limit(1);
-    
+
     const configKeys = [
-      'accessibility_high_contrast', 
-      'accessibility_dyslexic_font', 
-      'accessibility_vlibras_active', 
-      'accessibility_font_scale', 
+      'accessibility_high_contrast',
+      'accessibility_dyslexic_font',
+      'accessibility_vlibras_active',
+      'accessibility_font_scale',
       'success_order_message',
       'partners_json',
       'company_social_info',
@@ -99,17 +105,17 @@ async function fetchAllStoreSettings() {
       }
     }
 
-    return { 
+    return {
       ...general,
       favicon: getVal('favicon_url') || general.favicon || "/favicon.ico",
       googleAnalyticsId: getVal('google_analytics_id') || null,
-      gtmId: getVal('gtm_id') || null,              // ✅ expõe GTM ID para o frontend
+      gtmId: getPublicGtmId(getVal('gtm_id')),
       pickupEnabled: shipping?.pickupEnabled ?? general.pickupEnabled ?? true,
       pickupLabel: shipping?.pickupLabel ?? general.pickupLabel ?? "Retirada no Local",
       pickupInstruction: shipping?.pickupInstruction ?? general.pickupInstruction ?? "Apresente o número do pedido no balcão.",
       success_order_message: getVal('success_order_message') || "Pedido recebido com sucesso! 🥗",
       partners_json: getVal('partners_json') || "[]",
-      company_social_info: socialData, 
+      company_social_info: socialData,
       accessibility: {
           highContrast: getVal('accessibility_high_contrast') === 'true',
           dyslexicFont: getVal('accessibility_dyslexic_font') === 'true',
@@ -143,7 +149,7 @@ export const normalizeDish = (dish: unknown) => {
   return {
     id: safeInteger(d.id),
     name: d.name || "Prato sem nome",
-    slug: d.slug || String(d.id), 
+    slug: d.slug || String(d.id),
     price: toNum(d.price || d.basePrice || 0),
     salePrice: d.salePrice ? toNum(d.salePrice) : null,
     imageUrl: d.imageUrl || d.image_url || null,
@@ -170,7 +176,7 @@ export const publicRouter = router({
       .mutation(async ({ input }) => {
         const db = await getDb();
         const normalizedCode = input.code.toLowerCase().replace(/\s+/g, '');
-        
+
         const [partner] = await db.select().from(referrals).where(and(eq(referrals.code, normalizedCode), eq(referrals.isActive, true))).limit(1);
 
         if (!partner) return { success: false, message: "Código inválido." };
@@ -178,7 +184,7 @@ export const publicRouter = router({
         await db.update(schema.sessions)
           .set({ referralCode: normalizedCode })
           .where(eq(schema.sessions.id, input.sessionId));
-          
+
         return { success: true, appliedCode: normalizedCode, partnerName: partner.name };
       }),
   }),
@@ -187,14 +193,14 @@ export const publicRouter = router({
     .input(z.object({ dishId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      
+
       const rawReviews = await db
         .select({
           id: professionalReviews.id,
           insight: professionalReviews.technicalInsight,
           highlights: professionalReviews.nutritionalHighlights,
-          authorNameEncrypted: users.name, 
-          authorTitle: user_profiles.professional_title, 
+          authorNameEncrypted: users.name,
+          authorTitle: user_profiles.professional_title,
         })
         .from(professionalReviews)
         .innerJoin(users, eq(professionalReviews.userId, users.id))
@@ -214,7 +220,7 @@ export const publicRouter = router({
     categories: publicProcedure.query(async () => {
       const db = await getDb();
       const cats = await db.select().from(categories).where(eq(categories.isActive, true)).orderBy(asc(categories.displayOrder));
-      
+
       const counts = await db.select({
         categoryId: dishes.categoryId,
         count: sql<number>`count(${dishes.id})`
@@ -241,21 +247,21 @@ export const publicRouter = router({
 
         const d = details as Record<string, unknown>;
 
-        return { 
-          ...normalized, 
-          nutritionalInfo: normalized.nutritional_info, 
-          ingredients: String(d.ingredients || ""), 
-          sizes: (d.sizes as unknown[]) || [], 
-          accompaniments: (d.accompaniments as unknown[]) || [] 
+        return {
+          ...normalized,
+          nutritionalInfo: normalized.nutritional_info,
+          ingredients: String(d.ingredients || ""),
+          sizes: (d.sizes as unknown[]) || [],
+          accompaniments: (d.accompaniments as unknown[]) || []
         };
       }),
 
     list: publicProcedure
-      .input(z.object({ 
-          page: z.number().default(1), 
-          perPage: z.number().default(100), 
-          search: z.string().nullish(), 
-          category: z.union([z.number(), z.string()]).nullish() 
+      .input(z.object({
+          page: z.number().default(1),
+          perPage: z.number().default(100),
+          search: z.string().nullish(),
+          category: z.union([z.number(), z.string()]).nullish()
       }).optional())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -287,7 +293,7 @@ export const publicRouter = router({
    */
   getShowcases: publicProcedure.query(async () => {
     const db = await getDb();
-    
+
     // 1. Busca vitrines ativas
     const activeShowcases = await db
       .select()
@@ -313,7 +319,7 @@ export const publicRouter = router({
         .map((id) => safeInteger(id, Number.NaN))
         .filter(Number.isFinite);
 
-      const filteredItems = normalizedDishes.filter(dish => 
+      const filteredItems = normalizedDishes.filter(dish =>
         dishIds.includes(dish!.id)
       );
 
@@ -344,6 +350,8 @@ export const publicRouter = router({
       windowMs: 60 * 1000
     }))
     .input(z.object({
+      requestId: z.string().optional(),
+      route: z.string().optional(),
       errorName: z.string(),
       errorMessage: z.string(),
       errorStack: z.string().optional(),
@@ -354,20 +362,21 @@ export const publicRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         const actor: any = { userId: "system" };
-        let requestId: string | undefined = undefined;
+        let requestId: string | undefined = input.requestId;
 
         if (ctx) {
           if (ctx.user) {
             actor.userId = ctx.user.id;
           }
           if (ctx.req) {
-            requestId = (ctx.req as any).requestId || 
-                        ctx.req.headers?.["x-request-id"] || 
+            requestId = requestId ||
+                        (ctx.req as any).requestId ||
+                        ctx.req.headers?.["x-request-id"] ||
                         ctx.req.headers?.["x-correlation-id"];
-            actor.ipAddress = ctx.req.ip || 
-                              (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+            actor.ipAddress = ctx.req.ip ||
+                              (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
                               "127.0.0.1";
-            actor.userAgent = ctx.req.headers?.["user-agent"] || input.userAgent || "unknown";
+            actor.userAgent = input.userAgent || ctx.req.headers?.["user-agent"] || "unknown";
           }
         }
 
@@ -383,9 +392,13 @@ export const publicRouter = router({
           error: errorObj,
           actor,
           requestId,
-          route: input.url,
+          route: input.route || input.url,
           severity: "critical",
-          metadata: input.metadata || {},
+          metadata: {
+            ...(input.metadata || {}),
+            route: input.route,
+            userAgent: input.userAgent,
+          },
         });
 
         return { success: true };

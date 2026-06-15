@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 // ✅ FIX: 'sql' removido das importações pois não está sendo usado
 import { eq, desc } from "drizzle-orm";
-import { hash, verify } from "@node-rs/argon2"; 
+import { hash, verify } from "@node-rs/argon2";
 import { router, protectedProcedure } from "../../_core/trpc.js";
 import { getDb } from "../../db.js";
 import { decrypt, encrypt, piiHash, normalizeDigits } from "../../encryption.js";
@@ -35,7 +35,7 @@ function unseal(val: string | null | unknown): string {
 }
 
 export const profileRouter = router({
-  
+
   /**
    * 👤 GET: Perfil Completo
    */
@@ -50,8 +50,8 @@ export const profileRouter = router({
     }
 
     let finalDoc = unseal(row.customerDocument);
-    
-    if (!finalDoc || finalDoc.length < 5) { 
+
+    if (!finalDoc || finalDoc.length < 5) {
        const [lastOrder] = await db
          .select({ doc: orders.customerDocument })
          .from(orders)
@@ -61,16 +61,32 @@ export const profileRouter = router({
        if (lastOrder?.doc) finalDoc = unseal(lastOrder.doc);
     }
 
+    const nameStr = unseal(row.name);
+    const phoneStr = unseal(row.phone);
+    const birthDateStr = row.birthDate;
+
+    let completedFields = 0;
+    const totalFields = 4;
+    if (nameStr && nameStr.trim().length > 0) completedFields++;
+    if (row.email && row.email.trim().length > 0) completedFields++;
+    if (birthDateStr && birthDateStr.trim().length > 0) completedFields++;
+    if (phoneStr && phoneStr.trim().length > 0) completedFields++;
+
+    const completionPercentage = Math.round((completedFields / totalFields) * 100);
+    const isIncomplete = !birthDateStr || birthDateStr.trim().length === 0 || !phoneStr || phoneStr.trim().length === 0;
+
     return {
       id: row.id,
-      name: unseal(row.name) || "Cliente", 
+      name: nameStr || "Cliente",
       email: row.email,
       document: finalDoc,
-      phone: unseal(row.phone),
-      birthDate: row.birthDate ? String(row.birthDate).split('T')[0] : null,
+      phone: phoneStr,
+      birthDate: birthDateStr ? String(birthDateStr).split('T')[0] : null,
       birthYear: row.birthYear ? Number(row.birthYear) : null,
       hasPassword: !!row.password,
       referralCode: row.referralCode || null,
+      completionPercentage,
+      isIncomplete,
     };
   }),
 
@@ -89,9 +105,9 @@ export const profileRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const targetId = ctx.user.id;
-      
-      const updateData: Partial<typeof users.$inferInsert> = { 
-        updatedAt: new Date() 
+
+      const updateData: Partial<typeof users.$inferInsert> = {
+        updatedAt: new Date()
       };
 
       if (input.name?.trim()) {
@@ -102,7 +118,7 @@ export const profileRouter = router({
       if (input.cpf) {
         const cleanCpf = normalizeDigits(input.cpf);
         if (cleanCpf.length === 11) {
-            updateData.customerDocument = encrypt(cleanCpf); 
+            updateData.customerDocument = encrypt(cleanCpf);
             updateData.documentIndex = piiHash(cleanCpf);
         }
       }
@@ -110,7 +126,7 @@ export const profileRouter = router({
       if (input.phone) {
         const cleanPhone = normalizeDigits(input.phone);
         if (cleanPhone.length >= 10) {
-          updateData.phone = encrypt(cleanPhone); 
+          updateData.phone = encrypt(cleanPhone);
           updateData.phoneIndex = piiHash(cleanPhone);
         }
       }
@@ -131,16 +147,16 @@ export const profileRouter = router({
           .where(eq(users.id, targetId));
 
         await logAction(ctx, "UPDATE_PROFILE", "users", { entityId: targetId });
-        
-        return { 
-          success: true, 
-          message: "Seus dados foram atualizados!" 
+
+        return {
+          success: true,
+          message: "Seus dados foram atualizados!"
         };
       } catch {
         // ✅ FIX: Removido 'error' não utilizado do catch
-        throw new TRPCError({ 
-          code: "INTERNAL_SERVER_ERROR", 
-          message: "Erro ao salvar dados. Verifique se o CPF já está em uso." 
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro ao salvar dados. Verifique se o CPF já está em uso."
         });
       }
     }),
@@ -165,9 +181,9 @@ export const profileRouter = router({
 
       if (userRow?.password) {
         if (!input.currentPassword) {
-          throw new TRPCError({ 
-            code: "BAD_REQUEST", 
-            message: "Para sua segurança, digite a senha atual." 
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Para sua segurança, digite a senha atual."
           });
         }
 
@@ -178,10 +194,10 @@ export const profileRouter = router({
       }
 
       assertPasswordPolicy(input.newPassword, userRow?.email);
-      const hashedNewPassword = await hash(input.newPassword); 
-      
+      const hashedNewPassword = await hash(input.newPassword);
+
       await db.update(users)
-        .set({ 
+        .set({
           password: hashedNewPassword,
           updatedAt: new Date()
         })
@@ -216,7 +232,7 @@ export const profileRouter = router({
         identifier: userRow?.email,
         reason: "profile_change_password",
       });
-      
+
       return { success: true, message: "Senha alterada com sucesso! 🛡️" };
     }),
 
@@ -268,7 +284,7 @@ export const profileRouter = router({
         .from(addresses)
         .where(eq(addresses.userId, userId))
         .limit(1);
-      
+
       const isDefault = !existing;
 
       const cleanZip = normalizeDigits(input.zipCode);
@@ -292,4 +308,3 @@ export const profileRouter = router({
       return { success: true, message: "Endereço cadastrado!" };
     }),
 });
-

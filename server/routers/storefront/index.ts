@@ -3,12 +3,12 @@ import { getDb } from "../../db.js";
 import { appConfigs } from "../../../drizzle/schema/index.js";
 import { eq } from "drizzle-orm";
 
-import { authRouter } from "./auth/index.js"; 
+import { authRouter } from "./auth/index.js";
 import { profileRouter } from "./profile.js";
 import { nutriRouter } from "./nutri/index.js";
-import { aiRouter } from "./ai/aiRouter.js"; 
+import { aiRouter } from "./ai/aiRouter.js";
 import { supportRouter } from "./support/supportRouter.js";
-import { addressesRouter } from "./addresses.js"; 
+import { addressesRouter } from "./addresses.js";
 import { cartRouter } from "./cart/index.js";
 import { checkoutRouter } from "./checkout/index.js";
 import { ordersRouter } from "./orders.js";
@@ -57,24 +57,24 @@ export const storefrontRouter = router({
    * 🔓 NAMESPACE PÚBLICA
    */
   public: publicRouter,
-  
+
   // 👤 AUTENTICAÇÃO E PERFIL
   auth: authRouter,
   profile: profileRouter,
-  
+
   // 🥗 LOGÍSTICA E ENDEREÇOS
   addresses: addressesRouter,
-  
+
   // 🛍️ FLUXO DE COMPRA (Cart, Checkout, Orders)
   cart: cartRouter,
   checkout: checkoutRouter,
   orders: ordersRouter,
-  
+
   // 🍳 CATALOGO E PRODUTOS
   products: productsRouter,
   packages: packagesRouter,
   sizes: sizesRouter,
-  
+
   // 🎫 BENEFÍCIOS (Cupons, Descontos, Fidelidade)
   coupons: couponsRouter,
   discounts: discountsRouter,
@@ -82,8 +82,8 @@ export const storefrontRouter = router({
   announcements: storefrontAnnouncementsRouter,
 
   // 🤖 SERVIÇOS ADICIONAIS
-  nutri: nutriRouter, 
-  ai: aiRouter, 
+  nutri: nutriRouter,
+  ai: aiRouter,
   support: supportRouter,
 });
 

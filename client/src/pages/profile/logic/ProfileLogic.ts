@@ -8,13 +8,15 @@ import { appToast as toast } from "@/lib/app-toast";
 interface ProfileData {
   document?: string;
   customerDocument?: string;
-  cpf?: string; 
+  cpf?: string;
   birthDate?: string;
   birth_date?: string;
   phone?: string;
   whatsapp?: string;
   name?: string;
   email?: string;
+  completionPercentage?: number;
+  isIncomplete?: boolean;
 }
 
 interface AuthUser {
@@ -49,11 +51,11 @@ export function useProfileLogic(subroute?: string) {
   const auth = useAuth();
   const authUser = auth.user as unknown as AuthUser | null;
   const authLoading = auth.loading;
-  
+
   const utils = trpc.useUtils();
 
   const validTabs = ["home", "dados", "pedidos", "enderecos", "fidelidade", "seguranca", "avisos"];
-  
+
   const initialTab = useMemo(() => {
     if (!subroute) return "home";
     const primaryPart = subroute.split('/')[0];
@@ -70,30 +72,30 @@ export function useProfileLogic(subroute?: string) {
   }, [subroute]);
 
   // --- QUERIES ---
-  
-  const profileQuery = trpc.profile.get.useQuery(undefined, { 
+
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
     enabled: !!authUser,
-    staleTime: 1000 * 60 * 5 
+    staleTime: 1000 * 60 * 5
   });
 
-  const addressesQuery = trpc.addresses.list.useQuery(undefined, { 
+  const addressesQuery = trpc.addresses.list.useQuery(undefined, {
     enabled: !!authUser && activeTab === "enderecos"
   });
 
-  const loyaltyQuery = trpc.loyalty.getCustomerSummary.useQuery(undefined, { 
+  const loyaltyQuery = trpc.loyalty.getCustomerSummary.useQuery(undefined, {
     enabled: !!authUser && (activeTab === "fidelidade" || activeTab === "home"),
     refetchOnWindowFocus: true
   });
 
-  const loyaltyHistoryQuery = trpc.loyalty.getHistory.useQuery(undefined, { 
+  const loyaltyHistoryQuery = trpc.loyalty.getHistory.useQuery(undefined, {
     enabled: !!authUser && (activeTab === "fidelidade" || activeTab === "home")
-  });   
+  });
 
   const loyaltySettingsQuery = trpc.loyalty.getSettings.useQuery(undefined, {
     enabled: !!authUser && (activeTab === "fidelidade" || activeTab === "home")
   });
-  
-  const ordersQuery = trpc.orders.list.useQuery(undefined, { 
+
+  const ordersQuery = trpc.orders.list.useQuery(undefined, {
     enabled: !!authUser && (activeTab === "pedidos" || activeTab === "home")
   });
 
@@ -111,6 +113,10 @@ export function useProfileLogic(subroute?: string) {
     enabled: !!authUser && activeTab === "seguranca",
   });
 
+  const oauthAccountsQuery = trpc.auth.listOAuthAccounts.useQuery(undefined, {
+    enabled: !!authUser && activeTab === "seguranca",
+  });
+
   const announcementsQuery = trpc.announcements.listActive.useQuery(undefined, {
     enabled: !!authUser
   });
@@ -122,6 +128,35 @@ export function useProfileLogic(subroute?: string) {
   }, [authUser?.id]);
 
   // --- MUTATIONS DE SEGURANÇA ---
+
+  const oauthLinkMutation = trpc.auth.oauthLink.useMutation({
+    onSuccess: () => {
+      utils.auth.listOAuthAccounts.invalidate();
+      utils.auth.recentAuthActivity.invalidate();
+      toast.success("Conta social vinculada com sucesso! 🌐");
+    },
+    onError: (err) => toast.error("Erro ao vincular conta social", { description: err.message })
+  });
+
+  const unlinkOAuthAccountMutation = trpc.auth.unlinkOAuthAccount.useMutation({
+    onSuccess: () => {
+      utils.auth.listOAuthAccounts.invalidate();
+      utils.auth.recentAuthActivity.invalidate();
+      toast.success("Conta social desvinculada com sucesso! 🗑️");
+    },
+    onError: (err) => toast.error("Erro ao desvincular conta social", { description: err.message })
+  });
+
+  const oauthGoogleStartMutation = trpc.auth.oauthGoogleStart.useMutation({
+    onSuccess: (data) => {
+      sessionStorage.setItem("oauth_state", data.state);
+      sessionStorage.setItem("oauth_nonce", data.nonce);
+      sessionStorage.setItem("oauth_code_verifier", data.codeVerifier);
+      sessionStorage.setItem("oauth_flow_type", "link");
+      window.location.href = data.url;
+    },
+    onError: (err) => toast.error("Erro ao iniciar fluxo com o Google", { description: err.message })
+  });
 
   const logoutOtherSessionsMutation = trpc.auth.logoutOtherSessions.useMutation({
     onSuccess: (count) => {
@@ -180,22 +215,22 @@ export function useProfileLogic(subroute?: string) {
 
   // --- MUTATIONS ---
 
-  const addAddressMutation = trpc.addresses.create.useMutation({ 
+  const addAddressMutation = trpc.addresses.create.useMutation({
     onSuccess: () => {
       utils.addresses.list.invalidate();
       toast.success("Endereço salvo! 🏡");
     },
     onError: (err) => toast.error("Erro ao salvar", { description: err.message })
   });
-  
-  const deleteAddressMutation = trpc.addresses.delete.useMutation({ 
+
+  const deleteAddressMutation = trpc.addresses.delete.useMutation({
     onSuccess: () => {
       utils.addresses.list.invalidate();
       toast.success("Endereço removido. 🗑️");
     },
     onError: (err) => toast.error("Não foi possível remover", { description: err.message })
   });
-  
+
   // ✅ Cast via interface em vez de 'any' para o router dinâmico
   const addressRouter = trpc.addresses as unknown as AddressRouter;
   const updateAddressMutation = addressRouter.update?.useMutation({
@@ -217,7 +252,7 @@ export function useProfileLogic(subroute?: string) {
       isLoading,
       activeTab,
       setActiveTab,
-      subroute, 
+      subroute,
       user: mergedUser,
       profile: profileQuery.data,
       addresses: addressesQuery.data || [],
@@ -245,21 +280,32 @@ export function useProfileLogic(subroute?: string) {
       isLoggingOutAll: logoutAllSessionsMutation.isPending,
       isRevokingSession: logoutSessionMutation.isPending,
 
+      oauthAccounts: oauthAccountsQuery.data || [],
+      isLoadingOauthAccounts: oauthAccountsQuery.isLoading,
+      isLinkingOauth: oauthLinkMutation.isPending,
+      isUnlinkingOauth: unlinkOAuthAccountMutation.isPending,
+      isStartingOauthGoogle: oauthGoogleStartMutation.isPending,
+
       addAddress: async (data: AddressInput) => addAddressMutation.mutateAsync(data),
       deleteAddress: async (id: string) => deleteAddressMutation.mutateAsync({ id }),
       setDefaultAddress: async (id: string) => {
         if (updateAddressMutation) {
-          // ✅ Detecta automaticamente o tipo dos parâmetros da mutação para o cast seguro
           type MutationParams = Parameters<typeof updateAddressMutation.mutateAsync>[0];
-          return updateAddressMutation.mutateAsync({ 
-            id, 
-            isDefault: true 
+          return updateAddressMutation.mutateAsync({
+            id,
+            isDefault: true
           } as unknown as MutationParams);
         }
       },
       logoutOtherSessions: async () => logoutOtherSessionsMutation.mutateAsync(),
       logoutAllSessions: async () => logoutAllSessionsMutation.mutateAsync(),
       logoutSession: async (sessionId: string) => logoutSessionMutation.mutateAsync({ sessionId }),
+      linkOauthAccount: async (linkingToken: string, confirm: boolean) =>
+        oauthLinkMutation.mutateAsync({ linkingToken, confirm }),
+      unlinkOauthAccount: async (provider: "google", confirm: boolean) =>
+        unlinkOAuthAccountMutation.mutateAsync({ provider, confirm }),
+      startOauthGoogle: async () =>
+        oauthGoogleStartMutation.mutateAsync({ provider: "google" }),
       refreshAll: () => {
         utils.profile.get.invalidate();
         utils.loyalty.getCustomerSummary.invalidate();
@@ -270,6 +316,7 @@ export function useProfileLogic(subroute?: string) {
         utils.nutri.getDashboard.invalidate();
         utils.auth.listSessions.invalidate();
         utils.auth.recentAuthActivity.invalidate();
+        utils.auth.listOAuthAccounts.invalidate();
         utils.announcements.listActive.invalidate();
       }
     }),
@@ -279,11 +326,14 @@ export function useProfileLogic(subroute?: string) {
       loyaltyQuery.data, loyaltyHistoryQuery.data, loyaltySettingsQuery.data,
       dietQuery.data, addressesQuery.isLoading, ordersQuery.isLoading,
       loyaltyQuery.isLoading, loyaltyHistoryQuery.isLoading, loyaltySettingsQuery.isLoading,
-      dietQuery.isLoading, addAddressMutation, deleteAddressMutation, 
+      dietQuery.isLoading, addAddressMutation, deleteAddressMutation,
       updateAddressMutation, sessionsQuery.data, sessionsQuery.isLoading,
       recentAuthQuery.data, recentAuthQuery.isLoading, logoutOtherSessionsMutation.isPending,
       logoutAllSessionsMutation.isPending, logoutSessionMutation.isPending,
-      logoutOtherSessionsMutation, logoutAllSessionsMutation, logoutSessionMutation, utils,
+      logoutOtherSessionsMutation, logoutAllSessionsMutation, logoutSessionMutation,
+      oauthAccountsQuery.data, oauthAccountsQuery.isLoading, oauthLinkMutation.isPending,
+      unlinkOAuthAccountMutation.isPending, oauthGoogleStartMutation.isPending,
+      oauthLinkMutation, unlinkOAuthAccountMutation, oauthGoogleStartMutation, utils,
       announcementsQuery.data, announcementsQuery.isLoading
     ]
   );

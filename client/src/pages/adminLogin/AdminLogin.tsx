@@ -1,16 +1,15 @@
 import React, { useState } from "react"; // ✅ Adicionado React scope
-import { trpc } from "@/_core/trpc"; 
+import { trpc } from "@/_core/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { ShieldCheck, Loader2, Lock, ChevronRight, User } from "lucide-react";
-import { useNavigate } from "react-router-dom"; 
-import { useToast } from "@/components/ui/use-toast";
+import { useNavigate } from "react-router-dom";
+import { appToast as toast } from "@/lib/app-toast";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -18,33 +17,28 @@ export default function AdminLogin() {
   const utils = trpc.useUtils();
 
   // ✅ Helper para toast sem 'any'
-  const safeToast = toast as unknown as (options: Record<string, unknown>) => void;
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
-      safeToast({
-        variant: "destructive",
-        title: "Campos obrigatórios",
+      toast.warning("Campos obrigatorios.", {
         description: "Preencha todos os campos de credenciais."
       });
       return;
     }
 
     try {
-      await loginMutation.mutateAsync({ 
-        identifier: email.trim(), 
-        password: password 
+      await loginMutation.mutateAsync({
+        identifier: email.trim(),
+        password: password
       });
-      
+
       await utils.auth.me.invalidate();
-      
-      safeToast({
-        title: "Acesso Autorizado",
+
+      toast.success("Acesso autorizado.", {
         description: "Bem-vindo ao terminal de controle."
       });
-      
+
       setTimeout(() => {
         navigate("/admin", { replace: true });
       }, 150);
@@ -52,10 +46,8 @@ export default function AdminLogin() {
     } catch (error: unknown) {
       // ✅ Captura de erro segura sem 'any'
       const errorMsg = error instanceof Error ? error.message : "Credenciais administrativas inválidas.";
-      
-      safeToast({
-        variant: "destructive",
-        title: "Erro de Autenticação",
+
+      toast.error("Erro de autenticacao.", {
         description: errorMsg
       });
     }
@@ -70,7 +62,7 @@ export default function AdminLogin() {
 
       <Card className="w-full max-w-md bg-slate-900/50 border-slate-800 backdrop-blur-xl shadow-2xl relative z-10 rounded-[2.5rem] overflow-hidden border">
         <CardContent className="p-10 space-y-8">
-          
+
           <div className="text-center space-y-3">
             <div className="inline-flex p-4 bg-emerald-500/10 text-emerald-500 rounded-3xl mb-2 border border-emerald-500/20">
               <ShieldCheck size={40} className="animate-pulse" />
@@ -93,9 +85,9 @@ export default function AdminLogin() {
                 E-mail Administrativo
               </Label>
               <div className="relative group text-left">
-                <Input 
-                  type="email" 
-                  value={email} 
+                <Input
+                  type="email"
+                  value={email}
                   onChange={e => setEmail(e.target.value)}
                   className="bg-slate-950/50 border-slate-800 h-14 rounded-2xl text-white font-bold focus:ring-2 focus:ring-emerald-500 transition-all pl-12 placeholder:text-slate-700"
                   placeholder="admin@gourmetsaudavel.com"
@@ -110,9 +102,9 @@ export default function AdminLogin() {
                 Chave de Segurança
               </Label>
               <div className="relative group text-left">
-                <Input 
-                  type="password" 
-                  value={password} 
+                <Input
+                  type="password"
+                  value={password}
                   onChange={e => setPassword(e.target.value)}
                   className="bg-slate-950/50 border-slate-800 h-14 rounded-2xl text-white font-bold focus:ring-2 focus:ring-emerald-500 transition-all pl-12 placeholder:text-slate-700"
                   placeholder="••••••••"
@@ -122,7 +114,7 @@ export default function AdminLogin() {
               </div>
             </div>
 
-            <Button 
+            <Button
               type="submit"
               disabled={loginMutation.isPending}
               className="w-full h-14 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] transition-all shadow-lg shadow-emerald-900/20 group"

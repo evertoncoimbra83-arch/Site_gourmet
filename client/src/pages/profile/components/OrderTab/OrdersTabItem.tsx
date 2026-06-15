@@ -25,6 +25,12 @@ function safeJsonParse(value: unknown): Record<string, unknown> {
   }
 }
 
+function getNoAccompanimentsMessage(options: Record<string, unknown>): string {
+  return typeof options.noAccompanimentsMessage === "string"
+    ? options.noAccompanimentsMessage.trim()
+    : "";
+}
+
 // Fallback de imagem com tratamento de erro (redimensiona no mobile)
 function OrderItemImage({ src, alt }: { src?: string | null; alt: string }) {
   const [hasError, setHasError] = useState(false);
@@ -284,9 +290,10 @@ export function OrdersTabItem({ item }: { item: OrderItem }) {
 
     return {
       accompaniments,
+      noAccompanimentsMessage: getNoAccompanimentsMessage(options),
       nutritionLabel: label,
     };
-  }, [isPackage, options.selectedAccs, nutritionLabels]);
+  }, [isPackage, options, nutritionLabels]);
 
   // Mapeia refeições do pacote (Marmitas com pratos e acompanhamentos com peso)
   const mealsList = useMemo(() => {
@@ -325,7 +332,7 @@ export function OrdersTabItem({ item }: { item: OrderItem }) {
   return (
     <div className="bg-white border border-slate-100 rounded-3xl p-5 md:p-6 shadow-sm space-y-5 text-left">
       <div className="flex flex-col sm:flex-row gap-4 sm:items-center border-b border-slate-50 pb-4">
-        
+
         {/* Lado Esquerdo: Imagem + Quantidade + Nome do Produto */}
         <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
           <OrderItemImage
@@ -391,16 +398,22 @@ export function OrdersTabItem({ item }: { item: OrderItem }) {
         {!isPackage && singleDishDetails && (
           <div className="text-left">
             {/* Acompanhamentos */}
-            {singleDishDetails.accompaniments.length > 0 && (
+            {(singleDishDetails.accompaniments.length > 0 || singleDishDetails.noAccompanimentsMessage) && (
               <div className="mb-3">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">
-                  {singleDishDetails.accompaniments.length === 1 ? "Acompanhamento" : "Acompanhamentos"}
+                  Acompanhamentos
                 </p>
-                {singleDishDetails.accompaniments.map((accName, accIdx) => (
-                  <p key={accIdx} className="text-[11px] text-slate-600 font-bold mb-1 pl-2 border-l-2 border-slate-200 uppercase">
-                    {accName}
+                {singleDishDetails.accompaniments.length > 0 ? (
+                  singleDishDetails.accompaniments.map((accName, accIdx) => (
+                    <p key={accIdx} className="text-[11px] text-slate-600 font-bold mb-1 pl-2 border-l-2 border-slate-200 uppercase">
+                      {accName}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-[11px] text-slate-500 font-bold mb-1 pl-2 border-l-2 border-slate-200">
+                    {singleDishDetails.noAccompanimentsMessage}
                   </p>
-                ))}
+                )}
               </div>
             )}
 

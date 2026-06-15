@@ -1,7 +1,7 @@
-import React, { ReactNode, useEffect } from "react"; // ✅ Adicionado React para corrigir escopo JSX
-import { useLocation, useNavigate } from "react-router-dom"; 
+import React, { ReactNode, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Loader2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Loader2 } from "lucide-react"; // ✅ Removido ShieldAlert não utilizado
 import { getLoginUrl } from "@/const";
 import { normalizeRole, type AppRole } from "@shared/security/rbac";
 
@@ -10,7 +10,10 @@ interface ProtectedRouteProps {
   requiredRole?: AppRole | AppRole[];
 }
 
-function hasRequiredRole(userRole: string | undefined, requiredRole: AppRole | AppRole[]) {
+export function hasRequiredRole(
+  userRole: string | undefined,
+  requiredRole: AppRole | AppRole[],
+) {
   const role = normalizeRole(userRole);
   const required = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
   if (required.includes(role)) return true;
@@ -26,48 +29,33 @@ export default function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  
   const { user, loading, isAuthenticated } = useAuth();
-  const LOGIN_PATH = getLoginUrl();
+  const loginPath = getLoginUrl();
 
   useEffect(() => {
-    // 1. Não faz nada enquanto o Auth está carregando
-    if (loading) return; 
+    if (loading) return;
 
-    // 2. Se não estiver autenticado, manda para o login
     if (!isAuthenticated || !user) {
-      if (pathname !== LOGIN_PATH) {
-        navigate(LOGIN_PATH, { replace: true });
+      if (pathname !== loginPath) {
+        navigate(loginPath, { replace: true });
       }
-      return;
     }
+  }, [loading, isAuthenticated, user, pathname, navigate, loginPath]);
 
-    // 3. Se estiver autenticado mas for um 'user' tentando entrar em rota 'admin'
-    if (!hasRequiredRole(user.role, requiredRole)) {
-      console.warn("🚫 Acesso negado: Redirecionando para a home.");
-      navigate("/", { replace: true }); 
-    }
-    
-  }, [loading, isAuthenticated, user, requiredRole, pathname, navigate, LOGIN_PATH]); 
-
-  // --- RENDERIZAÇÃO ---
-
-  // Enquanto o estado de autenticação é desconhecido
   if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-white text-left">
         <div className="flex flex-col items-center gap-6 animate-in fade-in duration-500">
           <div className="relative">
             <div className="h-20 w-20 bg-slate-900 rounded-[2rem] flex items-center justify-center shadow-2xl">
-               <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
             </div>
-            {/* Efeito de brilho ao fundo */}
             <div className="absolute -inset-4 bg-emerald-500/10 blur-3xl rounded-full -z-10" />
           </div>
-          
+
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
-              Sincronizando <span className="text-emerald-500">Segurança</span>
+              Sincronizando <span className="text-emerald-500">Seguranca</span>
             </h2>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">
               Validando credenciais de acesso...
@@ -78,10 +66,33 @@ export default function ProtectedRoute({
     );
   }
 
-  // Proteção visual imediata para evitar "flicker" de conteúdo proibido
   if (!isAuthenticated || !user) return null;
-  if (!hasRequiredRole(user.role, requiredRole)) return null;
 
-  // Tudo ok! Renderiza o conteúdo protegido
+  if (!hasRequiredRole(user.role, requiredRole)) {
+    return (
+      <div className="min-h-[70vh] w-full flex items-center justify-center bg-slate-50 px-4 text-left">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+            <ShieldAlert size={24} />
+          </div>
+          <h1 className="text-xl font-black uppercase italic tracking-tight text-slate-900">
+            Acesso restrito
+          </h1>
+          <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">
+            Sua conta esta autenticada, mas nao possui permissao para abrir esta
+            area. Entre com uma conta autorizada ou volte para a pagina inicial.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/", { replace: true })}
+            className="mt-6 h-11 rounded-xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:bg-slate-800"
+          >
+            Voltar para inicio
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return <React.Fragment>{children}</React.Fragment>;
 }
