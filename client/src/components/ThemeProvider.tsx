@@ -15,26 +15,25 @@ type ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undefined);
 
-export function ThemeProvider({ 
-  children, 
+export function ThemeProvider({
+  children,
   storageKey = "vite-ui-theme",
-  defaultTheme = "light" 
+  defaultTheme = "light"
 }: ThemeProviderProps) {
-  // 1. Busca o tema inicial (LocalStorage ou o defaultTheme fornecido)
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  );
+  // Força o tema claro (light) temporariamente
+  const theme: Theme = "light";
+  const setTheme = () => {};
 
   useEffect(() => {
     const root = window.document.documentElement;
 
-    // 2. Remove as classes antigas e aplica a nova
-    root.classList.remove("light", "dark");
-    root.classList.add(theme);
+    // Garante que a classe dark seja removida e a classe light esteja presente
+    root.classList.remove("dark");
+    root.classList.add("light");
 
-    // 3. Persiste no LocalStorage
-    localStorage.setItem(storageKey, theme);
-  }, [theme, storageKey]);
+    // Mantém a preferência no local storage como light
+    localStorage.setItem(storageKey, "light");
+  }, [storageKey]);
 
   return (
     <ThemeProviderContext.Provider value={{ theme, setTheme }}>

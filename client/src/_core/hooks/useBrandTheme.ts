@@ -18,7 +18,7 @@ export function useBrandTheme() {
     if (typeof window === "undefined" || !settings) return;
 
     const root = document.documentElement;
-    
+
     // ✅ Cast seguro para evitar erro de propriedade inexistente no Union type de fallback
     const typedSettings = settings as {
       siteTheme?: Record<string, string>;
@@ -41,7 +41,7 @@ export function useBrandTheme() {
       if (isValidHex(theme.foreground)) {
         root.style.setProperty("--brand-foreground", theme.foreground);
       }
-      
+
       // ✅ Injeção de variáveis escuras adicionadas na Sprint P1-C
       if (isValidHex(theme.backgroundDark)) {
         root.style.setProperty("--brand-background-dark", theme.backgroundDark);
@@ -62,7 +62,7 @@ export function useBrandTheme() {
     if (faviconUrl && typeof faviconUrl === "string" && faviconUrl.trim().length > 5) {
       // Procurar todos os links de favicon existentes
       let links = document.querySelectorAll("link[rel*='icon']") as NodeListOf<HTMLLinkElement>;
-      
+
       if (links.length === 0) {
         // Criar link padrão de favicon caso não exista nenhum no HEAD
         const newLink = document.createElement("link");
@@ -83,36 +83,15 @@ export function useBrandTheme() {
       }
     }
 
-    // 3. Gerenciamento do Dark Mode do Storefront (P1-C)
-    const savedMode = (localStorage.getItem("public-theme-mode") || "system") as "light" | "dark" | "system";
+    // 3. Gerenciamento do Dark Mode do Storefront (P1-C) - Modo Escuro Desativado Temporariamente
+    const savedMode = "light";
 
     const updateThemeClass = (isDark: boolean) => {
-      if (isDark) {
-        root.classList.add("public-dark");
-      } else {
-        root.classList.remove("public-dark");
-      }
+      root.classList.remove("public-dark");
     };
 
-    let mediaQuery: MediaQueryList | null = null;
-    let listener: (() => void) | null = null;
-
-    if (savedMode === "dark") {
-      updateThemeClass(true);
-    } else if (savedMode === "light") {
-      updateThemeClass(false);
-    } else {
-      // System mode default
-      mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      updateThemeClass(mediaQuery.matches);
-      
-      listener = () => {
-        if (mediaQuery) {
-          updateThemeClass(mediaQuery.matches);
-        }
-      };
-      mediaQuery.addEventListener("change", listener);
-    }
+    updateThemeClass(false);
+    localStorage.setItem("public-theme-mode", "light");
 
     // 4. Rotina de Limpeza (Cleanup) ao desmontar o PublicLayout (ir para o Admin)
     return () => {
@@ -124,11 +103,8 @@ export function useBrandTheme() {
       root.style.removeProperty("--brand-foreground-dark");
       root.style.removeProperty("--brand-surface-dark");
       root.style.removeProperty("--brand-border-dark");
-      
+
       root.classList.remove("public-dark");
-      if (mediaQuery && listener) {
-        mediaQuery.removeEventListener("change", listener);
-      }
     };
   }, [settings]);
 }

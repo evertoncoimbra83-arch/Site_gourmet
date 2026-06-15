@@ -13,15 +13,16 @@ import {
   UtensilsCrossed
 } from "lucide-react"; // 🌟 Sparkles removido para manter os imports limpos
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Loader2, Search, X } from "lucide-react";
 import { useCart } from "@/_core/CartContext";
 import { useOnClickOutside } from "@/_core/hooks/useOnClickOutside";
 import { cn } from "@/lib/utils";
 import { safeJsonParse } from "@/lib/safe-parse";
-import { normalizeImageUrl } from "@shared/utils/assets";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 import { isAdminRole } from "@shared/security/rbac";
 import { HeaderAuthForm } from "@/pages/auth/HeaderLoginForm";
 
-const STATIC_LOGO_URL = "https://gourmetsaudavel.com/uploads/img-1771987921987-404279675.webp";
+const STATIC_LOGO_URL = getImageFallback("logo");
 
 interface AuthUser {
   id: string;
@@ -30,6 +31,7 @@ interface AuthUser {
   referral?: string | null;
   referralCode?: string | null;
   professionalId?: string | null;
+  professional_id?: string | null;
 }
 
 interface CartItem {
@@ -52,6 +54,14 @@ interface StoreSettings {
   company_social_info?: string | CompanySocialInfo;
 }
 
+interface HeaderSearchProduct {
+  id: string | number;
+  name: string;
+  slug?: string | null;
+  description?: string | null;
+  categoryName?: string | null;
+}
+
 export default function Header() {
   const { user: rawUser, logout, isAuthenticated } = useAuth();
   const user = rawUser as AuthUser | null;
@@ -61,11 +71,11 @@ export default function Header() {
 
   const isAllowedNutri = isAdminRole(user?.role) || user?.role === "nutri";
 
+  // CORREÇÃO: Menu agora se baseia no perfil logado confiando na validação da rota /meu-plano
   const hasActivePrescription = useMemo(() => {
     if (!isAuthenticated || !user) return false;
     const isCustomer = user.role === "customer" || user.role === "user";
-    const hasReferral = !!(user.referral || user.referralCode || user.professionalId);
-    return isCustomer && hasReferral;
+    return isCustomer;
   }, [isAuthenticated, user]);
 
   const cartContext = useCart() as unknown as CartContextType;
@@ -83,13 +93,64 @@ export default function Header() {
 
   const [hasError, setHasError] = useState(false);
   const [authDropdownOpen, setAuthDropdownOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const desktopSearchRef = useRef<HTMLDivElement>(null);
+  const mobileSearchRef = useRef<HTMLDivElement>(null);
   useOnClickOutside(dropdownRef as React.RefObject<HTMLElement>, () =>
     setAuthDropdownOpen(false),
   );
 
   const closeAuthWindows = () => setAuthDropdownOpen(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedSearch(searchValue.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [searchValue]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        desktopSearchRef.current?.contains(target) ||
+        mobileSearchRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setSearchOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  const shouldSearch = debouncedSearch.length >= 2;
+  const { data: searchResults = [], isFetching: isSearching } =
+    trpc.public.dishes.list.useQuery(
+      { page: 1, perPage: 6, search: debouncedSearch },
+      { enabled: shouldSearch, retry: false },
+    );
+
+  const headerSearchResults = searchResults as HeaderSearchProduct[];
+
+  const goToSearch = (query = searchValue.trim()) => {
+    if (!query) return;
+    setSearchOpen(false);
+    navigate(`/produtos?q=${encodeURIComponent(query)}`);
+  };
+
+  const goToProduct = (product: HeaderSearchProduct) => {
+    const dishRef = product.slug || String(product.id);
+    setSearchOpen(false);
+    setSearchValue("");
+    navigate(`/produtos?prato=${encodeURIComponent(dishRef)}`);
+  };
 
   const handleLogout = async () => {
     try {
@@ -105,6 +166,7 @@ export default function Header() {
 
   useEffect(() => {
     closeAuthWindows();
+    setSearchOpen(false);
   }, [pathname]);
 
   const getLogoSrc = () => {
@@ -119,7 +181,7 @@ export default function Header() {
     }
 
     if (dbLogo && dbLogo.length > 5) {
-      return normalizeImageUrl(dbLogo) || STATIC_LOGO_URL;
+      return resolveImageUrl(dbLogo, "logo") || STATIC_LOGO_URL;
     }
 
     return STATIC_LOGO_URL;
@@ -135,6 +197,85 @@ export default function Header() {
       isActive &&
       "text-primary font-black after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-primary",
     );
+
+  const renderSearchResults = () => {
+    if (!searchOpen || !shouldSearch) return null;
+
+    return (
+      <div className="absolute left-0 right-0 top-full z-60 mt-2 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl">
+        {isSearching ? (
+          <div className="flex items-center gap-2 px-4 py-4 text-[10px] font-black uppercase text-slate-400">
+            <Loader2 size={14} className="animate-spin" />
+            Buscando
+          </div>
+        ) : headerSearchResults.length > 0 ? (
+          <div className="py-2">
+            {headerSearchResults.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => goToProduct(product)}
+                className="block w-full px-4 py-3 text-left hover:bg-slate-50"
+              >
+                <span className="block text-xs font-black uppercase text-slate-900">
+                  {product.name}
+                </span>
+                <span className="mt-1 block truncate text-[10px] font-bold uppercase text-slate-400">
+                  {product.categoryName || product.description || "Cardapio"}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => goToSearch()}
+              className="w-full border-t border-slate-100 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5"
+            >
+              Ver todos os resultados
+            </button>
+          </div>
+        ) : (
+          <div className="px-4 py-4 text-[10px] font-black uppercase text-slate-400">
+            Nenhum produto encontrado
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderSearchInput = (placeholder: string) => (
+    <>
+      <Search
+        size={16}
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      <input
+        type="search"
+        value={searchValue}
+        onChange={(event) => {
+          setSearchValue(event.target.value);
+          setSearchOpen(true);
+        }}
+        onFocus={() => setSearchOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") goToSearch();
+          if (event.key === "Escape") setSearchOpen(false);
+        }}
+        placeholder={placeholder}
+        className="h-10 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-9 text-xs font-bold text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
+      />
+      {searchValue && (
+        <button
+          type="button"
+          onClick={() => setSearchValue("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Limpar busca"
+        >
+          <X size={14} />
+        </button>
+      )}
+      {renderSearchResults()}
+    </>
+  );
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-surface/95 backdrop-blur-md shadow-sm">
@@ -171,6 +312,13 @@ export default function Header() {
               </NavLink>
             )}
           </nav>
+
+          <div
+            ref={desktopSearchRef}
+            className="relative hidden min-w-0 flex-1 max-w-xs lg:max-w-sm md:block"
+          >
+            {renderSearchInput("Buscar pratos")}
+          </div>
 
           <div className="flex items-center gap-1 sm:gap-4">
             <NavLink
@@ -238,6 +386,11 @@ export default function Header() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+        <div className="pb-3 md:hidden">
+          <div ref={mobileSearchRef} className="relative">
+            {renderSearchInput("Buscar frango, fit, vegano...")}
           </div>
         </div>
       </div>

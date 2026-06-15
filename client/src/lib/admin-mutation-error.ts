@@ -2,8 +2,14 @@ type TrpcLikeError = {
   message?: string;
   data?: {
     code?: string;
+    requestId?: string;
   };
 };
+
+function appendRequestId(message: string, requestId?: string) {
+  if (!requestId) return message;
+  return `${message} Código do erro: ${requestId}`;
+}
 
 export function getAdminMutationErrorMessage(
   error: unknown,
@@ -12,13 +18,17 @@ export function getAdminMutationErrorMessage(
   const trpcError = error as TrpcLikeError | undefined;
   const message = trpcError?.message?.trim();
   const code = trpcError?.data?.code;
+  const requestId = trpcError?.data?.requestId;
 
   if (code === "FORBIDDEN") {
-    return message || "Voce nao tem permissao para executar esta acao.";
+    return appendRequestId(
+      message || "Voce nao tem permissao para executar esta acao.",
+      requestId,
+    );
   }
 
   if (code === "BAD_REQUEST" && message) {
-    return message;
+    return appendRequestId(message, requestId);
   }
 
   const lowerMessage = message?.toLowerCase() || "";
@@ -27,8 +37,8 @@ export function getAdminMutationErrorMessage(
     lowerMessage.includes("confirme") ||
     message?.includes("CONFIRMAR")
   ) {
-    return message;
+    return appendRequestId(message || fallback, requestId);
   }
 
-  return message || fallback;
+  return appendRequestId(message || fallback, requestId);
 }

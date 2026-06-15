@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { Home, Image as ImageIcon, LogIn, Package, ShieldCheck, ShoppingBag, Sparkles, Stethoscope, UserCircle, UtensilsCrossed } from "lucide-react";
+import { ClipboardList, Home, Image as ImageIcon, LogIn, Package, ShieldCheck, ShoppingBag, Stethoscope, UserCircle, UtensilsCrossed } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useCart } from "@/_core/CartContext";
@@ -59,11 +59,13 @@ export function MobileBottomNav() {
   ];
 
   if (user && !isAdminUser) {
-    clientItems.push({
-      label: "Plano IA",
-      icon: Sparkles,
-      path: "/cardapio-ia",
-    });
+    if (user.role === "customer" || user.role === "user") {
+      clientItems.push({
+        label: "Meu Plano",
+        icon: ClipboardList,
+        path: "/meu-plano",
+      });
+    }
 
     if (user.role === "nutri") {
       clientItems.push({

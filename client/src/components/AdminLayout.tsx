@@ -16,7 +16,7 @@ import OneSignal from "react-onesignal";
 import { appToast as toast } from "@/lib/app-toast";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { SystemHealthIndicator } from "./SystemHealthIndicator";
-import { hasAdminPermission, type AdminPermission } from "@shared/security/rbac";
+import { hasAdminPermission, type AdminPermission, normalizeRole, type AppRole } from "@shared/security/rbac";
 
 // --- INTERFACES ---
 
@@ -31,6 +31,7 @@ interface MenuItem {
   badge?: string | number;
   badgeColor?: string;
   permission?: AdminPermission;
+  role?: AppRole | AppRole[];
   isActive?: (fullPath: string, pathname: string) => boolean;
 }
 
@@ -65,10 +66,10 @@ export default function AdminLayout() {
   const fullPath = useMemo(() => `${pathname}${search}`, [pathname, search]);
 
   // PERSISTÊNCIA DE VISUALIZAÇÃO
-  const [lastViewedOrderId, setLastViewedOrderId] = useState<string>(() => 
+  const [lastViewedOrderId, setLastViewedOrderId] = useState<string>(() =>
     localStorage.getItem("last_viewed_order_id") || "0"
   );
-  const [lastViewedAbandonedId, setLastViewedAbandonedId] = useState<string>(() => 
+  const [lastViewedAbandonedId, setLastViewedAbandonedId] = useState<string>(() =>
     localStorage.getItem("last_viewed_abandoned_id") || "0"
   );
 
@@ -129,8 +130,15 @@ export default function AdminLayout() {
       label: "Operações Diárias",
       icon: Zap,
       items: [
-        { label: "Pedidos", href: "/admin/orders", icon: ShoppingCart, badge: newOrdersCount, badgeColor: "bg-rose-500" },
-        { label: "PDV & Caixa", href: "/admin/pdv", icon: ShoppingBag },
+        {
+          label: "Pedidos",
+          href: "/admin/orders",
+          icon: ShoppingCart,
+          badge: newOrdersCount,
+          badgeColor: "bg-rose-500",
+          isActive: (_, currentPathname) => currentPathname === "/admin/orders",
+        },
+        { label: "Venda Manual", href: "/admin/orders/create", icon: ShoppingBag },
         {
           label: "Produção de Etiquetas",
           href: "/admin/labels/editor/production",
@@ -165,6 +173,7 @@ export default function AdminLayout() {
         { label: "Clube de Fidelidade", href: "/admin/loyalty", icon: Gift, permission: "loyalty:manage" },
         { label: "Indique e Ganhe", href: "/admin/referrals", icon: Share2, permission: "marketing:manage" },
         { label: "Central de E-mails", href: "/admin/mail", icon: Mail, permission: "marketing:manage" },
+        { label: "Avisos ao Cliente", href: "/admin/announcements", icon: Megaphone, permission: "marketing:manage" },
       ],
     },
     {
@@ -182,20 +191,43 @@ export default function AdminLayout() {
         { label: "Logs de Auditoria", href: "/admin/logs", icon: History, permission: "audit:read" },
       ],
     },
+    {
+      id: "infrastructure",
+      label: "Infraestrutura",
+      icon: ServerCog,
+      items: [
+        {
+          label: "Workers",
+          href: "/admin/workers",
+          icon: BrainCircuit,
+          role: ["super_admin", "admin"],
+        },
+      ],
+    },
   ];
 
   const visibleMenuGroups = menuGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter(
-        (item) => !item.permission || hasAdminPermission(user?.role, item.permission),
-      ),
+      items: group.items.filter((item) => {
+        if (item.permission && !hasAdminPermission(user?.role, item.permission)) {
+          return false;
+        }
+        if (item.role) {
+          const roles = Array.isArray(item.role) ? item.role : [item.role];
+          const userRole = normalizeRole(user?.role);
+          if (!roles.includes(userRole)) {
+            return false;
+          }
+        }
+        return true;
+      }),
     }))
     .filter((group) => group.items.length > 0);
 
   // Auto-expande o grupo correto baseado na URL (incluindo parâmetros)
   useEffect(() => {
-    const activeGroup = visibleMenuGroups.find(group => 
+    const activeGroup = visibleMenuGroups.find(group =>
       group.items.some((item) => isMenuItemActive(item))
     );
     if (activeGroup && !openGroups.includes(activeGroup.id)) {
@@ -223,7 +255,7 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] flex flex-col md:flex-row font-sans text-slate-900">
-      
+
       {/* Mobile Header */}
       <header className="md:hidden sticky top-0 z-110 bg-white/70 backdrop-blur-md border-b border-slate-200/50 px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -243,7 +275,7 @@ export default function AdminLayout() {
           isMobileMenuOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full"
         )}>
         <div className="m-4 h-[calc(100vh-2rem)] rounded-[2.5rem] border border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col pointer-events-auto">
-          
+
           {/* Logo Section */}
           <div className="p-8 border-b border-slate-50 flex items-center gap-4 shrink-0">
             <div className="h-12 w-12 bg-slate-950 rounded-2xl flex items-center justify-center shadow-lg transition-transform hover:rotate-3">
@@ -274,7 +306,7 @@ export default function AdminLayout() {
             {visibleMenuGroups.map((group) => {
               const isGrpOpen = openGroups.includes(group.id);
               const hasActiveItem = group.items.some((item) => isMenuItemActive(item));
-              
+
               return (
                 <div key={group.id} className="mb-2">
                   <button
@@ -351,7 +383,7 @@ export default function AdminLayout() {
               <span className="text-slate-900">{pathname.split("/").pop()?.replace("-", " ") || "Home"}</span>
             </div>
           </div>
-          
+
           <div className="flex-1 animate-in fade-in slide-in-from-bottom-4 duration-1000">
             <Outlet />
           </div>

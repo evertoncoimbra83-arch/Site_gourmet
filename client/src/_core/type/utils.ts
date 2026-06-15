@@ -101,6 +101,9 @@ export type PackageCustomOptions = {
       name: string;
       weight?: number;
       groupId?: Id;
+      isNoAccompaniment?: boolean;
+      is_no_accompaniment?: boolean;
+      nutritionSkipped?: boolean;
     }>;
   }>;
 };
@@ -110,12 +113,18 @@ export type ProductCustomOptions = {
   dishId: Id;
   selectedSizeId: Id;
   selectedSizeName: string;
+  mainDishWeight?: number;
+  hasNoAvailableAccompaniments?: boolean;
+  noAccompanimentsMessage?: string;
   selectedAccs: Array<{
     id: Id;
     name: string;
     weight: number;
     groupId?: Id;
     groupName: string;
+    isNoAccompaniment?: boolean;
+    is_no_accompaniment?: boolean;
+    nutritionSkipped?: boolean;
   }>;
 };
 
@@ -145,8 +154,8 @@ export type CartItem = ProductCartItem | PackageCartItem;
 // --- 9. HELPERS DE TIPAGEM (CLEAN - NO ANY) ---
 // ----------------------------------------------------
 
-type DistributiveOmit<T, K extends keyof T | (string & object)> = T extends unknown 
-  ? Omit<T, K & keyof T> 
+type DistributiveOmit<T, K extends keyof T | (string & object)> = T extends unknown
+  ? Omit<T, K & keyof T>
   : never;
 
 /**

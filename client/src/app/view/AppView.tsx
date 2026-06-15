@@ -9,11 +9,13 @@ import Footer from "@/components/Footer";
 import AdminLayout from "@/components/AdminLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { CookieBanner } from "@/components/CookieBanner";
+import { VersionCheckerBanner } from "@/components/VersionCheckerBanner";
 import { AccessibilityWidget } from "@/components/AccessibilityWidget";
 import { useGAPageTracking } from "@/_core/hooks/useGAPageTracking";
 import { useAnalytics } from "@/_core/hooks/useAnalytics";
 import { useAccessibility } from "@/_core/hooks/useAccessibility";
 import { useBrandTheme } from "@/_core/hooks/useBrandTheme";
+import { useCouponDeepLink } from "@/_core/hooks/useCouponDeepLink";
 import type { AppRole } from "@shared/security/rbac";
 
 const LoginPage = lazy(() => import("../../pages/Login"));
@@ -61,15 +63,18 @@ export function AppView() {
   useAnalytics();
   useGAPageTracking();
   useAccessibility();
+  useCouponDeepLink();
 
   return (
     <>
-      {/* Separamos o AppInteligence do Suspense principal. 
-        Se ele fizer um fetch assíncrono (tRPC), não bloqueia a renderização do site inteiro. 
+      {/* Separamos o AppInteligence do Suspense principal.
+        Se ele fizer um fetch assíncrono (tRPC), não bloqueia a renderização do site inteiro.
       */}
       <Suspense fallback={null}>
         <AppInteligence />
       </Suspense>
+
+      <VersionCheckerBanner />
 
       <Suspense fallback={null}>
         <Routes>
@@ -106,10 +111,8 @@ export function AppView() {
           <Route element={<PublicLayout />}>
             {(publicRoutes as unknown as AppRoute[]).map((r) => {
               const Component = r.element;
-              const roleToPass = Array.isArray(r.role) ? r.role[0] : r.role;
-
               const elementToRender = r.protected ? (
-                <ProtectedRoute requiredRole={roleToPass}>
+                <ProtectedRoute requiredRole={r.role}>
                   <Component />
                 </ProtectedRoute>
               ) : (
