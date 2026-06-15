@@ -1,8 +1,9 @@
 import { eq, desc, like, or, count, and, sql, inArray } from "drizzle-orm";
-import { getDb } from "./db.js"; 
+import { getDb } from "./db.js";
 import { loyaltySettings, users, loyaltyHistory, orders } from "../drizzle/schema/index.js";
 import crypto from "crypto";
 import { logger } from "./logger.js";
+import { updateLoyaltySettings } from "./loyalty.js";
 
 // Helper de tipagem
 const toNum = (val: unknown): number => (val === null || val === undefined ? 0 : Number(val));
@@ -14,28 +15,28 @@ interface DatabaseError {
 
 export async function getLoyaltyConfigs() {
     const db = await getDb();
-    if (!db) throw new Error("Database not available"); 
-    
+    if (!db) throw new Error("Database not available");
+
     let settings = await db.select().from(loyaltySettings).limit(1);
-    
+
     if (settings.length === 0) {
         const defaultId = "1";
         logger.info("Configurações de fidelidade não encontradas. Criando padrões...");
         await db.insert(loyaltySettings).values({
-            id: defaultId, 
+            id: defaultId,
             enabled: true,
             conversionRatePoints: 1,
             conversionRateMoney: "1.00",
             redemptionRatePoints: 100,
             redemptionRateMoney: "1.00",
             maxDiscountAmount: "50.00",
-            minCartAmount: "0.00", 
-            pointsExpirationDays: 365, 
+            minCartAmount: "0.00",
+            pointsExpirationDays: 365,
             pointsPerSignup: 100,
         } as typeof loyaltySettings.$inferInsert);
         settings = await db.select().from(loyaltySettings).limit(1);
     }
-    
+
     const config = settings[0];
     return {
         ...config,
@@ -52,19 +53,15 @@ export async function updateLoyaltyConfigs(data: Record<string, unknown>) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // ✅ Removido a desestruturação do '_' que causava o aviso. 
+    // ✅ Removido a desestruturação do '_' que causava o aviso.
     // Criamos o objeto de update filtrando o 'id' de forma limpa.
     const updateData = { ...data };
     delete updateData.id;
-    
-    (updateData as Record<string, unknown>).updatedAt = new Date();
 
-    await db.update(loyaltySettings)
-        .set(updateData as Record<string, unknown>)
-        .where(eq(loyaltySettings.id, "1")); 
-        
+    const result = await updateLoyaltySettings(updateData);
+
     logger.info({ updateFields: Object.keys(updateData) }, "Configurações de fidelidade atualizadas pelo administrador");
-    return { success: true };
+    return { success: true, data: result };
 }
 
 export async function getCustomersLoyalty(params: { page: number; limit: number; search?: string | null }) {
@@ -73,24 +70,24 @@ export async function getCustomersLoyalty(params: { page: number; limit: number;
 
   const offset = (params.page - 1) * params.limit;
   const conditions = [];
-  
+
   if (params.search && params.search.trim() !== "" && params.search !== "undefined") {
     const term = `%${params.search}%`;
     conditions.push(
       or(
-        like(users.email, term), 
-        sql`name_index LIKE ${term}` 
+        like(users.email, term),
+        sql`name_index LIKE ${term}`
       )
     );
   }
-  
+
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   try {
     const dataQuery = await db
       .select({
         id: users.id,
-        name: users.name, 
+        name: users.name,
         email: users.email,
         loyaltyBalance: sql`loyalty_balance`.mapWith(Number),
         totalSpent: sql`COALESCE(SUM(CASE WHEN ${orders.status} = 'completed' THEN ${orders.total} ELSE 0 END), 0)`.mapWith(Number)
@@ -132,7 +129,7 @@ export async function getCustomerHistory(userId: string) {
         ...item,
         id: String(item.id),
         userId: String(item.userId),
-        points: toNum(item.pointsChange), 
+        points: toNum(item.pointsChange),
     }));
 }
 
@@ -147,7 +144,7 @@ export async function addManualPoints(userId: string, points: number, reason: st
     try {
         return await db.transaction(async (tx) => {
             await tx.insert(loyaltyHistory).values({
-                id: crypto.randomUUID(), 
+                id: crypto.randomUUID(),
                 userId: userId,
                 pointsChange: points,
                 type: type,
@@ -157,8 +154,8 @@ export async function addManualPoints(userId: string, points: number, reason: st
             } as typeof loyaltyHistory.$inferInsert);
 
             await tx.execute(sql`
-                UPDATE users 
-                SET loyalty_balance = COALESCE(loyalty_balance, 0) + ${points} 
+                UPDATE users
+                SET loyalty_balance = COALESCE(loyalty_balance, 0) + ${points}
                 WHERE id = ${userId}
             `);
 
@@ -197,8 +194,8 @@ export async function deleteTransactions(userId: string, transactionIds: string[
             const newBalance = remainingHistory.reduce((acc, curr) => acc + toNum(curr.points), 0);
 
             await tx.execute(sql`
-                UPDATE users 
-                SET loyalty_balance = ${newBalance} 
+                UPDATE users
+                SET loyalty_balance = ${newBalance}
                 WHERE id = ${userId}
             `);
 

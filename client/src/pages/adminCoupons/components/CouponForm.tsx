@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { ImagePlus, Palette, Loader2, Save, Ticket, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 import { normalizeImageUrl } from "@shared/utils/assets"; // ✅ substitui getPreviewUrl com localhost hardcoded
 
 // --- INTERFACES ---
@@ -265,14 +265,14 @@ export function CouponForm({ state, actions, mutations }: CouponFormProps) {
         </Button>
       </div>
 
-      <MediaPickerModal
+      <MediaLibraryDrawer
         open={state.isMediaModalOpen || false}
         onClose={() => actions.setMediaModalOpen(false)}
         onSelect={(url: string) => {
           actions.handleSelectMedia(url);
           actions.setMediaModalOpen(false);
         }}
-        defaultFolder="logo"
+        initialFolder="logo"
       />
     </div>
   );

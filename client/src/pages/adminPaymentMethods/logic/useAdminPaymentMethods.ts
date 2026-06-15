@@ -5,6 +5,7 @@ import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
 import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
 import { requestStrongConfirmation } from "@/lib/strong-confirmation";
+import { normalizePaymentLogoInput } from "@shared/utils/payment-logo";
 
 // --- INTERFACES ---
 
@@ -29,6 +30,7 @@ interface PaymentSavePayload {
   brand_name?: string;
   brandName?: string;
   brand_logo_url?: string;
+  brandLogoUrl?: string;
   discount_percentage?: number | string;
   discountPercentage?: number | string;
 }
@@ -88,8 +90,8 @@ export function useAdminPaymentMethods() {
     );
     if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
     // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
-    updateMutation.mutate({ 
-      id: Number(id), 
+    updateMutation.mutate({
+      id: Number(id),
       isActive: !currentStatus,
       ...confirmation,
     });
@@ -99,14 +101,14 @@ export function useAdminPaymentMethods() {
    * ✅ HANDLER DE SALVAMENTO REVISADO
    */
   const handleSave = (data: PaymentSavePayload) => {
-    const cleanLogoUrl = data.brand_logo_url?.split('/').pop() || "";
-
     const payload = {
       name: data.name,
       description: data.description || "",
       icon: data.icon || "",
       brand_name: data.brand_name || data.brandName || "",
-      brand_logo_url: cleanLogoUrl, 
+      brand_logo_url: normalizePaymentLogoInput(
+        data.brand_logo_url ?? data.brandLogoUrl,
+      ),
       discount_percentage: Number(data.discount_percentage || data.discountPercentage || 0),
     };
 
@@ -123,14 +125,14 @@ export function useAdminPaymentMethods() {
 
     if (editingMethod) {
       // ✅ FIX: Convertendo para Number para satisfazer o contrato do backend
-      updateMutation.mutate({ 
-        ...payload, 
+      updateMutation.mutate({
+        ...payload,
         id: Number(editingMethod.id),
         ...confirmation,
       });
     } else {
-      createMutation.mutate({ 
-        ...payload, 
+      createMutation.mutate({
+        ...payload,
         isActive: true,
         ...confirmation,
       });
@@ -147,16 +149,16 @@ export function useAdminPaymentMethods() {
   };
 
   return {
-    state: { 
-      isOpen, 
-      editingMethod, 
+    state: {
+      isOpen,
+      editingMethod,
       isLoading,
-      isSaving: createMutation.isPending || updateMutation.isPending 
+      isSaving: createMutation.isPending || updateMutation.isPending
     },
-    actions: { 
-      setIsOpen, 
-      setEditingMethod, 
-      handleEdit, 
+    actions: {
+      setIsOpen,
+      setEditingMethod,
+      handleEdit,
       handleToggleActive,
       handleSave,
       handleDelete,

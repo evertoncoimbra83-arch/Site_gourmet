@@ -1,10 +1,16 @@
 // server/loyalty.ts
 
 import { eq, desc, like, or, count, and, sum, sql } from "drizzle-orm";
-import { getDb } from "./db"; 
+import { getDb } from "./db";
 import { loyaltySettings, users, loyaltyHistory, orders } from "../drizzle/schema/index";
 import crypto from "crypto";
-import { safeBoolean, safeInteger, safeNumber, safeString } from "./lib/safe-parse";
+import {
+    safeBoolean,
+    safeInteger,
+    safeJsonParse,
+    safeNumber,
+    safeString,
+} from "./lib/safe-parse";
 
 // =================================================================
 // 1. CONFIGURAÇÕES (CRUD)
@@ -12,10 +18,10 @@ import { safeBoolean, safeInteger, safeNumber, safeString } from "./lib/safe-par
 
 export async function getLoyaltySettings() {
     const db = await getDb();
-    if (!db) throw new Error("Database not available"); 
-    
+    if (!db) throw new Error("Database not available");
+
     const settings = await db.select().from(loyaltySettings).limit(1);
-    
+
     if (settings.length === 0) {
         await db.insert(loyaltySettings).values({
             id: "1",
@@ -25,36 +31,77 @@ export async function getLoyaltySettings() {
             redemptionRatePoints: 100,
             redemptionRateMoney: "1.00",
             maxDiscountAmount: "50.00",
-            minCartAmount: "0.00", 
+            minCartAmount: "0.00",
             pointsExpirationDays: 365,
             pointsPerSignup: 100,
             // ✅ CORREÇÃO: Removido 'pointsPerReview' pois não existe no Schema
         } as typeof loyaltySettings.$inferInsert);
         return (await db.select().from(loyaltySettings).limit(1))[0];
     }
-    
+
     return settings[0];
+}
+
+type LoyaltySettingsUpdate = Partial<
+    Pick<
+        typeof loyaltySettings.$inferInsert,
+        | "enabled"
+        | "conversionRatePoints"
+        | "conversionRateMoney"
+        | "redemptionRules"
+        | "redemptionRatePoints"
+        | "redemptionRateMoney"
+        | "minCartAmount"
+        | "maxDiscountAmount"
+        | "minOrderMessage"
+        | "pointsPerSignup"
+        | "pointsPerReview"
+        | "pointsExpirationDays"
+        | "updatedAt"
+    >
+>;
+
+function decimalString(value: unknown, fallback = 0): string {
+    return safeNumber(value, fallback).toFixed(2);
+}
+
+function normalizeRedemptionRules(value: unknown): typeof loyaltySettings.$inferInsert["redemptionRules"] {
+    const parsed =
+        typeof value === "string"
+            ? safeJsonParse<typeof loyaltySettings.$inferInsert["redemptionRules"]>(value, [])
+            : value;
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((rule) => ({
+        minOrderValue: safeNumber(
+            typeof rule === "object" && rule !== null ? rule.minOrderValue : undefined,
+        ),
+        maxDiscount: safeNumber(
+            typeof rule === "object" && rule !== null ? rule.maxDiscount : undefined,
+        ),
+    }));
 }
 
 export async function updateLoyaltySettings(data: Record<string, unknown>) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // ✅ CORREÇÃO: Usando casting para contornar limitações do schema e evitar TS2339
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {};
-    
+    const updateData: LoyaltySettingsUpdate = {};
+
     if (data.enabled !== undefined) updateData.enabled = safeBoolean(data.enabled);
     if (data.conversionRatePoints !== undefined) updateData.conversionRatePoints = safeInteger(data.conversionRatePoints);
-    if (data.conversionRateMoney !== undefined) updateData.conversionRateMoney = safeString(data.conversionRateMoney);
+    if (data.conversionRateMoney !== undefined) updateData.conversionRateMoney = decimalString(data.conversionRateMoney);
+    if (data.redemptionRules !== undefined) updateData.redemptionRules = normalizeRedemptionRules(data.redemptionRules);
     if (data.redemptionRatePoints !== undefined) updateData.redemptionRatePoints = safeInteger(data.redemptionRatePoints);
-    if (data.redemptionRateMoney !== undefined) updateData.redemptionRateMoney = safeString(data.redemptionRateMoney);
-    if (data.maxDiscountAmount !== undefined) updateData.maxDiscountAmount = safeString(data.maxDiscountAmount);
-    if (data.minCartAmount !== undefined) updateData.minCartAmount = safeString(data.minCartAmount);
+    if (data.redemptionRateMoney !== undefined) updateData.redemptionRateMoney = decimalString(data.redemptionRateMoney);
+    if (data.maxDiscountAmount !== undefined) updateData.maxDiscountAmount = decimalString(data.maxDiscountAmount);
+    if (data.minCartAmount !== undefined) updateData.minCartAmount = decimalString(data.minCartAmount);
+    if (data.minOrderMessage !== undefined) updateData.minOrderMessage = safeString(data.minOrderMessage);
     if (data.pointsExpirationDays !== undefined) updateData.pointsExpirationDays = safeInteger(data.pointsExpirationDays);
     if (data.pointsPerSignup !== undefined) updateData.pointsPerSignup = safeInteger(data.pointsPerSignup);
-    
-    // updatedAt costuma causar erro se não estiver no schema, tratamos como any acima
+    if (data.pointsPerReview !== undefined) updateData.pointsPerReview = safeInteger(data.pointsPerReview);
+
     updateData.updatedAt = new Date();
 
     await db.update(loyaltySettings).set(updateData);
@@ -102,16 +149,7 @@ export async function getLoyaltyCustomers(params: {
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    
-    const pointsSubQuery = db
-        .select({
-            userId: loyaltyHistory.userId,
-            points: sql<number>`CAST(SUM(${loyaltyHistory.pointsChange}) AS SIGNED)`.as('points_total'),
-        })
-        .from(loyaltyHistory)
-        .groupBy(loyaltyHistory.userId)
-        .as('ph');
-        
+
     const spentSubQuery = db
         .select({
             userId: orders.userId,
@@ -126,14 +164,13 @@ export async function getLoyaltyCustomers(params: {
             id: users.id,
             name: users.name,
             email: users.email,
-            points: sql<number>`COALESCE(${pointsSubQuery.points}, 0)`,
+            points: users.availablePoints,
             totalSpent: sql<string>`CAST(COALESCE(${spentSubQuery.totalSpent}, '0.00') AS CHAR)`,
             lastActivity: users.lastSignedIn,
         })
         .from(users)
-        .leftJoin(pointsSubQuery, eq(users.id, pointsSubQuery.userId))
         .leftJoin(spentSubQuery, eq(users.id, spentSubQuery.userId))
-        .orderBy(desc(sql`COALESCE(${pointsSubQuery.points}, 0)`)) 
+        .orderBy(desc(users.availablePoints))
         .where(whereClause)
         .limit(params.limit)
         .offset(offset);
@@ -170,25 +207,34 @@ export async function getUserPoints(userId: string) {
     if (!db) return { current_points: 0, lifetime_points: 0 };
 
     try {
+        const [user] = await db.select({
+            availablePoints: users.availablePoints,
+        })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+
         const history = await db.select()
             .from(loyaltyHistory)
             .where(eq(loyaltyHistory.userId, userId));
 
-        let current = 0;
+        const current = safeNumber(user?.availablePoints, 0);
         let lifetime = 0;
+        let historyBalance = 0;
 
         history.forEach(row => {
             const p = safeNumber(row.pointsChange, 0);
-            current += p;
+            historyBalance += p;
             if (p > 0) lifetime += p;
         });
 
-      return { 
+      return {
         current_points: current,
         lifetime_points: lifetime,
         points: current,
         balance: current,
-        total: current
+        total: current,
+        history_balance: historyBalance,
       };
     } catch {
       return { current_points: 0, lifetime_points: 0 };
@@ -224,7 +270,7 @@ export async function addPoints(userId: string, points: number, reason: string) 
             reason,
             createdAt: new Date()
         });
-       
+
         return true;
     } catch {
         return false;

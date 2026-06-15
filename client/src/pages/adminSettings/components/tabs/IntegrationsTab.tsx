@@ -22,6 +22,7 @@ import { GA4Panel } from "@/pages/adminAnalytics/components/GA4Panel";
 import { AreaShell } from "../AreaShell";
 import type { AdminSettingsData } from "../../logic/useAdminSettings";
 import { settingsAreas } from "../../config/settingsAreas";
+import { appToast as toast } from "@/lib/app-toast";
 
 const area =
   settingsAreas.find((item) => item.id === "integrations") || settingsAreas[3];
@@ -31,6 +32,7 @@ interface IntegrationsTabProps {
     state: {
       formData: AdminSettingsData;
       isPending: boolean;
+      isTestingGoogle: boolean;
     };
     actions: {
       updateField: <K extends keyof AdminSettingsData>(
@@ -38,6 +40,7 @@ interface IntegrationsTabProps {
         value: AdminSettingsData[K],
       ) => void;
       handleSaveAll: () => Promise<void>;
+      testGoogleOAuth: (data: { clientId: string; clientSecret: string; redirectUri: string }) => Promise<{ success: boolean; message: string }>;
     };
   };
 }
@@ -70,6 +73,25 @@ export function IntegrationsTab({ settingsTab }: IntegrationsTabProps) {
 
   const handleSave = async () => {
     await actions.handleSaveAll();
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      const res = await actions.testGoogleOAuth({
+        clientId: state.formData.googleClientId,
+        clientSecret: state.formData.googleClientSecret,
+        redirectUri: state.formData.googleRedirectUri,
+      });
+      if (res.success) {
+        toast.success("Conexão validada!", {
+          description: res.message || "Conectividade e formatos validados com sucesso!",
+        });
+      }
+    } catch (err: any) {
+      toast.error("Falha na validação", {
+        description: err.message || "Erro desconhecido ao validar conexão com o Google.",
+      });
+    }
   };
 
   return (
@@ -224,6 +246,35 @@ export function IntegrationsTab({ settingsTab }: IntegrationsTabProps) {
                     </button>
                   </div>
                 </Field>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[1fr_auto] items-end">
+                <div className="flex-1 min-w-0">
+                  <Field label="Redirect URI" icon={<ShieldCheck size={10} />}>
+                    <Input
+                      placeholder="https://seu-dominio.com/auth/callback"
+                      value={state.formData.googleRedirectUri || ""}
+                      onChange={(e) =>
+                        actions.updateField("googleRedirectUri", e.target.value)
+                      }
+                      className="h-12 rounded-xl border-slate-200 bg-white font-mono text-[11px]"
+                    />
+                  </Field>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={state.isTestingGoogle}
+                  className="h-12 gap-2 rounded-xl bg-slate-900 px-6 text-[11px] font-bold uppercase tracking-[0.18em] text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {state.isTestingGoogle ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <ServerCog size={16} />
+                  )}
+                  {state.isTestingGoogle ? "Validando..." : "Validar configuracao"}
+                </Button>
               </div>
             </div>
           </div>

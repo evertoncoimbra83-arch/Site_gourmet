@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { CreditCard, Plus, Edit2, Trash2, Loader2, Landmark } from "lucide-react";
 import { safeNumber } from "@/lib/safe-parse";
+import { resolvePaymentLogoUrl } from "@shared/utils/payment-logo";
 
 export function AdminPaymentMethodsView() {
   const { state, actions, data, mutations } = useAdminPaymentMethods();
@@ -14,24 +15,16 @@ export function AdminPaymentMethodsView() {
    * ✅ RESOLUÇÃO DE URL (Cloudinary amigável)
    */
   const getImageUrl = (url: string | null | undefined) => {
-    if (!url) return "";
-    if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) {
-      return url;
-    }
-    
-    const cleanPath = url
-      .replace(/^\/?public\//, "")
-      .replace(/^uploads\//, "") 
-      .replace(/^\//, "");
-
-    const apiBase = (import.meta.env.VITE_API_URL as string || "").replace(/\/$/, "");
-    return `${apiBase}/uploads/${cleanPath}`;
+    return resolvePaymentLogoUrl(
+      url,
+      import.meta.env.VITE_API_URL as string | undefined,
+    ) || "";
   };
 
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4 md:px-0 text-left">
-      
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 pt-4 text-left">
         <div className="space-y-2 text-left">
@@ -46,12 +39,12 @@ export function AdminPaymentMethodsView() {
             Gerencie métodos de pagamento e identidades visuais de checkout.
           </p>
         </div>
-        
-        <Button 
-          onClick={() => { actions.setEditingMethod(null); actions.setIsOpen(true); }} 
+
+        <Button
+          onClick={() => { actions.setEditingMethod(null); actions.setIsOpen(true); }}
           className="h-14 md:h-16 w-full md:w-auto px-10 rounded-4xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95 group"
         >
-          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" /> 
+          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" />
           Novo Método
         </Button>
       </header>
@@ -85,8 +78,8 @@ export function AdminPaymentMethodsView() {
                     <div className="flex items-center gap-5 text-left">
                       <div className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-slate-50 flex items-center justify-center overflow-hidden border border-slate-100 shadow-inner group-hover:border-emerald-100 transition-all">
                         {logoUrl ? (
-                          <img 
-                            src={getImageUrl(logoUrl)} 
+                          <img
+                            src={getImageUrl(logoUrl)}
                             alt={method.name}
                             className="h-full w-full object-contain p-3 transition-transform group-hover:scale-110 animate-in fade-in"
                             onError={(e) => {
@@ -96,8 +89,8 @@ export function AdminPaymentMethodsView() {
                             }}
                           />
                         ) : null}
-                        <CreditCard 
-                          size={28} 
+                        <CreditCard
+                          size={28}
                           className={`text-slate-300 group-hover:text-emerald-500 transition-colors fallback-icon ${logoUrl ? "hidden" : "block"}`}
                         />
                       </div>
@@ -115,10 +108,10 @@ export function AdminPaymentMethodsView() {
                       <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl bg-slate-50 text-slate-400 hover:text-emerald-600 transition-all" onClick={() => actions.handleEdit(method)}>
                         <Edit2 size={16}/>
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-10 w-10 rounded-xl bg-slate-50 text-slate-200 hover:text-red-500 transition-all" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 rounded-xl bg-slate-50 text-slate-200 hover:text-red-500 transition-all"
                         // ✅ CORREÇÃO TS: Convertendo ID para número no delete também
                         onClick={() => actions.handleDelete(method.id)}
                       >
@@ -129,9 +122,9 @@ export function AdminPaymentMethodsView() {
 
                   <div className="flex items-center justify-between pt-6 border-t border-slate-50 text-left">
                     <div className="flex items-center gap-3 text-left">
-                      <Switch 
-                        checked={Boolean(activeStatus)} 
-                        onCheckedChange={() => actions.handleToggleActive(method.id, Boolean(activeStatus))} 
+                      <Switch
+                        checked={Boolean(activeStatus)}
+                        onCheckedChange={() => actions.handleToggleActive(method.id, Boolean(activeStatus))}
                       />
                       <span className={`text-[10px] font-black uppercase tracking-widest ${activeStatus ? "text-emerald-600" : "text-slate-300"}`}>
                         {activeStatus ? 'Ativo' : 'Pausado'}
@@ -150,7 +143,7 @@ export function AdminPaymentMethodsView() {
         )}
       </section>
 
-      <PaymentMethodDrawer 
+      <PaymentMethodDrawer
         open={state.isOpen}
         onClose={() => actions.setIsOpen(false)}
         method={state.editingMethod as unknown as Parameters<typeof PaymentMethodDrawer>[0]['method']}

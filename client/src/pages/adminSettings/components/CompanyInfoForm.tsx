@@ -6,9 +6,10 @@ import {
   Globe, Mail, MessageCircle, MapPin, Instagram,
   Facebook, Loader2, ImageIcon, Camera, Sparkles
 } from "lucide-react";
-import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 import { CompanyFormData, CompanySocialInfo } from "../logic/useCompanyInfo";
 import { cn } from "@/lib/utils";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 // --- INTERFACES ---
 interface CompanyProps {
@@ -42,9 +43,7 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
   // Utilitário para garantir preview correto da logo (Cloudinary vs Local)
   const getLogoPreview = (url: string | null | undefined) => {
     if (!url) return null;
-    if (url.startsWith('http') || url.startsWith('blob:')) return url;
-    const apiBase = (import.meta.env.VITE_API_URL as string || "").replace(/\/$/, "");
-    return `${apiBase}/uploads/${url.replace(/^\//, "")}`;
+    return resolveImageUrl(url, "logo");
   };
 
   return (
@@ -80,9 +79,12 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
             {formData?.logoUrl ? (
               <div className="relative w-full h-full flex items-center justify-center p-6">
                 <img
-                  src={getLogoPreview(formData.logoUrl) || ""}
+                  src={resolveImageUrl(formData.logoUrl, "logo")}
                   className="max-h-full max-w-full object-contain transition-transform group-hover:scale-105"
                   alt="Logo Preview"
+                  onError={(event) => {
+                    event.currentTarget.src = getImageFallback("logo");
+                  }}
                 />
                 <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
                   <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-xl">
@@ -165,14 +167,14 @@ export function CompanyInfoForm({ state, actions }: CompanyProps) {
       </CardContent>
 
       {/* ✅ Modal de Mídia integrado para escolher a logo */}
-      <MediaPickerModal
+      <MediaLibraryDrawer
         open={isMediaOpen}
         onClose={() => setIsMediaOpen(false)}
         onSelect={(url) => {
           actions.updateLogo(url);
           setIsMediaOpen(false);
         }}
-        defaultFolder="logo"
+        initialFolder="logo"
       />
     </Card>
   );

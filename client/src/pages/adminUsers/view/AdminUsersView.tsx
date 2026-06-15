@@ -1,25 +1,26 @@
 // client/src/pages/adminUsers/view/AdminUsersView.tsx
 
-import React, { ComponentProps } from "react";
+import React, { ComponentProps, useState } from "react";
 import { useAdminUsers } from "../logic/useAdminUsers";
 import { UserDetailsDrawer } from "../components/UserDetailsDrawer";
 import { CreateUserDrawer } from "../components/CreateUserDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
+import {
   Search, Plus, Trash2, Loader2,
   Users as UsersIcon, User as UserIcon, Mail, RefreshCw,
-  ChevronLeft, ChevronRight 
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // --- INTERFACES ---
 
 type UserRole = "user" | "admin";
 
 interface User {
-  id: string; 
+  id: string;
   name?: string;
   email?: string;
   role?: UserRole;
@@ -33,7 +34,7 @@ interface UpdateUserData {
   role?: string;
 }
 
-// ✅ A MÁGICA ACONTECE AQUI: 
+// ✅ A MÁGICA ACONTECE AQUI:
 // Estendemos as propriedades do componente original de forma segura, sem 'any'.
 const TypedUserDetailsDrawer = UserDetailsDrawer as React.FC<
   ComponentProps<typeof UserDetailsDrawer> & {
@@ -44,6 +45,8 @@ const TypedUserDetailsDrawer = UserDetailsDrawer as React.FC<
 
 export function AdminUsersView() {
   const { state, actions, data, mutations } = useAdminUsers();
+  const [isReindexDialogOpen, setIsReindexDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
   const usersList = (data.users || []) as unknown as User[];
   const { deleteUser, updateUser, createUser, reindexDatabase } = mutations;
@@ -53,7 +56,36 @@ export function AdminUsersView() {
 
   return (
     <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4 md:px-0">
-      
+      <ConfirmDialog
+        open={isReindexDialogOpen}
+        title="Sincronizar indices?"
+        description="A ordem alfabetica e os indices de busca da base de clientes serao atualizados."
+        confirmLabel="Sincronizar"
+        cancelLabel="Cancelar"
+        loading={reindexDatabase.isPending}
+        onCancel={() => setIsReindexDialogOpen(false)}
+        onConfirm={() => {
+          reindexDatabase.mutate();
+          setIsReindexDialogOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!userToDelete}
+        title="Excluir usuario?"
+        description="Essa acao pode afetar historico de pedidos e acessos vinculados."
+        confirmLabel="Excluir usuario"
+        cancelLabel="Cancelar"
+        destructive
+        loading={deleteUser.isPending}
+        onCancel={() => setUserToDelete(null)}
+        onConfirm={() => {
+          if (!userToDelete) return;
+          deleteUser.mutate({ id: userToDelete.id });
+          setUserToDelete(null);
+        }}
+      />
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-center md:items-end gap-6 text-center md:text-left pt-4">
         <div className="space-y-2">
@@ -68,22 +100,22 @@ export function AdminUsersView() {
             Visualize o comportamento de compra e gerencie perfis.
           </p>
         </div>
-        
+
         <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-          <Button 
+          <Button
             variant="outline"
-            onClick={() => confirm("Deseja sincronizar a ordem alfabética e índices de busca?") && reindexDatabase.mutate()}
+            onClick={() => setIsReindexDialogOpen(true)}
             disabled={reindexDatabase.isPending}
             className="h-14 md:h-16 px-6 rounded-[1.5rem] border-slate-100 bg-white text-slate-400 hover:text-emerald-600 font-black uppercase text-[10px] tracking-widest shadow-sm group"
           >
             {reindexDatabase.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 group-hover:rotate-180 transition-transform duration-500" />}
           </Button>
 
-          <Button 
-            onClick={() => actions.setIsCreateDialogOpen(true)} 
+          <Button
+            onClick={() => actions.setIsCreateDialogOpen(true)}
             className="h-14 md:h-16 w-full md:w-auto px-10 rounded-[1.5rem] bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 group border-none"
           >
-            <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" /> 
+            <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" />
             Novo Cliente
           </Button>
         </div>
@@ -92,9 +124,9 @@ export function AdminUsersView() {
       {/* BUSCA */}
       <div className="relative group">
         <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-emerald-500 transition-colors" size={18} />
-        <Input 
-          placeholder="NOME, E-MAIL OU CPF..." 
-          className="h-14 md:h-16 pl-12 rounded-[1.5rem] bg-white border-none shadow-sm font-bold text-[10px] md:text-xs tracking-widest uppercase focus-visible:ring-4 focus-visible:ring-emerald-500/5 transition-all outline-none" 
+        <Input
+          placeholder="NOME, E-MAIL OU CPF..."
+          className="h-14 md:h-16 pl-12 rounded-[1.5rem] bg-white border-none shadow-sm font-bold text-[10px] md:text-xs tracking-widest uppercase focus-visible:ring-4 focus-visible:ring-emerald-500/5 transition-all outline-none"
           value={state.searchTerm}
           onChange={e => actions.setSearchTerm(e.target.value)}
         />
@@ -131,7 +163,7 @@ export function AdminUsersView() {
                   <td className="p-6 text-right">
                     <div className="flex justify-end gap-2">
                       <Button variant="ghost" className="h-12 px-6 rounded-2xl font-black text-[10px] bg-slate-50 text-slate-400 hover:bg-slate-900 hover:text-white border-none transition-all" onClick={() => actions.setSelectedUserId(user.id)}>Gerenciar</Button>
-                      <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-slate-50 text-slate-200 hover:text-red-500 border-none transition-all" onClick={() => confirm(`Remover ${user.name}?`) && deleteUser.mutate({ id: user.id })} disabled={deleteUser.isPending}><Trash2 size={20}/></Button>
+                      <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-slate-50 text-slate-200 hover:text-red-500 border-none transition-all" onClick={() => setUserToDelete(user)} disabled={deleteUser.isPending}><Trash2 size={20}/></Button>
                     </div>
                   </td>
                 </tr>
@@ -142,7 +174,7 @@ export function AdminUsersView() {
       </div>
 
       {/* DRAWERS */}
-      <CreateUserDrawer 
+      <CreateUserDrawer
         open={state.isCreateDialogOpen}
         onClose={() => actions.setIsCreateDialogOpen(false)}
         onSubmit={(formData) => {
@@ -155,9 +187,9 @@ export function AdminUsersView() {
       />
 
       {/* ✅ Renderizamos o nosso componente "anabolizado" com as novas tipagens permitidas */}
-      <TypedUserDetailsDrawer 
+      <TypedUserDetailsDrawer
         open={!!state.selectedUserId}
-        userId={state.selectedUserId ? String(state.selectedUserId) : ""} 
+        userId={state.selectedUserId ? String(state.selectedUserId) : ""}
         onClose={() => actions.setSelectedUserId(null)}
         details={(data.userDetails as unknown) as ComponentProps<typeof UserDetailsDrawer>["details"]}
         isLoading={state.isLoadingDetails}
@@ -174,10 +206,10 @@ export function AdminUsersView() {
 
       {/* PAGINAÇÃO */}
       <div className="flex justify-between items-center py-4 bg-white/50 p-4 rounded-3xl border border-slate-100">
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="gap-2 font-black text-[10px] uppercase tracking-widest text-slate-400"
-          disabled={state.page === 1} 
+          disabled={state.page === 1}
           onClick={() => actions.setPage(state.page - 1)}
         >
           <ChevronLeft size={16} /> Anterior
@@ -185,10 +217,10 @@ export function AdminUsersView() {
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 bg-slate-100 px-4 py-2 rounded-full">
           Página {state.page} de {totalPages || 1}
         </span>
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="gap-2 font-black text-[10px] uppercase tracking-widest text-slate-400"
-          disabled={isLastPage} 
+          disabled={isLastPage}
           onClick={() => actions.setPage(state.page + 1)}
         >
           Próxima <ChevronRight size={16} />

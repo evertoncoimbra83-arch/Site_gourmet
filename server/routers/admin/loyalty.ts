@@ -9,6 +9,7 @@ import {
   assertSuperAdmin,
   operationalLimits,
 } from "./operational-hardening.js";
+import { safeNumber } from "../../lib/safe-parse.js";
 
 // 🔐 LÓGICA DE SEGURANÇA (PII)
 const ENCRYPTION_KEY_RAW = process.env.DB_ENCRYPTION_KEY || "fallback-key-de-seguranca";
@@ -17,7 +18,7 @@ const ALGORITHM = "aes-256-gcm";
 function decryptManual(text: string | null | undefined): string | null {
   if (!text || typeof text !== 'string') return null;
   if (!text.includes(":")) return text;
-  
+
   try {
     const parts = text.split(":");
     if (parts.length !== 3) return text;
@@ -26,10 +27,10 @@ function decryptManual(text: string | null | undefined): string | null {
     const key = scryptSync(ENCRYPTION_KEY_RAW, "static-salt", 32);
     const iv = Buffer.from(ivHex, "hex");
     const authTag = Buffer.from(authTagHex, "hex");
-    
+
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
-    
+
     let decrypted = decipher.update(encryptedHex, "hex", "utf8");
     decrypted += decipher.final("utf8");
     return decrypted;
@@ -57,30 +58,36 @@ interface HistoryItemRaw {
   pointsChange: number | string;
 }
 
+function getRequestId(req: unknown): string | undefined {
+  if (typeof req !== "object" || req === null) return undefined;
+  const requestId = Reflect.get(req, "requestId");
+  return typeof requestId === "string" ? requestId : undefined;
+}
+
 /**
  * 🏆 Roteador de Fidelidade do Gourmet Saudável
  * ✅ NOME CORRETO DA CONSTANTE: adminLoyaltySettingsRouter
  */
 export const adminLoyaltySettingsRouter = router({
-  
+
   get: adminProcedure.query(async () => {
     const configs = await AdminLoyalty.getLoyaltyConfigs();
-    return configs || {}; 
+    return configs || {};
   }),
 
   getCustomers: adminProcedure
-    .input(z.object({ 
-      page: z.number().default(1), 
-      limit: z.number().default(10), 
-      search: z.string().nullish() 
+    .input(z.object({
+      page: z.number().default(1),
+      limit: z.number().default(10),
+      search: z.string().nullish()
     }).optional())
     .query(async ({ input }) => {
       const searchTerm = input?.search?.trim() || undefined;
 
-      const result = await AdminLoyalty.getCustomersLoyalty({ 
-        page: input?.page ?? 1, 
-        limit: input?.limit ?? 10, 
-        search: searchTerm 
+      const result = await AdminLoyalty.getCustomersLoyalty({
+        page: input?.page ?? 1,
+        limit: input?.limit ?? 10,
+        search: searchTerm
       });
 
       if (!result || !result.items) {
@@ -89,13 +96,13 @@ export const adminLoyaltySettingsRouter = router({
 
       const mappedItems = result.items.map((c: LoyaltyCustomerRaw) => {
         if (!c) return null;
-        
+
         return {
           ...c,
           id: String(c.id),
           name: decryptManual(c.name) || c.email || "Cliente s/ Nome",
-          points: Number(c.loyaltyBalance || 0),
-          totalSpent: Number(c.totalSpent || 0)
+          points: safeNumber(c.loyaltyBalance),
+          totalSpent: safeNumber(c.totalSpent)
         };
       }).filter((i): i is NonNullable<typeof i> => i !== null);
 
@@ -107,9 +114,9 @@ export const adminLoyaltySettingsRouter = router({
     }),
 
   addManualPoints: adminProcedure
-    .input(z.object({ 
-      userId: z.string(), 
-      points: z.coerce.number(), 
+    .input(z.object({
+      userId: z.string(),
+      points: z.coerce.number(),
       reason: z.string().min(1, "O motivo é obrigatório"),
       customerName: z.string().optional(),
       confirmationToken: z.string().optional(),
@@ -126,13 +133,13 @@ export const adminLoyaltySettingsRouter = router({
       }
 
       const result = await AdminLoyalty.addManualPoints(input.userId, input.points, input.reason);
-      
+
       const severity = absolutePoints >= operationalLimits.loyaltyCriticalPoints ? "critical" : "warning";
       const actor = {
         userId: ctx.user?.id,
         ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
         userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-        requestId: (ctx.req as any)?.requestId
+        requestId: getRequestId(ctx.req)
       };
 
       void AuditLogService.record({
@@ -163,12 +170,12 @@ export const adminLoyaltySettingsRouter = router({
     .input(z.object({ userId: z.string() }))
     .query(async ({ input }) => {
       const history = await AdminLoyalty.getCustomerHistory(input.userId);
-      
+
       return (history || []).map((h: HistoryItemRaw) => ({
         ...h,
         id: String(h.id),
-        points: Number(h.points || 0),
-        pointsChange: Number(h.pointsChange || 0)
+        points: safeNumber(h.points),
+        pointsChange: safeNumber(h.pointsChange)
       }));
     }),
 
@@ -193,7 +200,7 @@ export const adminLoyaltySettingsRouter = router({
         userId: ctx.user?.id,
         ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
         userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-        requestId: (ctx.req as any)?.requestId
+        requestId: getRequestId(ctx.req)
       };
 
       void AuditLogService.record({
@@ -233,7 +240,7 @@ export const adminLoyaltySettingsRouter = router({
         userId: ctx.user?.id,
         ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
         userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
-        requestId: (ctx.req as any)?.requestId
+        requestId: getRequestId(ctx.req)
       };
 
       void AuditLogService.record({

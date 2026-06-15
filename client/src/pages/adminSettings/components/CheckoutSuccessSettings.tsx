@@ -5,7 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MediaLibraryDrawer } from "../../adminMedia/view/MediaLibraryDrawer";
-import { normalizeImageUrl } from "@shared/utils/assets";
+import {
+  getImageFallback,
+  normalizeImageUrlForStorage,
+  resolveImageUrl,
+} from "@shared/utils/image-url";
 
 interface Partner {
   name: string;
@@ -76,14 +80,7 @@ export function CheckoutSuccessSettings({
 
   const handleLogoSelect = (url: string) => {
     if (activePartnerIdx !== null) {
-      let cleanPath = url;
-
-      if (url.includes("/uploads/")) {
-        const parts = url.split("/uploads/");
-        cleanPath = `uploads/${parts[parts.length - 1]}`;
-      }
-
-      editPartner(activePartnerIdx, "logo_url", cleanPath);
+      editPartner(activePartnerIdx, "logo_url", normalizeImageUrlForStorage(url));
     }
     setIsMediaOpen(false);
     setActivePartnerIdx(null);
@@ -152,12 +149,11 @@ export function CheckoutSuccessSettings({
                 >
                   {partner.logo_url ? (
                     <img
-                      src={normalizeImageUrl(partner.logo_url) || ""}
+                      src={resolveImageUrl(partner.logo_url, "logo")}
                       alt="Logo"
                       className="h-full w-full object-contain p-2"
                       onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                        e.currentTarget.parentElement?.classList.add("bg-red-50");
+                        e.currentTarget.src = getImageFallback("logo");
                       }}
                     />
                   ) : (

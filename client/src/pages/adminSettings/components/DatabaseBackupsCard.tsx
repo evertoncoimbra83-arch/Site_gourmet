@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { appToast as toast } from "@/lib/app-toast";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type BackupItem = {
   filename: string;
@@ -24,6 +25,7 @@ function getApiBaseUrl() {
 }
 
 export function DatabaseBackupsCard() {
+  const [backupToDelete, setBackupToDelete] = useState<string | null>(null);
   const utils = trpc.useUtils();
   const {
     data: backups = [],
@@ -95,8 +97,7 @@ export function DatabaseBackupsCard() {
   };
 
   const handleDelete = (filename: string) => {
-    if (!window.confirm(`Excluir o backup ${filename}?`)) return;
-    deleteMutation.mutate({ filename });
+    setBackupToDelete(filename);
   };
 
   return (
@@ -230,6 +231,23 @@ export function DatabaseBackupsCard() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={backupToDelete !== null}
+        title="Excluir Backup"
+        description={backupToDelete ? `Deseja realmente excluir permanentemente o backup "${backupToDelete}"?` : ""}
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          if (backupToDelete) {
+            deleteMutation.mutate({ filename: backupToDelete });
+            setBackupToDelete(null);
+          }
+        }}
+        onCancel={() => setBackupToDelete(null)}
+      />
     </Card>
   );
 }

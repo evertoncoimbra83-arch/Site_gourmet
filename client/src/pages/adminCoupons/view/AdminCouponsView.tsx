@@ -3,15 +3,16 @@ import { useAdminCoupons, Coupon } from "../logic/useAdminCoupons";
 import { CouponForm } from "../components/CouponForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Accordion, 
-  AccordionContent, 
-  AccordionItem, 
-  AccordionTrigger 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
 } from "@/components/ui/accordion";
-import { Trash2, Loader2, Users, Ticket, PlusCircle, Pencil, Plus } from "lucide-react";
+import { Trash2, Loader2, Users, Ticket, PlusCircle, Pencil, Plus, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Toaster } from "@/components/ui/sonner";
+import { buildCouponLink } from "@shared/utils/coupon";
+import { appToast as toast } from "@/lib/app-toast";
 
 // ✅ Extração automática dos tipos das Props do CouponForm para evitar 'any'
 type CouponFormProps = Parameters<typeof CouponForm>[0];
@@ -27,7 +28,7 @@ export default function AdminCouponsView() {
   }, [state.formState.id]);
 
   const handleAddNew = () => {
-    actions.resetForm(); 
+    actions.resetForm();
     setAccordionValue("new-coupon");
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -47,7 +48,7 @@ export default function AdminCouponsView() {
   const getImageUrl = (url: string | null | undefined) => {
     if (!url) return null;
     if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;
-    
+
     const cleanPath = url
       .replace(/^\/?public\//, "")
       .replace(/^\//, "");
@@ -58,7 +59,7 @@ export default function AdminCouponsView() {
 
   return (
     <div className="space-y-8 md:space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4 md:px-0 text-left">
-      
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-center md:items-end gap-6 text-center md:text-left pt-4">
         <div className="space-y-2">
@@ -71,25 +72,25 @@ export default function AdminCouponsView() {
           </h1>
         </div>
 
-        <Button 
+        <Button
           onClick={handleAddNew}
           className="h-14 md:h-16 w-full md:w-auto px-8 rounded-4xl bg-slate-950 hover:bg-emerald-600 text-white font-black uppercase text-[10px] md:text-[11px] tracking-widest shadow-xl transition-all active:scale-95 group"
         >
-          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" /> 
+          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" />
           Nova Campanha
         </Button>
       </header>
 
       {/* FORMULÁRIO (ACCORDION) */}
-      <Accordion 
-        type="single" 
-        collapsible 
+      <Accordion
+        type="single"
+        collapsible
         className="w-full border-none"
-        value={accordionValue} 
+        value={accordionValue}
         onValueChange={setAccordionValue}
       >
         <AccordionItem value="new-coupon" className="border-none">
-          <AccordionTrigger 
+          <AccordionTrigger
             className="flex p-5 md:p-8 bg-white rounded-4xl border border-slate-100 shadow-sm hover:no-underline group transition-all"
           >
             <div className="flex items-center gap-4 text-left">
@@ -111,15 +112,15 @@ export default function AdminCouponsView() {
           </AccordionTrigger>
           <AccordionContent className="pt-4 md:pt-6">
             <div className="bg-white p-5 md:p-10 rounded-4xl border-2 border-dashed border-slate-100 animate-in zoom-in-95 duration-500">
-                <CouponForm 
+                <CouponForm
                   // ✅ RESOLVIDO: Cast seguro para os tipos reais do componente
-                  state={state as unknown as CouponFormProps['state']} 
+                  state={state as unknown as CouponFormProps['state']}
                   actions={{
                     ...actions,
                     handleSubmit: handleSaveAndClose,
-                    resetForm: handleDiscard 
-                  } as unknown as CouponFormProps['actions']} 
-                  mutations={mutations as unknown as CouponFormProps['mutations']} 
+                    resetForm: handleDiscard
+                  } as unknown as CouponFormProps['actions']}
+                  mutations={mutations as unknown as CouponFormProps['mutations']}
                 />
             </div>
           </AccordionContent>
@@ -144,8 +145,8 @@ export default function AdminCouponsView() {
 
             return (
               <div key={coupon.id} className="bg-white rounded-4xl p-0 shadow-sm border border-slate-50 group hover:shadow-xl transition-all duration-500 overflow-hidden flex flex-col relative text-left">
-                
-                <div 
+
+                <div
                   className="h-28 md:h-32 p-5 md:p-6 flex justify-between items-start relative z-10 transition-colors duration-500"
                   style={{ backgroundColor: couponColor }}
                 >
@@ -157,12 +158,12 @@ export default function AdminCouponsView() {
                           {coupon.isActive ? "Campanha Ativa" : "Pausada"}
                       </span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => {
                       actions.handleEdit(coupon);
                       setAccordionValue("new-coupon");
                       window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }} 
+                    }}
                     className="h-8 w-8 md:h-9 md:w-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/40 transition-all border border-white/10"
                   >
                       <Pencil size={14} />
@@ -173,9 +174,9 @@ export default function AdminCouponsView() {
                   <div className="flex justify-between items-start mb-4 md:mb-6">
                     <div className="h-12 w-12 md:h-16 md:w-16 rounded-2xl bg-slate-50 shadow-inner border border-slate-100 flex items-center justify-center overflow-hidden p-1">
                       {coupon.logoUrl ? (
-                        <img 
-                          src={getImageUrl(coupon.logoUrl) || ""} 
-                          className="w-full h-full object-contain rounded-xl animate-in fade-in" 
+                        <img
+                          src={getImageUrl(coupon.logoUrl) || ""}
+                          className="w-full h-full object-contain rounded-xl animate-in fade-in"
                           alt="Logo"
                           onError={(e) => { (e.target as HTMLImageElement).src = "https://placehold.co/200x200?text=Cupom"; }}
                         />
@@ -184,7 +185,7 @@ export default function AdminCouponsView() {
                       )}
                     </div>
 
-                    <Badge 
+                    <Badge
                       className="font-black text-[7px] md:text-[8px] uppercase tracking-widest px-2 md:px-3 py-1 border-none shadow-sm text-white"
                       style={{ backgroundColor: coupon.isActive ? couponColor : "#cbd5e1" }}
                     >
@@ -199,6 +200,25 @@ export default function AdminCouponsView() {
                       <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed line-clamp-2">
                         {coupon.description || 'Campanha promocional ativa.'}
                       </p>
+
+                      {/* Link Promocional Preview & Copy */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50/50 p-2 rounded-2xl">
+                        <span className="text-[9px] font-mono text-slate-400 truncate select-all max-w-[140px] md:max-w-[180px]">
+                          {buildCouponLink(coupon.code, import.meta.env.VITE_APP_URL || window.location.origin)}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 rounded-xl px-2 text-[8px] font-black uppercase tracking-wider bg-white hover:bg-slate-100 text-slate-600 border border-slate-100 flex items-center gap-1 shrink-0"
+                          onClick={() => {
+                            const link = buildCouponLink(coupon.code, import.meta.env.VITE_APP_URL || window.location.origin);
+                            void navigator.clipboard.writeText(link);
+                            toast.success("Link promocional copiado!");
+                          }}
+                        >
+                          <Copy size={10} /> Copiar
+                        </Button>
+                      </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 md:gap-4 border-t border-slate-50 pt-5 md:pt-6 mt-5 md:mt-6">
@@ -213,18 +233,18 @@ export default function AdminCouponsView() {
                         </p>
                       </div>
                     </div>
-                    
+
                     <div className="flex justify-end items-center gap-1.5 md:gap-2">
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         className="h-8 md:h-10 rounded-xl px-2 md:px-4 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-white transition-all shadow-md"
                         style={{ backgroundColor: coupon.isActive ? couponColor : "#94a3b8" }}
                         onClick={() => actions.handleToggle(coupon)}
                       >
                         {coupon.isActive ? 'Pausar' : 'Ativar'}
                       </Button>
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="icon"
                         className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-red-50 text-red-400 hover:text-white hover:bg-red-500 transition-all"
                         onClick={() => actions.handleDelete(coupon.id)}
@@ -239,8 +259,6 @@ export default function AdminCouponsView() {
           })}
         </div>
       </section>
-
-      <Toaster richColors position="top-right" closeButton />
     </div>
   );
 }

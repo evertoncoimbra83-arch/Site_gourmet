@@ -1,23 +1,24 @@
-import React, { useState } from "react"; 
+import React, { useState } from "react";
 import { trpc } from "@/_core/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Loader2, Upload, Database, Download, Package, 
-  ListFilter, Zap, Server, BarChart3, Activity, ShieldCheck, Lock, Unlock 
+import {
+  Loader2, Upload, Database, Download, Package,
+  ListFilter, Zap, Server, BarChart3, Activity, ShieldCheck, Lock, Unlock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { appToast as toast } from "@/lib/app-toast";
 import { Text } from "@tremor/react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // 🛡️ IMPORTAÇÃO DO AUTENTICADOR REAL
 import { authenticator } from "otplib";
 
 // --- INTERFACES ---f
-interface BackupResponse { 
-  filename: string; 
-  success: boolean; 
+interface BackupResponse {
+  filename: string;
+  success: boolean;
 }
 
 interface HealthComponent {
@@ -29,11 +30,11 @@ interface HealthComponent {
 
 interface AdminStoreActions {
   listTables: { useQuery: () => { data: string[] | undefined; isLoading: boolean } };
-  downloadBackup: { 
-    useMutation: (opts: { 
-      onSuccess: (data: BackupResponse) => void; 
-      onError: (err: { message: string }) => void 
-    }) => { mutate: (variables: { selectedTables: string[] }) => void; isPending: boolean } 
+  downloadBackup: {
+    useMutation: (opts: {
+      onSuccess: (data: BackupResponse) => void;
+      onError: (err: { message: string }) => void
+    }) => { mutate: (variables: { selectedTables: string[] }) => void; isPending: boolean }
   };
 }
 
@@ -49,7 +50,8 @@ export function InfrastructureCard() {
   const [updateFile, setUpdateFile] = useState<File | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  
+  const [showConfirmDeploy, setShowConfirmDeploy] = useState(false);
+
   // 🚨 MONITORAMENTO DE SAÚDE
   const { data: health } = trpc.admin.health.checkStatus.useQuery(undefined, {
     refetchInterval: 10000,
@@ -68,7 +70,7 @@ export function InfrastructureCard() {
       toast.error("Campos Incompletos", { description: "Informe o segredo e o código de 6 dígitos." });
       return;
     }
-    
+
     setIsVerifying(true);
 
     try {
@@ -76,7 +78,7 @@ export function InfrastructureCard() {
       await new Promise(resolve => setTimeout(resolve, 600));
 
       // 2. Janela de Tolerância (+- 30s) para evitar erro de sincronia de fuso/relógio
-      authenticator.options = { window: 1 }; 
+      authenticator.options = { window: 1 };
 
       // 3. Validação matemática REAL
       const isValid = authenticator.check(cleanTotp, cleanSecret);
@@ -134,7 +136,7 @@ export function InfrastructureCard() {
         <div className="w-full max-w-[320px] space-y-5">
           <div className="space-y-2 text-left">
             <label className="text-[9px] font-black uppercase text-slate-600 ml-2">Segredo Master (Base32)</label>
-            <Input 
+            <Input
               type="password"
               value={masterSecret}
               onChange={(e) => setMasterSecret(e.target.value)}
@@ -145,7 +147,7 @@ export function InfrastructureCard() {
 
           <div className="space-y-2 text-left">
             <label className="text-[9px] font-black uppercase text-slate-600 ml-2">Código Authenticator</label>
-            <Input 
+            <Input
               value={totpCode}
               onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000 000"
@@ -153,7 +155,7 @@ export function InfrastructureCard() {
             />
           </div>
 
-          <Button 
+          <Button
             onClick={handleUnlock}
             disabled={isVerifying}
             className="w-full h-16 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-black uppercase tracking-widest transition-all mt-4 text-white shadow-lg shadow-emerald-900/20"
@@ -168,7 +170,7 @@ export function InfrastructureCard() {
   // --- RENDERIZAÇÃO: ESTADO DESBLOQUEADO ---
   return (
     <Card className="rounded-4xl border-none shadow-2xl bg-white overflow-hidden text-left ring-1 ring-slate-200 relative">
-      <button 
+      <button
         onClick={() => setIsUnlocked(false)}
         className="absolute top-8 right-8 p-3 bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all z-20 group"
         title="Trancar Cofre"
@@ -182,7 +184,7 @@ export function InfrastructureCard() {
            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
            <Text className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Live Engine Health Status</Text>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {health?.components.map((comp) => {
             const item = comp as HealthComponent;
@@ -220,7 +222,7 @@ export function InfrastructureCard() {
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="px-10 pb-10 space-y-8 text-left bg-white">
         <div className="space-y-4">
           <div className="flex items-center justify-between px-2">
@@ -243,14 +245,14 @@ export function InfrastructureCard() {
               tables?.map((table: string) => (
                 <label key={table} className={cn(
                   "flex items-center gap-4 p-4 rounded-2xl transition-all cursor-pointer border",
-                  selectedTables.includes(table) 
-                    ? "bg-slate-950 border-slate-950 text-white shadow-xl scale-[1.01]" 
+                  selectedTables.includes(table)
+                    ? "bg-slate-950 border-slate-950 text-white shadow-xl scale-[1.01]"
                     : "bg-white border-slate-200 text-slate-500 hover:border-slate-400"
                 )}>
-                  <input 
-                    type="checkbox" 
-                    checked={selectedTables.includes(table)} 
-                    onChange={() => toggleTable(table)} 
+                  <input
+                    type="checkbox"
+                    checked={selectedTables.includes(table)}
+                    onChange={() => toggleTable(table)}
                     className="rounded border-slate-300 text-slate-950 focus:ring-slate-900 h-4 w-4"
                   />
                   <span className="text-[11px] font-mono font-bold truncate tracking-tight">{table}</span>
@@ -261,19 +263,19 @@ export function InfrastructureCard() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Button 
-            onClick={() => backupMutation.mutate({ selectedTables })} 
-            disabled={backupMutation.isPending || selectedTables.length === 0} 
+          <Button
+            onClick={() => backupMutation.mutate({ selectedTables })}
+            disabled={backupMutation.isPending || selectedTables.length === 0}
             className="h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[1.5rem] font-black text-[11px] tracking-widest uppercase shadow-lg shadow-emerald-600/10 transition-all active:scale-95"
           >
             {backupMutation.isPending ? <Loader2 className="animate-spin" /> : <><Download size={20} className="mr-3" /> Gerar Dump ({selectedTables.length})</>}
           </Button>
 
-          <Button 
-            onClick={() => setIsExporting(true)} 
-            disabled={isExporting} 
+          <Button
+            onClick={() => setIsExporting(true)}
+            disabled={isExporting}
             className={cn(
-              "h-16 rounded-[1.5rem] font-black text-[11px] tracking-widest uppercase border-2 transition-all active:scale-95", 
+              "h-16 rounded-[1.5rem] font-black text-[11px] tracking-widest uppercase border-2 transition-all active:scale-95",
               isExporting ? "bg-slate-100 text-slate-400 border-slate-200" : "bg-white text-slate-900 border-slate-900 hover:bg-slate-50 shadow-sm"
             )}
           >
@@ -287,15 +289,15 @@ export function InfrastructureCard() {
              <span className="text-[9px] font-black uppercase tracking-widest">Protocolo de Deploy via SSH</span>
           </div>
           <div className="relative group">
-            <input 
-              type="file" 
-              accept=".zip" 
-              onChange={(e) => setUpdateFile(e.target.files?.[0] || null)} 
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-              disabled={isUpdating} 
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => setUpdateFile(e.target.files?.[0] || null)}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              disabled={isUpdating}
             />
             <div className={cn(
-              "p-10 border-2 border-dashed rounded-4xl flex flex-col items-center transition-all duration-500", 
+              "p-10 border-2 border-dashed rounded-4xl flex flex-col items-center transition-all duration-500",
               updateFile ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50/50 group-hover:border-slate-400"
             )}>
               <Upload size={28} className={cn("mb-3 transition-transform group-hover:-translate-y-1", updateFile ? "text-emerald-600" : "text-slate-300")} />
@@ -304,20 +306,13 @@ export function InfrastructureCard() {
               </span>
             </div>
           </div>
-          <Button 
-            disabled={!updateFile || isUpdating} 
+          <Button
+            disabled={!updateFile || isUpdating}
             onClick={() => {
-              if(window.prompt("Digite 'CONFIRMAR':") === 'CONFIRMAR') {
-                setIsUpdating(true);
-                setTimeout(() => {
-                  setIsUpdating(false);
-                  setUpdateFile(null);
-                  toast.success("Atualização Concluída", { description: "Kernel reiniciado na VPS." });
-                }, 3000);
-              }
-            }} 
+              setShowConfirmDeploy(true);
+            }}
             className={cn(
-              "w-full h-16 rounded-[1.5rem] font-black uppercase text-[11px] tracking-[0.3em] transition-all", 
+              "w-full h-16 rounded-[1.5rem] font-black uppercase text-[11px] tracking-[0.3em] transition-all",
               updateFile ? "bg-slate-950 text-white shadow-2xl hover:bg-black" : "bg-slate-100 text-slate-300"
             )}
           >
@@ -325,6 +320,27 @@ export function InfrastructureCard() {
           </Button>
         </div>
       </CardContent>
+
+      <ConfirmDialog
+        open={showConfirmDeploy}
+        title="Confirmar Deploy"
+        description="Deseja realmente iniciar o deploy? Essa ação reiniciará o kernel do sistema."
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        requireTextConfirmation="CONFIRMAR"
+        confirmationInputLabel="Para prosseguir, digite CONFIRMAR:"
+        onConfirm={() => {
+          setShowConfirmDeploy(false);
+          setIsUpdating(true);
+          setTimeout(() => {
+            setIsUpdating(false);
+            setUpdateFile(null);
+            toast.success("Atualização Concluída", { description: "Kernel reiniciado na VPS." });
+          }, 3000);
+        }}
+        onCancel={() => setShowConfirmDeploy(false)}
+      />
     </Card>
   );
 }

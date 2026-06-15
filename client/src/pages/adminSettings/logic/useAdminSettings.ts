@@ -17,6 +17,7 @@ export interface AdminSettingsData {
   geminiApiKey: string;
   googleClientId: string;
   googleClientSecret: string;
+  googleRedirectUri: string;
   googleLoginEnabled: boolean;
   googleAnalyticsId: string;
   gaServiceAccount: string;
@@ -28,6 +29,7 @@ interface GoogleLoginConfigPayload {
   enabled?: boolean;
   clientId?: string;
   clientSecret?: string;
+  redirectUri?: string;
 }
 
 /**
@@ -35,8 +37,22 @@ interface GoogleLoginConfigPayload {
  */
 type StoreSettingsRouter = {
   invalidate(): unknown;
-  useQuery: () => { data: any | undefined; isLoading: boolean };
-  useMutation: () => { mutateAsync: (data: unknown) => Promise<void>; isPending: boolean };
+  get: {
+    useQuery: () => { data: any | undefined; isLoading: boolean };
+    invalidate: () => void;
+  };
+  upsert: {
+    useMutation: () => {
+      mutateAsync: (data: unknown) => Promise<void>;
+      isPending: boolean;
+    };
+  };
+  testGoogleOAuth: {
+    useMutation: () => {
+      mutateAsync: (data: { clientId: string; clientSecret: string; redirectUri: string }) => Promise<{ success: boolean; message: string }>;
+      isPending: boolean;
+    };
+  };
 };
 
 export function useAdminSettings() {
@@ -57,6 +73,7 @@ export function useAdminSettings() {
     geminiApiKey: "",
     googleClientId: "",
     googleClientSecret: "",
+    googleRedirectUri: "",
     googleLoginEnabled: false,
     googleAnalyticsId: "",
     gaServiceAccount: "",
@@ -64,8 +81,8 @@ export function useAdminSettings() {
     gtmId: ""
   });
 
-  const { data: serverData, isLoading } = storeSettings.useQuery();
-  const saveMutation = storeSettings.useMutation();
+  const { data: serverData, isLoading } = storeSettings.get.useQuery();
+  const saveMutation = storeSettings.upsert.useMutation();
 
   useEffect(() => {
     if (serverData) {
@@ -89,7 +106,8 @@ export function useAdminSettings() {
         // Preenche as inputs do Google Login a partir da string unificada do backend
         googleLoginEnabled: googleConfig?.enabled ?? false,
         googleClientId: googleConfig?.clientId || "",
-        googleClientSecret: googleConfig?.clientSecret || ""
+        googleClientSecret: googleConfig?.clientSecret || "",
+        googleRedirectUri: googleConfig?.redirectUri || ""
       }));
     }
   }, [serverData]);
@@ -116,7 +134,8 @@ export function useAdminSettings() {
         googleLoginConfig: JSON.stringify({
           enabled: settingsOwnedFields.googleLoginEnabled,
           clientId: settingsOwnedFields.googleClientId,
-          clientSecret: settingsOwnedFields.googleClientSecret
+          clientSecret: settingsOwnedFields.googleClientSecret,
+          redirectUri: settingsOwnedFields.googleRedirectUri
         })
       };
 
@@ -130,7 +149,7 @@ export function useAdminSettings() {
       const adminUtils = (utils.admin as unknown as { storeSettings: StoreSettingsRouter }).storeSettings;
 
       utils.public.getPublicSettings.invalidate();
-      adminUtils.invalidate();
+      adminUtils.get.invalidate();
 
     } catch (err) {
       const error = err as Error;
@@ -138,16 +157,20 @@ export function useAdminSettings() {
     }
   };
 
+  const testGoogleOAuthMutation = storeSettings.testGoogleOAuth.useMutation();
+
   return {
     state: {
       formData,
       isLoading,
-      isPending: saveMutation.isPending
+      isPending: saveMutation.isPending,
+      isTestingGoogle: testGoogleOAuthMutation.isPending
     },
     actions: {
       setFormData,
       handleSaveAll,
-      updateField
+      updateField,
+      testGoogleOAuth: testGoogleOAuthMutation.mutateAsync
     }
   };
 }

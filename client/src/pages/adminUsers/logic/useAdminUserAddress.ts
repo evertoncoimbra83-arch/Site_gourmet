@@ -17,11 +17,11 @@ interface Address {
 
 // ✅ Interface para Bypass de Tipagem (Sync com backend)
 interface UsersAdminApi {
-  getUserAddresses: { 
+  getUserAddresses: {
     useQuery: (input: { userId: string }) => { data: unknown; isLoading: boolean };
     invalidate: (input: { userId: string }) => void;
   };
-  deleteAddress: { 
+  deleteAddress: {
     useMutation: (opts: Record<string, unknown>) => { mutate: (data: { id: string }) => void; isPending: boolean };
   };
 }
@@ -50,9 +50,7 @@ export function useAdminUserAddress(userId: string) {
   });
 
   const handleDelete = (id: string) => {
-    if (confirm("Deseja realmente excluir este endereço?")) {
-      deleteMutation.mutate({ id });
-    }
+    deleteMutation.mutate({ id });
   };
 
   return {

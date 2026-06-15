@@ -12,6 +12,7 @@ import {
   assertStrongConfirmation,
   operationalLimits,
 } from "./operational-hardening.js";
+import { assertCloudinaryStorageUrl } from "@shared/utils/image-url";
 
 type PaymentMethodInsert = typeof paymentMethods.$inferInsert;
 
@@ -33,6 +34,20 @@ function validatePaymentDiscount(
     return "critical";
   }
   return "warning";
+}
+
+function requireCloudinaryLogoUrl(value: string | null | undefined) {
+  try {
+    return assertCloudinaryStorageUrl(value, "Logo do metodo de pagamento");
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Logo do metodo de pagamento invalida.",
+    });
+  }
 }
 
 export const adminPaymentMethodsRouter = router({
@@ -68,7 +83,7 @@ export const adminPaymentMethodsRouter = router({
         name: input.name,
         isActive: input.isActive,
         brandName: input.brand_name,
-        brandLogoUrl: input.brand_logo_url,
+        brandLogoUrl: requireCloudinaryLogoUrl(input.brand_logo_url),
         description: input.description,
         icon: input.icon,
         discountPercentage: String(input.discount_percentage),
@@ -155,7 +170,7 @@ export const adminPaymentMethodsRouter = router({
       if (brandName !== undefined) updateData.brandName = brandName;
 
       const brandLogo = input.brandLogoUrl ?? input.brand_logo_url;
-      if (brandLogo !== undefined) updateData.brandLogoUrl = brandLogo;
+      if (brandLogo !== undefined) updateData.brandLogoUrl = requireCloudinaryLogoUrl(brandLogo);
 
       if (input.icon !== undefined) updateData.icon = input.icon;
 

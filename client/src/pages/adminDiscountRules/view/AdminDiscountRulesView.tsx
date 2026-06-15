@@ -3,15 +3,16 @@ import { useAdminDiscountRules } from "../logic/useAdminDiscountRules";
 import { DiscountRuleForm } from "../components/DiscountRuleForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Accordion, 
-  AccordionContent, 
-  AccordionItem, 
-  AccordionTrigger 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
 } from "@/components/ui/accordion";
 import { Edit2, Trash2, Loader2, Zap, Plus, LayoutGrid } from "lucide-react";
 import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // ✅ Interface unificada para remover todos os 'any'
 interface DiscountRuleItem {
@@ -30,6 +31,7 @@ interface DiscountRuleItem {
 export function AdminDiscountRulesView() {
   const { state, actions, data, mutations } = useAdminDiscountRules();
   const [localExpandedId, setLocalExpandedId] = useState<string>("");
+  const [ruleToDelete, setRuleToDelete] = useState<DiscountRuleItem | null>(null);
 
   const formatValue = (rule: DiscountRuleItem) => {
     const type = rule.type || 'percentage';
@@ -38,14 +40,14 @@ export function AdminDiscountRulesView() {
 
     if (isNaN(numValue)) return type === "percentage" ? "0%" : "0.00R$";
 
-    return type === "percentage" 
-      ? `${Math.round(numValue)}%` 
+    return type === "percentage"
+      ? `${Math.round(numValue)}%`
       : `${numValue.toFixed(2)}R$`;
   };
 
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 text-left">
-      
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="space-y-2">
@@ -61,27 +63,27 @@ export function AdminDiscountRulesView() {
           </p>
         </div>
 
-        <Button 
+        <Button
           onClick={() => {
             actions.resetForm();
-            setLocalExpandedId("new-rule"); 
+            setLocalExpandedId("new-rule");
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           className="h-16 px-10 rounded-[2rem] bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95 group"
         >
-          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" /> 
+          <Plus className="mr-2 h-5 w-5 transition-transform group-hover:rotate-90" />
           Nova Regra
         </Button>
       </header>
 
-      <Accordion 
-        type="single" 
-        collapsible 
+      <Accordion
+        type="single"
+        collapsible
         className="w-full space-y-6 border-none"
-        value={localExpandedId} 
+        value={localExpandedId}
         onValueChange={setLocalExpandedId}
       >
-        
+
         <AccordionItem value="new-rule" className="border-none">
           <AccordionContent className="pb-6">
             <div className="bg-white p-8 md:p-10 rounded-[3rem] border-2 border-dashed border-emerald-100 shadow-sm">
@@ -89,12 +91,12 @@ export function AdminDiscountRulesView() {
                   <LayoutGrid size={16} />
                   <span className="text-[10px] font-black uppercase tracking-widest">Criar nova faixa de desconto</span>
                </div>
-               <DiscountRuleForm 
+               <DiscountRuleForm
                 // ✅ CORREÇÃO: Usamos unknown como ponte segura em vez de 'any'
-                state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']} 
-                actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']} 
-                mutations={mutations} 
-                onCancel={() => setLocalExpandedId("")} 
+                state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']}
+                actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']}
+                mutations={mutations}
+                onCancel={() => setLocalExpandedId("")}
                />
             </div>
           </AccordionContent>
@@ -113,7 +115,7 @@ export function AdminDiscountRulesView() {
                 localExpandedId === `edit-${rule.id}` ? "border-emerald-500 shadow-xl ring-8 ring-emerald-500/5" : "border-slate-50 shadow-sm hover:shadow-md"
               )}>
                 <div className="p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  
+
                   <div className="flex items-center gap-6">
                     <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 font-black italic text-xl border border-slate-100 group-hover:text-emerald-500 transition-colors text-center">
                       {String(rule.priority || '0')}
@@ -139,7 +141,7 @@ export function AdminDiscountRulesView() {
                     </div>
 
                     <div className="flex gap-2">
-                      <AccordionTrigger 
+                      <AccordionTrigger
                         className="p-0 hover:no-underline"
                         onClick={() => actions.handleEdit(rule as unknown as Parameters<typeof actions.handleEdit>[0])}
                       >
@@ -150,17 +152,15 @@ export function AdminDiscountRulesView() {
                           <Edit2 size={18}/>
                         </div>
                       </AccordionTrigger>
-                      
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         disabled={mutations.isDeleting}
-                        className="h-12 w-12 rounded-xl bg-slate-50 text-slate-200 hover:text-red-500 hover:bg-red-50 transition-all active:scale-95" 
+                        className="h-12 w-12 rounded-xl bg-slate-50 text-slate-200 hover:text-red-500 hover:bg-red-50 transition-all active:scale-95"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if(confirm("Deseja excluir esta regra?")) {
-                            actions.deleteRule(rule.id);
-                          }
+                          setRuleToDelete(rule);
                         }}
                       >
                         {mutations.isDeleting ? <Loader2 className="animate-spin" size={18}/> : <Trash2 size={18}/>}
@@ -171,12 +171,12 @@ export function AdminDiscountRulesView() {
 
                 <AccordionContent className="p-0 border-t border-slate-50 bg-slate-50/20">
                   <div className="p-8 md:p-10">
-                    <DiscountRuleForm 
+                    <DiscountRuleForm
                       // ✅ CORREÇÃO: Removido 'any'
-                      state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']} 
-                      actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']} 
-                      mutations={mutations} 
-                      onCancel={() => setLocalExpandedId("")} 
+                      state={state as unknown as Parameters<typeof DiscountRuleForm>[0]['state']}
+                      actions={actions as unknown as Parameters<typeof DiscountRuleForm>[0]['actions']}
+                      mutations={mutations}
+                      onCancel={() => setLocalExpandedId("")}
                     />
                   </div>
                 </AccordionContent>
@@ -185,6 +185,23 @@ export function AdminDiscountRulesView() {
           ))
         )}
       </Accordion>
+
+      <ConfirmDialog
+        open={ruleToDelete !== null}
+        title="Excluir Regra"
+        description={ruleToDelete ? `Deseja realmente excluir a regra de desconto "${ruleToDelete.name}"?` : ""}
+        confirmLabel="Confirmar"
+        cancelLabel="Cancelar"
+        destructive={true}
+        loading={mutations.isDeleting}
+        onConfirm={() => {
+          if (ruleToDelete) {
+            actions.deleteRule(ruleToDelete.id);
+            setRuleToDelete(null);
+          }
+        }}
+        onCancel={() => setRuleToDelete(null)}
+      />
     </div>
   );
 }

@@ -107,10 +107,12 @@ export function AdminSettingsView() {
               state: {
                 formData: settingsTab.state.formData,
                 isPending: settingsTab.state.isPending,
+                isTestingGoogle: settingsTab.state.isTestingGoogle,
               },
               actions: {
                 updateField: settingsTab.actions.updateField,
                 handleSaveAll: settingsTab.actions.handleSaveAll,
+                testGoogleOAuth: settingsTab.actions.testGoogleOAuth,
               },
             }}
           />

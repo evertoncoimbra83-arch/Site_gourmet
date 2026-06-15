@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAdminUserAddress } from "../../logic/useAdminUserAddress";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { appToast as toast } from "@/lib/app-toast";
 import { trpc } from "@/_core/trpc";
 
@@ -28,8 +29,9 @@ interface UsersAdminApi {
 
 export function AddressesTab({ userId }: { userId: string }) {
   const { addresses, isLoading, isDeleting, handleDelete } = useAdminUserAddress(userId);
-  
+
   const [view, setView] = useState<'list' | 'form'>('list');
+  const [addressIdToDelete, setAddressIdToDelete] = useState<string | null>(null);
   const [isSearchingCep, setIsSearchingCep] = useState(false);
   const [formData, setFormData] = useState({
     street: '',
@@ -45,7 +47,7 @@ export function AddressesTab({ userId }: { userId: string }) {
   const addAddressMutation = usersAdminApi.addAddress.useMutation({
     onSuccess: () => {
       toast.success("Endereço adicionado com sucesso!");
-      usersAdminApi.getUserAddresses.invalidate({ userId }); 
+      usersAdminApi.getUserAddresses.invalidate({ userId });
       setView('list');
       setFormData({ street: '', number: '', neighborhood: '', city: '', state: '', zipCode: '' });
     },
@@ -78,7 +80,7 @@ export function AddressesTab({ userId }: { userId: string }) {
         city: data.localidade || '',
         state: data.uf || ''
       }));
-    } catch { 
+    } catch {
       toast.error("Erro na busca de CEP.");
     } finally {
       setIsSearchingCep(false);
@@ -90,7 +92,7 @@ export function AddressesTab({ userId }: { userId: string }) {
       toast.error("Preencha todos os campos obrigatórios.");
       return;
     }
-    
+
     addAddressMutation.mutate({
       userId,
       ...formData,
@@ -119,12 +121,12 @@ export function AddressesTab({ userId }: { userId: string }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-sm text-left">
-          
+
           <div className="md:col-span-2 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">CEP</label>
             <div className="relative">
-              <Input 
-                placeholder="00000-000" 
+              <Input
+                placeholder="00000-000"
                 className="rounded-xl border-slate-100 h-11 pr-10"
                 value={formData.zipCode}
                 onChange={e => setFormData({...formData, zipCode: e.target.value})}
@@ -139,16 +141,16 @@ export function AddressesTab({ userId }: { userId: string }) {
 
           <div className="md:col-span-5 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rua / Logradouro</label>
-            <Input 
+            <Input
               className="rounded-xl border-slate-100 h-11"
               value={formData.street}
               onChange={e => setFormData({...formData, street: e.target.value})}
             />
           </div>
-          
+
           <div className="md:col-span-1 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nº</label>
-            <Input 
+            <Input
               className="rounded-xl border-slate-100 h-11"
               value={formData.number}
               onChange={e => setFormData({...formData, number: e.target.value})}
@@ -157,7 +159,7 @@ export function AddressesTab({ userId }: { userId: string }) {
 
           <div className="md:col-span-3 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Bairro</label>
-            <Input 
+            <Input
               className="rounded-xl border-slate-100 h-11"
               value={formData.neighborhood}
               onChange={e => setFormData({...formData, neighborhood: e.target.value})}
@@ -166,7 +168,7 @@ export function AddressesTab({ userId }: { userId: string }) {
 
           <div className="md:col-span-2 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cidade</label>
-            <Input 
+            <Input
               className="rounded-xl border-slate-100 h-11"
               value={formData.city}
               onChange={e => setFormData({...formData, city: e.target.value})}
@@ -175,7 +177,7 @@ export function AddressesTab({ userId }: { userId: string }) {
 
           <div className="md:col-span-1 space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">UF</label>
-            <Input 
+            <Input
               className="rounded-xl border-slate-100 h-11 uppercase text-center"
               maxLength={2}
               value={formData.state}
@@ -184,7 +186,7 @@ export function AddressesTab({ userId }: { userId: string }) {
           </div>
         </div>
 
-        <Button 
+        <Button
           className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest rounded-2xl gap-2 shadow-lg shadow-emerald-100 transition-all active:scale-[0.98]"
           onClick={onSave}
           disabled={addAddressMutation.isPending || isSearchingCep}
@@ -198,6 +200,22 @@ export function AddressesTab({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
+      <ConfirmDialog
+        open={addressIdToDelete !== null}
+        title="Excluir endereco?"
+        description="O endereco sera removido do cadastro do usuario."
+        confirmLabel="Excluir endereco"
+        cancelLabel="Manter endereco"
+        destructive
+        loading={isDeleting}
+        onCancel={() => setAddressIdToDelete(null)}
+        onConfirm={() => {
+          if (!addressIdToDelete) return;
+          handleDelete(addressIdToDelete);
+          setAddressIdToDelete(null);
+        }}
+      />
+
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-lg font-black italic uppercase tracking-tighter text-slate-900">Endereços</h3>
         <Button size="sm" onClick={() => setView('form')} className="gap-2 bg-slate-900 rounded-full px-4 h-9 hover:bg-emerald-600 transition-colors">
@@ -232,11 +250,11 @@ export function AddressesTab({ userId }: { userId: string }) {
                     </p>
                   </div>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all rounded-full shrink-0" 
-                  onClick={() => handleDelete(addr.id as string)} 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all rounded-full shrink-0"
+                  onClick={() => setAddressIdToDelete(String(addr.id))}
                   disabled={isDeleting}
                 >
                   {isDeleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}

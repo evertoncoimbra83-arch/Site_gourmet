@@ -7,11 +7,12 @@ import {
   Globe, Mail, MessageCircle, MapPin, Instagram,
   Facebook, Loader2, ImageIcon, Camera, Sparkles
 } from "lucide-react";
-import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 import { CompanyFormData, CompanySocialInfo } from "../../logic/useCompanyInfo";
 import { AreaShell } from "../AreaShell";
 import { settingsAreas } from "../../config/settingsAreas";
 import { cn } from "@/lib/utils";
+import { getImageFallback, resolveImageUrl } from "@shared/utils/image-url";
 
 const area = settingsAreas[0];
 
@@ -39,9 +40,7 @@ export function StoreTab({ companyTab }: StoreTabProps) {
   // Utilitário para garantir preview correto da logo (Cloudinary vs Local)
   const getLogoPreview = (url: string | null | undefined) => {
     if (!url) return null;
-    if (url.startsWith('http') || url.startsWith('blob:')) return url;
-    const apiBase = (import.meta.env.VITE_API_URL as string || "").replace(/\/$/, "");
-    return `${apiBase}/uploads/${url.replace(/^\//, "")}`;
+    return resolveImageUrl(url, "logo");
   };
 
   if (isLoading) {
@@ -60,7 +59,7 @@ export function StoreTab({ companyTab }: StoreTabProps) {
         <CardHeader className="p-5 sm:p-8 bg-slate-50/50 border-b border-slate-100 text-left">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 text-emerald-600 text-left">
             <div className="bg-emerald-100/50 p-2.5 rounded-xl shrink-0">
-              <Globe size={22} className="text-emerald-700" />
+               <Globe size={22} className="text-emerald-700" />
             </div>
             <div className="text-left w-full min-w-0">
               <CardTitle className="text-lg sm:text-xl font-black uppercase italic tracking-tighter text-slate-900 text-left">
@@ -91,9 +90,12 @@ export function StoreTab({ companyTab }: StoreTabProps) {
               {formData?.logoUrl ? (
                 <div className="relative w-full h-full flex items-center justify-center p-6">
                   <img
-                    src={getLogoPreview(formData.logoUrl) || ""}
+                    src={resolveImageUrl(formData.logoUrl, "logo")}
                     className="max-h-full max-w-full object-contain transition-transform duration-500 group-hover:scale-105"
                     alt="Logo Preview"
+                    onError={(event) => {
+                      event.currentTarget.src = getImageFallback("logo");
+                    }}
                   />
                   <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
                     <div className="flex items-center gap-2 bg-white px-5 py-2.5 rounded-full shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-all">
@@ -178,14 +180,14 @@ export function StoreTab({ companyTab }: StoreTabProps) {
         </CardContent>
       </Card>
 
-      <MediaPickerModal
+      <MediaLibraryDrawer
         open={isMediaOpen}
         onClose={() => setIsMediaOpen(false)}
         onSelect={(url) => {
           updateLogo(url);
           setIsMediaOpen(false);
         }}
-        defaultFolder="logo"
+        initialFolder="logo"
       />
     </AreaShell>
   );

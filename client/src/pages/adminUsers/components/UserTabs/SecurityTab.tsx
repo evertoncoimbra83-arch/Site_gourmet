@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
-import { useToast } from "@/components/ui/use-toast";
+import { appToast as toast } from "@/lib/app-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch"; 
+import { Switch } from "@/components/ui/switch";
 import { Lock, ShieldAlert, Loader2, KeyRound } from "lucide-react";
 
 // ✅ FIX 24: Interface para evitar o uso de 'any' e tipar o campo de reset
@@ -17,7 +17,6 @@ interface UserSecurityDetails {
 export function SecurityTab({ userId }: { userId: string | null }) {
   const [pw, setPw] = useState("");
   const [forceReset, setForceReset] = useState(false);
-  const { toast } = useToast();
   const utils = trpc.useUtils();
 
   // 1. Busca os detalhes atuais
@@ -38,22 +37,22 @@ export function SecurityTab({ userId }: { userId: string | null }) {
   // 3. Mutation para Redefinir Senha
   const setPwMut = trpc.admin.users.setPassword.useMutation({
     onSuccess: () => {
-      toast("Sucesso: A senha foi redefinida.");
+      toast.success("Senha redefinida.");
       setPw("");
       if (userId) utils.admin.users.getDetails.invalidate({ id: userId });
     },
-    onError: (err) => toast(`Erro: ${err.message}`)
+    onError: (err) => toast.error("Nao foi possivel redefinir a senha.", { description: err.message })
   });
 
   // 4. Mutation para Alternar o "Forçar Troca de Senha"
   const updateMut = trpc.admin.users.update.useMutation({
     onSuccess: () => {
-      toast("Configuração atualizada com sucesso.");
+      toast.success("Configuracao atualizada com sucesso.");
       if (userId) utils.admin.users.getDetails.invalidate({ id: userId });
     },
     onError: (err) => {
-      setForceReset(!forceReset); 
-      toast(`Erro ao atualizar: ${err.message}`);
+      setForceReset(!forceReset);
+      toast.error("Nao foi possivel atualizar a configuracao.", { description: err.message });
     }
   });
 
@@ -65,11 +64,11 @@ export function SecurityTab({ userId }: { userId: string | null }) {
   const handleToggleReset = (checked: boolean) => {
     if (!userId) return;
     setForceReset(checked);
-    
+
     // ✅ FIX 64: Removido @ts-expect-error pois agora o campo está tipado no cast
-    updateMut.mutate({ 
-      id: userId, 
-      needsPasswordReset: checked ? 1 : 0 
+    updateMut.mutate({
+      id: userId,
+      needsPasswordReset: checked ? 1 : 0
     } as Parameters<typeof updateMut.mutate>[0]);
   };
 
@@ -98,7 +97,7 @@ export function SecurityTab({ userId }: { userId: string | null }) {
               <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Exigir nova senha no próximo login</p>
             </div>
           </div>
-          <Switch 
+          <Switch
             checked={forceReset}
             onCheckedChange={handleToggleReset}
             disabled={updateMut.isPending}
@@ -111,7 +110,7 @@ export function SecurityTab({ userId }: { userId: string | null }) {
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nova Senha de Acesso</label>
             <div className="relative">
               <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-              <Input 
+              <Input
                 type="password"
                 placeholder="••••••••"
                 className="h-16 pl-14 rounded-2xl bg-slate-50 border-none font-bold text-slate-900 focus-visible:ring-4 focus-visible:ring-slate-100 transition-all outline-none"
@@ -121,7 +120,7 @@ export function SecurityTab({ userId }: { userId: string | null }) {
             </div>
           </div>
 
-          <Button 
+          <Button
             onClick={handlePasswordReset}
             disabled={setPwMut.isPending || pw.length < 6}
             className="w-full h-16 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-[0.2em] shadow-xl transition-all disabled:opacity-30"

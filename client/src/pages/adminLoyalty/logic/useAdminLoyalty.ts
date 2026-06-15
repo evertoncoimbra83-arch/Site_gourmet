@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { trpc } from "@/_core/trpc";
-import { appToast as toast } from "@/lib/app-toast"; 
+import { appToast as toast } from "@/lib/app-toast";
 import { getAdminMutationErrorMessage } from "@/lib/admin-mutation-error";
 import { keepPreviousData } from "@tanstack/react-query";
 import { requestStrongConfirmation } from "@/lib/strong-confirmation";
@@ -14,7 +14,7 @@ export interface RedemptionRule {
 }
 
 export interface LoyaltyCustomer {
-  id: string; 
+  id: string;
   name: string;
   email: string;
   points: number;
@@ -49,7 +49,7 @@ export function useAdminLoyalty() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<LoyaltyCustomer | null>(null);
-  
+
   const [manualPoints, setManualPoints] = useState<number>(0);
   const [manualReason, setManualReason] = useState("");
 
@@ -62,14 +62,14 @@ export function useAdminLoyalty() {
   });
 
   const { data: settings } = trpc.admin.loyaltySettings.get.useQuery();
-  
+
   const customersQuery = trpc.admin.loyaltySettings.getCustomers.useQuery(
     { page, limit: 10, search: debouncedSearch || undefined },
     { placeholderData: keepPreviousData }
   );
 
   const historyQuery = trpc.admin.loyaltySettings.getCustomerHistory.useQuery(
-    { userId: String(selectedCustomer?.id || "") }, 
+    { userId: String(selectedCustomer?.id || "") },
     { enabled: !!selectedCustomer }
   );
 
@@ -83,8 +83,8 @@ export function useAdminLoyalty() {
       const s = settings as Record<string, unknown>;
       setFormData({
         ...s,
-        redemptionRules: typeof s.redemptionRules === 'string' 
-          ? JSON.parse(s.redemptionRules) 
+        redemptionRules: typeof s.redemptionRules === 'string'
+          ? JSON.parse(s.redemptionRules)
           : (Array.isArray(s.redemptionRules) ? s.redemptionRules : [])
       });
     }
@@ -157,36 +157,32 @@ export function useAdminLoyalty() {
       return;
     }
 
-    if (!window.confirm("Tem certeza que deseja excluir esta movimentação? Isso não estornará os pontos do cliente automaticamente.")) {
-      return;
-    }
-
     // ✅ CORREÇÃO: Enviando no formato que o seu backend espera
     const confirmation = requestStrongConfirmation(
       "Excluir movimentacao de fidelidade e uma acao irreversivel.",
     );
     if (!confirmation) return toast.warning("Confirmacao forte cancelada.");
 
-    deleteMutation.mutate({ 
-      userId: String(selectedCustomer.id), 
+    deleteMutation.mutate({
+      userId: String(selectedCustomer.id),
       transactionIds: [String(transactionId)],
       ...confirmation,
     });
   };
 
   return {
-    state: { 
-      page, search, selectedCustomer, formData, 
+    state: {
+      page, search, selectedCustomer, formData,
       manualPoints, manualReason,
       isPending: adjustMutation.isPending || deleteMutation.isPending // ✅ Agora considera o delete também
     },
-    actions: { 
-      setPage, setSearch, setSelectedCustomer, setFormData, 
+    actions: {
+      setPage, setSearch, setSelectedCustomer, setFormData,
       setManualPoints, setManualReason,
       handleSaveSettings, handleManualAdjustment,
       handleDeleteTransaction // ✅ Adicionado às ações
     },
-    data: { 
+    data: {
       customers: (customersQuery.data?.items as unknown as LoyaltyCustomer[]) || [],
       history: (historyQuery.data as unknown as LoyaltyTransaction[]) || [],
       totalCount: customersQuery.data?.total || 0,

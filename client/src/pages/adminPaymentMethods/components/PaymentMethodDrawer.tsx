@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { 
-  Sheet, 
-  SheetContent, 
+import {
+  Sheet,
+  SheetContent,
   SheetTitle,
   SheetHeader,
-  SheetDescription 
+  SheetDescription
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +13,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Save, Image as ImageIcon, Wallet, PlusCircle, Camera } from "lucide-react";
 
 // ✅ Import atualizado para o componente global de nuvem
-import { MediaPickerModal } from "@/components/MediaPickerModal";
+import { MediaLibraryDrawer } from "@/pages/adminMedia/view/MediaLibraryDrawer";
 import { safeNumber } from "@/lib/safe-parse";
 import { cn } from "@/lib/utils";
+import { resolvePaymentLogoUrl } from "@shared/utils/payment-logo";
 
 // --- INTERFACES ---
 
@@ -42,11 +43,11 @@ interface PaymentMethodDrawerProps {
 
 export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending }: PaymentMethodDrawerProps) {
   const [formData, setFormData] = useState({
-    name: "", 
-    discountPercentage: "0", 
-    description: "", 
-    icon: "", 
-    brandName: "", 
+    name: "",
+    discountPercentage: "0",
+    description: "",
+    icon: "",
+    brandName: "",
     brandLogoUrl: ""
   });
 
@@ -57,21 +58,21 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
    */
   const getImageUrl = (url: string | null | undefined) => {
     if (!url) return "";
-    
+
     // Se for Cloudinary ou base64, retorna direto
     if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) {
       return url;
     }
-    
+
     // Limpeza de paths locais legados
     const cleanPath = url
       .replace(/^\/?public\//, "")
       .replace(/^\//, "");
 
     const apiBase = (import.meta.env.VITE_API_URL as string || "").replace(/\/$/, "");
-    
-    return cleanPath.includes('uploads/') 
-      ? `${apiBase}/${cleanPath}` 
+
+    return cleanPath.includes('uploads/')
+      ? `${apiBase}/${cleanPath}`
       : `${apiBase}/uploads/${cleanPath}`;
   };
 
@@ -106,14 +107,14 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
       brand_logo_url: formData.brandLogoUrl, // ✅ Enviamos a URL completa (Cloudinary amigável)
       discount_percentage: safeNumber(formData.discountPercentage),
     };
-    
+
     onSubmit(payload);
   };
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent side="right" className="w-full sm:max-w-xl p-0 border-none bg-[#F8FAFC] flex flex-col h-screen outline-none z-100 text-left">
-        
+
         {/* HEADER */}
         <SheetHeader className="p-8 md:p-10 bg-white border-b border-slate-100 shrink-0 text-left">
           <div className="flex items-center gap-3 text-emerald-600 mb-2">
@@ -130,24 +131,24 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
 
         {/* BODY */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-8 md:p-10 space-y-10 pb-32 text-left">
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-8 rounded-4xl border border-slate-100 shadow-sm">
             <div className="space-y-2 text-left">
               <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400">Método *</Label>
-              <Input 
-                className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg focus-visible:ring-emerald-500" 
-                value={formData.name} 
-                onChange={e => setFormData({...formData, name: e.target.value})} 
+              <Input
+                className="h-14 rounded-2xl bg-slate-50 border-none font-bold text-lg focus-visible:ring-emerald-500"
+                value={formData.name}
+                onChange={e => setFormData({...formData, name: e.target.value})}
                 placeholder="Ex: PIX"
               />
             </div>
             <div className="space-y-2 text-left">
               <Label className="font-black uppercase text-[9px] tracking-[0.2em] text-slate-400 text-center">Desconto (%)</Label>
-              <Input 
-                type="number" 
-                className="h-14 rounded-2xl bg-slate-50 border-none font-black text-xl text-emerald-600 text-center focus-visible:ring-emerald-500" 
-                value={formData.discountPercentage} 
-                onChange={e => setFormData({...formData, discountPercentage: e.target.value})} 
+              <Input
+                type="number"
+                className="h-14 rounded-2xl bg-slate-50 border-none font-black text-xl text-emerald-600 text-center focus-visible:ring-emerald-500"
+                value={formData.discountPercentage}
+                onChange={e => setFormData({...formData, discountPercentage: e.target.value})}
               />
             </div>
           </div>
@@ -156,8 +157,8 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
             <Label className="font-black uppercase text-[10px] tracking-widest text-slate-400 ml-1 flex items-center gap-2">
               <ImageIcon size={14} /> Logo da Bandeira
             </Label>
-            
-            <div 
+
+            <div
               onClick={() => setIsMediaOpen(true)}
               className={cn(
                 "group relative h-48 w-full rounded-4xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden bg-white",
@@ -166,9 +167,9 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
             >
               {formData.brandLogoUrl ? (
                 <div className="relative w-full h-full flex items-center justify-center bg-slate-50/50">
-                  <img 
-                    src={getImageUrl(formData.brandLogoUrl)} 
-                    className="h-full w-full object-contain p-6 transition-transform group-hover:scale-105" 
+                  <img
+                    src={getImageUrl(formData.brandLogoUrl)}
+                    className="h-full w-full object-contain p-6 transition-transform group-hover:scale-105"
                     alt="Preview"
                     onError={(e) => {
                       e.currentTarget.src = "https://placehold.co/400x400/f1f5f9/cbd5e1?text=Erro+no+Link";
@@ -193,10 +194,10 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
           <div className="space-y-6 bg-white p-8 rounded-4xl border border-slate-100 shadow-sm text-left">
             <div className="space-y-2">
               <Label className="font-black uppercase text-[9px] text-slate-400 ml-1">Descrição Comercial</Label>
-              <Textarea 
-                className="rounded-2xl bg-slate-50 border-none font-medium h-24 p-4 resize-none focus-visible:ring-emerald-500" 
-                value={formData.description} 
-                onChange={e => setFormData({...formData, description: e.target.value})} 
+              <Textarea
+                className="rounded-2xl bg-slate-50 border-none font-medium h-24 p-4 resize-none focus-visible:ring-emerald-500"
+                value={formData.description}
+                onChange={e => setFormData({...formData, description: e.target.value})}
                 placeholder="Ex: Pagamento instantâneo com aprovação imediata."
               />
             </div>
@@ -218,9 +219,9 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
           <Button variant="ghost" onClick={onClose} className="flex-1 h-14 rounded-2xl font-black text-[10px] uppercase text-slate-400 hover:bg-slate-50">
             Descartar
           </Button>
-          <Button 
-            onClick={handleSubmit} 
-            disabled={isPending} 
+          <Button
+            onClick={handleSubmit}
+            disabled={isPending}
             className="flex-[2] h-14 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black uppercase text-[11px] shadow-xl transition-all active:scale-95"
           >
             {isPending ? <Loader2 className="animate-spin mr-2" size={16} /> : <Save className="mr-2" size={16} />}
@@ -228,11 +229,11 @@ export function PaymentMethodDrawer({ open, onClose, method, onSubmit, isPending
           </Button>
         </div>
 
-        <MediaPickerModal 
-          open={isMediaOpen} 
-          onClose={() => setIsMediaOpen(false)} 
-          onSelect={handleImageSelect} 
-          defaultFolder="logo"
+        <MediaLibraryDrawer
+          open={isMediaOpen}
+          onClose={() => setIsMediaOpen(false)}
+          onSelect={handleImageSelect}
+          initialFolder="logo"
         />
       </SheetContent>
     </Sheet>
