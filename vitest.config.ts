@@ -4,8 +4,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { VitePWA } from 'vite-plugin-pwa';
-import { configDefaults } from 'vitest/config';
+import { VitePWA } from "vite-plugin-pwa";
+import { configDefaults } from "vitest/config";
 
 // Define a raiz do projeto de forma segura
 const projectRoot = process.cwd();
@@ -27,53 +27,53 @@ export default defineConfig({
   },
 
   plugins: [
-    react(), 
-    
+    react(),
+
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto', 
-      
+      registerType: "autoUpdate",
+      injectRegister: "auto",
+
       devOptions: {
         enabled: true,
-        type: 'module',
-        navigateFallback: 'index.html',
+        type: "module",
+        navigateFallback: "index.html",
       },
 
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,webp}"],
         cleanupOutdatedCaches: true,
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, 
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
 
       manifest: {
-        name: 'Gourmet Saudável',
-        short_name: 'Gourmet',
-        description: 'Refeições artesanais, saudáveis e práticas.',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
-        display: 'standalone',
-        start_url: '/',
-        orientation: 'portrait',
+        name: "Gourmet Saudável",
+        short_name: "Gourmet",
+        description: "Refeições artesanais, saudáveis e práticas.",
+        theme_color: "#ffffff",
+        background_color: "#ffffff",
+        display: "standalone",
+        start_url: "/",
+        orientation: "portrait",
         icons: [
           {
-            src: '/uploads/android-chrome-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
+            src: "/uploads/android-chrome-192x192.png",
+            sizes: "192x192",
+            type: "image/png",
           },
           {
-            src: '/uploads/android-chrome-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            src: "/uploads/android-chrome-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
           },
           {
-            src: '/uploads/android-chrome-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
-      }
-    })
+            src: "/uploads/android-chrome-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+        ],
+      },
+    }),
   ],
 
   resolve: {
@@ -90,21 +90,21 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    pool: 'threads',
-    
+    pool: "threads",
+
     // ✅ Removido o "./" inicial que impede o reconhecimento no Windows PowerShell
-    include: ["server/**/*.{test,spec}.ts"], 
-    
+    include: ["server/**/*.{test,spec}.ts"],
+
     exclude: [...configDefaults.exclude, "**/node_modules/**", "**/dist/**"],
-    
+
     // ✅ Setup para carregar variáveis de ambiente
     setupFiles: [path.resolve(projectRoot, "server/vitest.setup.ts")],
-    
+
     // ✅ Sintaxe compatível com Vitest 2.x/3.x
     server: {
       deps: {
         inline: [/drizzle-orm/],
-      }
-    }
+      },
+    },
   },
 });

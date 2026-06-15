@@ -17,16 +17,24 @@ import {
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
   errorFormatter({ shape, error, ctx }) {
+    let requestId: string | undefined = undefined;
+
+    if (ctx?.req) {
+      requestId =
+        (ctx.req as any).requestId ||
+        ctx.req.headers?.["x-request-id"] ||
+        ctx.req.headers?.["x-correlation-id"];
+    }
+
     try {
       const procedure = shape.data.path || "unknown";
       const { module } = getTrpcModuleAndEntity(procedure);
-      
+
       const originalError = error.cause instanceof Error ? error.cause : error;
       const isCritical = error.code === "INTERNAL_SERVER_ERROR";
       const severity = isCritical ? "critical" : "warning";
 
       const actor: any = { userId: "system" };
-      let requestId: string | undefined = undefined;
       let route: string | undefined = undefined;
 
       if (ctx) {
@@ -34,12 +42,9 @@ const t = initTRPC.context<TrpcContext>().create({
           actor.userId = ctx.user.id;
         }
         if (ctx.req) {
-          requestId = (ctx.req as any).requestId || 
-                      ctx.req.headers?.["x-request-id"] || 
-                      ctx.req.headers?.["x-correlation-id"];
           route = ctx.req.originalUrl || ctx.req.url;
-          actor.ipAddress = ctx.req.ip || 
-                            (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+          actor.ipAddress = ctx.req.ip ||
+                            (ctx.req.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
                             "127.0.0.1";
           actor.userAgent = ctx.req.headers?.["user-agent"] || "unknown";
         }
@@ -69,6 +74,7 @@ const t = initTRPC.context<TrpcContext>().create({
         ...shape.data,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
+        requestId,
       },
     };
   },
@@ -253,7 +259,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
 function getTrpcModuleAndEntity(path: string): { module: string; entity: string } {
   const parts = path.toLowerCase().split(".");
   const routerName = parts[1] || "system";
-  
+
   const moduleMap: Record<string, string> = {
     settings: "settings",
     storesettings: "settings",
@@ -364,6 +370,7 @@ const auditMiddleware = t.middleware(async (opts) => {
         const sensitiveKeys = [
           "password",
           "token",
+          "publicAccessToken",
           "secret",
           "currentPassword",
           "newPassword",

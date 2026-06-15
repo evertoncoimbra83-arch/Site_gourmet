@@ -8,14 +8,11 @@ import { appRouter } from "../routers/_app.js";
 import { createContext } from "./context.js";
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
 import { logger } from "../../server/logger.js";
 import { handleAdminBackupDownload } from "../routers/admin/backups.js";
 import { AuditLogService } from "../services/AuditLogService.js";
-
-// ✅ Worker de IA para processar dietas em segundo plano
-import "../workers/nutriWorker.js";
-
+import { setupHealthRoutes } from "./health.js";
+import { requestIdMiddleware } from "./request-id.js";
 
 // ✅ Rate limiters (já existiam mas não estavam sendo usados)
 import { globalLimiter, authLimiter, checkoutLimiter } from "../security/rateLimit.js";
@@ -28,15 +25,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-app.use((req, res, next) => {
-  const requestId =
-    req.headers["x-request-id"] ||
-    req.headers["x-correlation-id"] ||
-    crypto.randomUUID();
-  (req as any).requestId = Array.isArray(requestId) ? requestId[0] : requestId;
-  res.setHeader("x-request-id", (req as any).requestId);
-  next();
-});
+app.use(requestIdMiddleware);
 
 logger.info(`🚀 Iniciando servidor em: ${new Date().toLocaleString()}`);
 logger.debug({ cwd: process.cwd() }, "Informações do ambiente de execução");
@@ -92,6 +81,9 @@ app.use(
 );
 
 // ✅ Rate limit global — 200 req / 15 min por IP em todas as rotas
+// Rotas publicas de saude ficam antes de rate limit, CSRF, tRPC e static.
+setupHealthRoutes(app);
+
 app.use(globalLimiter);
 
 // ✅ Rate limit específico para autenticação — 10 tentativas / 15 min por IP
@@ -125,6 +117,7 @@ app.use(
 
       logger.info(
         {
+          requestId: (opts.req as any).requestId,
           method: opts.req.method,
           path: opts.req.path,
           ip: opts.req.ip,
@@ -134,9 +127,10 @@ app.use(
 
       return createContext(opts);
     },
-    onError: ({ path, error }) => {
+    onError: ({ path, error, req }) => {
       logger.error(
         {
+          requestId: (req as any)?.requestId,
           path,
           message: error.message,
           code: error.code,
@@ -155,11 +149,32 @@ if (fs.existsSync(distPath)) {
   // ✅ Modo manutenção — ativo via Redis ou MAINTENANCE_MODE=true no .env
   setupMaintenanceMode(app, distPath);
 
-  app.use(express.static(distPath));
+  app.use(
+    express.static(distPath, {
+      maxAge: "0",
+      setHeaders: (res, filepath) => {
+        const fileNormalized = filepath.replace(/\\/g, "/");
+        const isAsset = fileNormalized.includes("/assets/");
+        const isVersionJson = fileNormalized.endsWith("version.json");
+        const isHtml = fileNormalized.endsWith(".html");
+
+        if (isVersionJson || isHtml) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        } else if (isAsset) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    })
+  );
   app.get("*", (req, res) => {
     if (req.path.startsWith("/trpc") || req.path.startsWith("/uploads")) {
       return res.status(404).json({ error: "API route not found" });
     }
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.sendFile(path.join(distPath, "index.html"));
   });
 } else {
@@ -193,6 +208,15 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     }
   });
 
+  logger.error(
+    {
+      requestId,
+      method: req.method,
+      route: req.originalUrl || req.url,
+    },
+    "Erro nao tratado em rota Express",
+  );
+
   res.status(500).json({
     error: "Internal Server Error",
     message: "Ocorreu um erro interno no servidor.",
@@ -204,5 +228,4 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   logger.info(`✅ [READY] Servidor rodando na porta ${PORT}`);
   logger.info(`🔗 Endpoint: http://localhost:${PORT}/trpc`);
-  logger.info(`🧠 [AI AGENT] Worker de Nutrição ativo e aguardando tarefas...`);
 });

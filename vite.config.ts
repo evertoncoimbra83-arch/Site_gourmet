@@ -36,7 +36,11 @@ const pwaConfig = {
   },
 };
 
-const localEnv = loadEnv(process.env.NODE_ENV || "development", process.cwd(), "");
+const localEnv = loadEnv(
+  process.env.NODE_ENV || "development",
+  process.cwd(),
+  ""
+);
 const devProxyTarget =
   process.env.VITE_DEV_PROXY_TARGET ||
   localEnv.VITE_DEV_PROXY_TARGET ||
@@ -46,15 +50,13 @@ export default defineConfig({
   root: path.resolve(process.cwd(), "client"),
 
   define: {
-    "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+    "process.env.NODE_ENV": JSON.stringify(
+      process.env.NODE_ENV || "development"
+    ),
     "process.env": "{}",
   },
 
-  plugins: [
-    tailwindcss(),
-    react(),
-    VitePWA(pwaConfig),
-  ],
+  plugins: [tailwindcss(), react(), VitePWA(pwaConfig)],
 
   resolve: {
     alias: {

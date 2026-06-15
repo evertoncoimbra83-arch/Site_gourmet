@@ -19,6 +19,8 @@ import { ordersRouter } from "../routers/storefront/orders.js";
 import { packagesRouter } from "../routers/storefront/packages.js";
 import { productsRouter } from "../routers/storefront/products.js";
 import { profileRouter } from "../routers/storefront/profile.js";
+import { storefrontAnnouncementsRouter } from "../routers/storefront/announcements.js";
+import { adminBirthdaysRouter } from "../routers/admin/birthdays.js";
 
 import { biExportRouter } from "./admin/bi-export.js";
 import { biSyncRouter } from "./admin/bi-sync.js";
@@ -48,6 +50,8 @@ export const appRouter = router({
   profile: profileRouter,
   packages: packagesRouter,
   discounts: discountsRouter,
+  announcements: storefrontAnnouncementsRouter,
+  birthdays: adminBirthdaysRouter,
 
   ordersAdmin: ordersAdminRouter,
   usersAdmin: usersAdminRouter,
