@@ -402,9 +402,22 @@ export default function AdminPurchasesView() {
                         <td className="px-4 py-4 text-xs font-black text-slate-900">{formatMoney(item.totalPrice)}</td>
                         <td className="px-4 py-4">
                           {item.classificationStatus === "classified" ? (
-                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase tracking-wider">
-                              {item.category}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase tracking-wider">
+                                {item.category}
+                              </span>
+                              {item.category === "FOOD_INGREDIENT" && (
+                                item.costApplicationStatus === "applied" ? (
+                                  <span className="text-[8px] text-emerald-600 font-extrabold uppercase tracking-tight">
+                                    ✓ Custo Aplicado
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] text-amber-500 font-extrabold uppercase tracking-tight animate-pulse">
+                                    ⚠ Custo Pendente
+                                  </span>
+                                )
+                              )}
+                            </div>
                           ) : item.classificationStatus === "ignored" ? (
                             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-bold uppercase tracking-wider">
                               Ignorado
@@ -427,9 +440,19 @@ export default function AdminPurchasesView() {
                         <td className="px-4 py-4 text-right">
                           <Button
                             onClick={() => setClassifyingItemId(item.id)}
-                            className="h-8 px-3 bg-slate-900 hover:bg-emerald-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg transition-all"
+                            className={
+                              item.classificationStatus === "classified" && item.category === "FOOD_INGREDIENT"
+                                ? item.costApplicationStatus === "applied"
+                                  ? "h-8 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all"
+                                  : "h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[8px] font-black uppercase tracking-widest rounded-lg transition-all active:scale-95"
+                                : "h-8 px-3 bg-slate-900 hover:bg-emerald-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg transition-all"
+                            }
                           >
-                            Classificar
+                            {item.classificationStatus === "classified" && item.category === "FOOD_INGREDIENT"
+                              ? item.costApplicationStatus === "applied"
+                                ? "Rever / Aplicado"
+                                : "Aplicar Custo"
+                              : "Classificar"}
                           </Button>
                         </td>
                       </tr>

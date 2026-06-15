@@ -20,7 +20,10 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
   const [linkedEntityId, setLinkedEntityId] = useState<number | null>(null);
   const [conversionFactor, setConversionFactor] = useState<string>("1.0000");
   const [saveRule, setSaveRule] = useState<boolean>(true);
+  const [showConfirmApply, setShowConfirmApply] = useState(false);
+  const [confirmHighVariance, setConfirmHighVariance] = useState(false);
   const [itemSearchText, setItemSearchText] = useState("");
+  const [purchaseItem, setPurchaseItem] = useState<any>(null);
 
   const utils = trpc.useUtils();
 
@@ -34,8 +37,24 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
   const { data: suggestion } =
     trpc.admin.purchases.suggestItemClassification.useQuery({ itemId });
 
-  // Obter itens da compra selecionada para encontrar o item atual
-  const [purchaseItem, setPurchaseItem] = useState<any>(null);
+  const { data: preview, refetch: refetchPreview } =
+    trpc.admin.purchases.getCostApplicationPreview.useQuery(
+      { purchaseEntryItemId: itemId },
+      { enabled: !!purchaseItem && purchaseItem.classificationStatus === "classified" && purchaseItem.category === "FOOD_INGREDIENT" }
+    );
+
+  const applyCostMutation = trpc.admin.purchases.applyPurchaseItemCost.useMutation({
+    onSuccess: (res) => {
+      toast.success(res.message || "Custo aplicado ao catálogo!");
+      setShowConfirmApply(false);
+      setConfirmHighVariance(false);
+      utils.admin.purchases.getEntry.invalidate();
+      onSuccess();
+    },
+    onError: (err) => {
+      toast.error("Erro ao aplicar custo", { description: err.message });
+    },
+  });
 
   useEffect(() => {
     // Busca do item localmente a partir do cache do getEntry (já carregado na listagem)
@@ -296,18 +315,81 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
             )}
 
             {/* Checkbox de salvar regra */}
-            <div className="flex items-center gap-2 pt-2 ml-1">
-              <input
-                id="saveRule"
-                type="checkbox"
-                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                checked={saveRule}
-                onChange={(e) => setSaveRule(e.target.checked)}
-              />
-              <Label htmlFor="saveRule" className="text-[10px] font-bold text-slate-500 uppercase cursor-pointer select-none">
-                Salvar como regra automática para futuras compras
-              </Label>
-            </div>
+            {purchaseItem.classificationStatus !== "classified" && (
+              <div className="flex items-center gap-2 pt-2 ml-1">
+                <input
+                  id="saveRule"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  checked={saveRule}
+                  onChange={(e) => setSaveRule(e.target.checked)}
+                />
+                <Label htmlFor="saveRule" className="text-[10px] font-bold text-slate-500 uppercase cursor-pointer select-none">
+                  Salvar como regra automática para futuras compras
+                </Label>
+              </div>
+            )}
+
+            {/* Preview de Aplicação de Custo Vigente no Catálogo */}
+            {preview && preview.canApply && (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 text-left mt-2">
+                <h4 className="text-[10px] font-black uppercase text-slate-600 tracking-wider flex items-center gap-1.5">
+                  💰 Custo Calculado da Compra
+                </h4>
+                <div className="grid grid-cols-2 gap-4 text-[10px] font-semibold text-slate-500 bg-white p-3 rounded-xl border border-slate-100">
+                  <div>
+                    <p className="text-[8px] uppercase text-slate-400">Custo Atual no Catálogo</p>
+                    <p className="text-xs font-black text-slate-700 mt-0.5">
+                      R$ {(preview.currentCost ?? 0).toFixed(6)} <span className="text-[8px] font-normal text-slate-400">/ {preview.baseUnit}</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[8px] uppercase text-slate-400">Novo Custo Calculado</p>
+                    <p className="text-xs font-black text-emerald-600 mt-0.5">
+                      R$ {(preview.newCost ?? 0).toFixed(6)} <span className="text-[8px] font-normal text-slate-400">/ {preview.baseUnit}</span>
+                    </p>
+                  </div>
+                  <div className="col-span-2 border-t border-slate-100 pt-2 flex justify-between items-center">
+                    <div>
+                      <p className="text-[8px] uppercase text-slate-400">Variação</p>
+                      <p className={`text-xs font-black mt-0.5 ${preview.isHighVariance ? "text-amber-600" : "text-slate-700"}`}>
+                        R$ {(preview.diffAbsolute ?? 0) >= 0 ? "+" : ""}{(preview.diffAbsolute ?? 0).toFixed(6)} ({(preview.diffPercent ?? 0) >= 0 ? "+" : ""}{(preview.diffPercent ?? 0).toFixed(2)}%)
+                      </p>
+                    </div>
+                    <div>
+                      {preview.costApplicationStatus === "applied" ? (
+                        <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 text-[8px] font-black uppercase tracking-wider">
+                          Aplicado
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-wider">
+                          Pendente
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {preview.isHighVariance && (
+                  <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-xl text-amber-800 text-[9px] font-bold uppercase leading-tight">
+                    <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+                    <span>Atenção: A variação de custo é de {(preview.diffPercent ?? 0).toFixed(2)}%, o que atinge ou supera o limite crítico de 30%.</span>
+                  </div>
+                )}
+
+                {preview.costApplicationStatus !== "applied" && (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => setShowConfirmApply(true)}
+                      className="h-10 w-full bg-slate-900 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm active:scale-95"
+                    >
+                      Aplicar Custo ao Catálogo
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-emerald-500" /></div>
@@ -332,6 +414,91 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Modal de Confirmação de Aplicação de Custo */}
+      {showConfirmApply && preview && (
+        <Dialog open={true} onOpenChange={(open) => { if (!open) setShowConfirmApply(false); }}>
+          <DialogContent className="sm:max-w-md rounded-4xl p-6 bg-white border-none shadow-2xl z-50 text-left">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-black uppercase text-slate-900 italic">
+                Confirmar <span className="text-emerald-500">Atualização de Custo</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-400">
+                Esta ação afetará os cálculos futuros de margem, mas não altera pedidos passados.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-3">
+              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 text-xs font-semibold text-slate-600">
+                <p><strong>Insumo:</strong> {preview.ingredientName}</p>
+                <p><strong>Custo Vigente:</strong> R$ {(preview.currentCost ?? 0).toFixed(6)} / {preview.baseUnit}</p>
+                <p><strong>Novo Custo:</strong> R$ {(preview.newCost ?? 0).toFixed(6)} / {preview.baseUnit}</p>
+                <p>
+                  <strong>Diferença:</strong>{" "}
+                  <span className={preview.isHighVariance ? "text-amber-600 font-bold" : "text-slate-800"}>
+                    R$ {(preview.diffAbsolute ?? 0) >= 0 ? "+" : ""}{(preview.diffAbsolute ?? 0).toFixed(6)} ({(preview.diffPercent ?? 0) >= 0 ? "+" : ""}{(preview.diffPercent ?? 0).toFixed(2)}%)
+                  </span>
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  <strong>Origem:</strong> {preview.rawDescription}
+                </p>
+              </div>
+
+              {preview.isHighVariance && (
+                <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <div className="flex items-start gap-2.5 text-amber-800 text-[10px] font-black uppercase tracking-wider">
+                    <AlertTriangle size={16} className="shrink-0 text-amber-600" />
+                    <span>Variação de Custo Crítica ({(preview.diffPercent ?? 0).toFixed(2)}%)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-normal">
+                    A variação entre o custo atual e o novo custo supera o limite de 30%. Por favor, confirme se os valores da nota estão corretos antes de prosseguir.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      id="confirmHighVariance"
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      checked={confirmHighVariance}
+                      onChange={(e) => setConfirmHighVariance(e.target.checked)}
+                    />
+                    <label
+                      htmlFor="confirmHighVariance"
+                      className="text-[9px] font-black text-amber-700 uppercase cursor-pointer select-none"
+                    >
+                      Estou ciente da variação alta e confirmo os valores.
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-3 mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowConfirmApply(false)}
+                className="h-12 px-5 font-bold text-xs"
+              >
+                Voltar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  applyCostMutation.mutate({
+                    purchaseEntryItemId: itemId,
+                    confirm: true,
+                    confirmHighVariance: confirmHighVariance || undefined,
+                  });
+                }}
+                disabled={applyCostMutation.isPending || (preview.isHighVariance && !confirmHighVariance)}
+                className="h-12 bg-slate-900 text-white font-black uppercase text-[10px] tracking-wider px-6 rounded-xl hover:bg-emerald-600"
+              >
+                {applyCostMutation.isPending ? <Loader2 className="animate-spin" /> : "Confirmar e Aplicar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 }

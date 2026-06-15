@@ -250,3 +250,81 @@ export function findBestClassificationRule(
 
   return null;
 }
+
+/**
+ * Verifica se um item de compra está em estado aplicável para atualização de custo vigente.
+ */
+export function canApplyPurchaseItemCost(item: {
+  category?: string | null;
+  linkedEntityType?: string | null;
+  linkedEntityId?: number | null;
+  computedCostPerBaseUnit?: string | number | null;
+  classificationStatus?: string | null;
+}): boolean {
+  if (!item) return false;
+  if (item.category !== "FOOD_INGREDIENT") return false;
+  if (item.linkedEntityType !== "ingredient") return false;
+  if (!item.linkedEntityId || item.linkedEntityId <= 0) return false;
+  if (item.classificationStatus !== "classified") return false;
+  if (item.computedCostPerBaseUnit == null) return false;
+
+  const cost = typeof item.computedCostPerBaseUnit === "string"
+    ? parseFloat(item.computedCostPerBaseUnit)
+    : Number(item.computedCostPerBaseUnit);
+  if (isNaN(cost) || cost < 0) return false;
+
+  return true;
+}
+
+/**
+ * Calcula a variação absoluta e percentual entre o custo atual e o novo.
+ * Retorna se há variação crítica (>= 30%).
+ */
+export function calculateCostDelta(
+  currentCost: number,
+  newCost: number
+): { diffAbsolute: number; diffPercent: number; isHighVariance: boolean } {
+  if (
+    currentCost == null ||
+    isNaN(currentCost) ||
+    !isFinite(currentCost) ||
+    currentCost < 0 ||
+    newCost == null ||
+    isNaN(newCost) ||
+    !isFinite(newCost) ||
+    newCost < 0
+  ) {
+    return { diffAbsolute: 0, diffPercent: 0, isHighVariance: false };
+  }
+
+  const diffAbsolute = newCost - currentCost;
+  let diffPercent = 0;
+  if (currentCost > 0) {
+    diffPercent = (diffAbsolute / currentCost) * 100;
+  }
+
+  const safeDiffPercent = isNaN(diffPercent) || !isFinite(diffPercent) ? 0 : diffPercent;
+  const isHighVariance = Math.abs(safeDiffPercent) >= 30;
+
+  return {
+    diffAbsolute: Math.round(diffAbsolute * 1000000) / 1000000,
+    diffPercent: Math.round(safeDiffPercent * 100) / 100,
+    isHighVariance,
+  };
+}
+
+/**
+ * Valida a aplicação de custo.
+ */
+export function validateCostApplication(
+  currentCost: number,
+  newCost: number
+): { valid: boolean; error?: string; warning?: string } {
+  if (newCost < 0) {
+    return { valid: false, error: "O custo sugerido não pode ser negativo." };
+  }
+  if (newCost === 0) {
+    return { valid: true, warning: "O custo sugerido é R$ 0,00. Confirme se deseja zerar este custo." };
+  }
+  return { valid: true };
+}

@@ -24,6 +24,11 @@ export const ingredients = mysqlTable("ingredients", {
   category: varchar("category", { length: 100 }),
   source: varchar("source", { length: 50 }).default("Manual"), 
   unit: varchar("unit", { length: 20 }).default("g"), 
+  currentCostPerBaseUnit: decimal("current_cost_per_base_unit", { precision: 18, scale: 8 }).default("0.00000000").notNull(),
+  currentCostBaseUnit: varchar("current_cost_base_unit", { length: 20 }),
+  lastCostUpdateAt: timestamp("last_cost_update_at"),
+  lastCostSource: varchar("last_cost_source", { length: 50 }),
+  lastCostPurchaseItemId: int("last_cost_purchase_item_id"),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 

@@ -71,6 +71,11 @@ export const purchaseEntryItems = mysqlTable("purchase_entry_items", {
   classificationStatus: mysqlEnum("classification_status", ["pending", "classified", "ignored"])
     .default("pending")
     .notNull(),
+  costAppliedAt: timestamp("cost_applied_at"),
+  costAppliedBy: int("cost_applied_by"),
+  costApplicationStatus: mysqlEnum("cost_application_status", ["pending", "applied", "skipped"])
+    .default("pending")
+    .notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
@@ -100,6 +105,30 @@ export const purchaseClassificationRules = mysqlTable("purchase_classification_r
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
+
+// ===================================================================
+// 5. HISTÓRICO DE CUSTO (COST HISTORY)
+// ===================================================================
+export const costHistory = mysqlTable("cost_history", {
+  id: int("id").primaryKey().autoincrement(),
+  entityType: mysqlEnum("entity_type", ["ingredient", "packaging", "operational"]).notNull(),
+  entityId: int("entity_id").notNull(),
+  previousCostPerBaseUnit: decimal("previous_cost_per_base_unit", { precision: 12, scale: 6 }).notNull(),
+  newCostPerBaseUnit: decimal("new_cost_per_base_unit", { precision: 12, scale: 6 }).notNull(),
+  baseUnit: varchar("base_unit", { length: 20 }).notNull(),
+  source: varchar("source", { length: 50 }).notNull(),
+  purchaseEntryId: int("purchase_entry_id").references(() => purchaseEntries.id, { onDelete: "set null" }),
+  purchaseEntryItemId: int("purchase_entry_item_id").references(() => purchaseEntryItems.id, { onDelete: "set null" }),
+  reason: text("reason"),
+  appliedBy: int("applied_by"),
+  appliedAt: timestamp("applied_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const costHistoryRelations = relations(costHistory, ({ one }) => ({
+  purchaseEntry: one(purchaseEntries, { fields: [costHistory.purchaseEntryId], references: [purchaseEntries.id] }),
+  purchaseEntryItem: one(purchaseEntryItems, { fields: [costHistory.purchaseEntryItemId], references: [purchaseEntryItems.id] }),
+}));
 
 // ===================================================================
 // RELAÇÕES (RELATIONS)

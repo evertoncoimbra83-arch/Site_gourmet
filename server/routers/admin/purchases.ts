@@ -7,6 +7,7 @@ import {
   purchaseEntryItems,
   purchaseClassificationRules,
   ingredients,
+  costHistory,
 } from "../../../drizzle/schema/index.js";
 import { getDb } from "../../db.js";
 import { adminProcedure, router } from "../../_core/trpc.js";
@@ -16,6 +17,9 @@ import {
   inferClassificationStatus,
   normalizePurchaseUnit,
   findBestClassificationRule,
+  canApplyPurchaseItemCost,
+  calculateCostDelta,
+  validateCostApplication,
 } from "../../finance/purchases.js";
 
 const purchaseItemInputSchema = z.object({
@@ -545,5 +549,217 @@ export const adminPurchasesRouter = router({
         };
       }
       return suggestion ? { ...suggestion, linkedEntityName: null } : null;
+    }),
+
+  getCostApplicationPreview: adminProcedure
+    .input(z.object({ purchaseEntryItemId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const [item] = await db
+        .select()
+        .from(purchaseEntryItems)
+        .where(eq(purchaseEntryItems.id, input.purchaseEntryItemId));
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Item da compra não encontrado.",
+        });
+      }
+
+      // Validações básicas de aplicabilidade
+      if (item.category !== "FOOD_INGREDIENT") {
+        return {
+          canApply: false,
+          blockReason: "Apenas itens de Insumo Alimentar (Ingrediente) podem ter custos aplicados ao catálogo nesta fase.",
+        };
+      }
+
+      if (item.linkedEntityType !== "ingredient" || !item.linkedEntityId) {
+        return {
+          canApply: false,
+          blockReason: "O item não está vinculado a um ingrediente do catálogo.",
+        };
+      }
+
+      if (item.classificationStatus !== "classified") {
+        return {
+          canApply: false,
+          blockReason: "O item ainda não foi classificado.",
+        };
+      }
+
+      const [ing] = await db
+        .select()
+        .from(ingredients)
+        .where(eq(ingredients.id, item.linkedEntityId));
+
+      if (!ing) {
+        return {
+          canApply: false,
+          blockReason: "Ingrediente vinculado não encontrado no catálogo.",
+        };
+      }
+
+      const currentCost = parseFloat(String(ing.currentCostPerBaseUnit || "0"));
+      const newCost = parseFloat(String(item.computedCostPerBaseUnit || "0"));
+
+      if (isNaN(newCost) || newCost < 0) {
+        return {
+          canApply: false,
+          blockReason: "O custo computado do item é inválido ou negativo.",
+        };
+      }
+
+      const delta = calculateCostDelta(currentCost, newCost);
+      const validation = validateCostApplication(currentCost, newCost);
+
+      if (!validation.valid) {
+        return {
+          canApply: false,
+          blockReason: validation.error || "Validação do custo falhou.",
+        };
+      }
+
+      return {
+        canApply: true,
+        rawDescription: item.rawDescription,
+        category: item.category,
+        linkedEntityType: item.linkedEntityType,
+        linkedEntityId: item.linkedEntityId,
+        ingredientName: ing.name,
+        currentCost,
+        newCost,
+        baseUnit: ing.unit || "g",
+        diffAbsolute: delta.diffAbsolute,
+        diffPercent: delta.diffPercent,
+        isHighVariance: delta.isHighVariance,
+        costApplicationStatus: item.costApplicationStatus,
+        warning: validation.warning,
+      };
+    }),
+
+  applyPurchaseItemCost: adminProcedure
+    .input(
+      z.object({
+        purchaseEntryItemId: z.number(),
+        confirm: z.boolean(),
+        confirmHighVariance: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!input.confirm) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmação explícita é obrigatória para aplicar o custo.",
+        });
+      }
+
+      const db = await getDb();
+      return db.transaction(async (tx) => {
+        // 1. Obter e validar o item da compra dentro da transação
+        const [item] = await tx
+          .select()
+          .from(purchaseEntryItems)
+          .where(eq(purchaseEntryItems.id, input.purchaseEntryItemId));
+
+        if (!item) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Item da compra não encontrado.",
+          });
+        }
+
+        if (item.category !== "FOOD_INGREDIENT" || item.linkedEntityType !== "ingredient" || !item.linkedEntityId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas itens de Insumo Alimentar vinculados podem ter custos aplicados.",
+          });
+        }
+
+        if (item.classificationStatus !== "classified") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O item precisa estar classificado para ter seu custo aplicado.",
+          });
+        }
+
+        // 2. Obter ingrediente correspondente
+        const [ing] = await tx
+          .select()
+          .from(ingredients)
+          .where(eq(ingredients.id, item.linkedEntityId));
+
+        if (!ing) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Ingrediente vinculado não encontrado no catálogo.",
+          });
+        }
+
+        const currentCost = parseFloat(String(ing.currentCostPerBaseUnit || "0"));
+        const newCost = parseFloat(String(item.computedCostPerBaseUnit || "0"));
+
+        const delta = calculateCostDelta(currentCost, newCost);
+        const validation = validateCostApplication(currentCost, newCost);
+
+        if (!validation.valid) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: validation.error || "O custo fornecido é inválido.",
+          });
+        }
+
+        if (delta.isHighVariance && !input.confirmHighVariance) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Variação de custo muito alta (>= 30%). Confirmação adicional necessária.",
+          });
+        }
+
+        const adminId = (ctx as any).user?.id || null;
+        const entryId = item.purchaseEntryId;
+
+        // 3. Gravar histórico em cost_history
+        await tx.insert(costHistory).values({
+          entityType: "ingredient",
+          entityId: ing.id,
+          previousCostPerBaseUnit: String(currentCost),
+          newCostPerBaseUnit: String(newCost),
+          baseUnit: ing.unit || "g",
+          source: "purchase",
+          purchaseEntryId: entryId,
+          purchaseEntryItemId: item.id,
+          reason: `Atualização de custo manual a partir da compra #${entryId}`,
+          appliedBy: adminId,
+        });
+
+        // 4. Atualizar o custo vigente do ingrediente
+        await tx
+          .update(ingredients)
+          .set({
+            currentCostPerBaseUnit: String(newCost),
+            currentCostBaseUnit: ing.unit || "g",
+            lastCostUpdateAt: new Date(),
+            lastCostSource: "purchase",
+            lastCostPurchaseItemId: item.id,
+          })
+          .where(eq(ingredients.id, ing.id));
+
+        // 5. Atualizar o status de aplicação de custo no item da compra
+        await tx
+          .update(purchaseEntryItems)
+          .set({
+            costAppliedAt: new Date(),
+            costAppliedBy: adminId,
+            costApplicationStatus: "applied",
+          })
+          .where(eq(purchaseEntryItems.id, item.id));
+
+        return {
+          success: true,
+          message: `Custo do ingrediente "${ing.name}" atualizado para R$ ${newCost.toFixed(4)} por ${ing.unit || "g"}.`,
+        };
+      });
     }),
 });

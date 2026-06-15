@@ -8,6 +8,9 @@ import {
   normalizePurchaseDescription,
   scoreClassificationRule,
   findBestClassificationRule,
+  canApplyPurchaseItemCost,
+  calculateCostDelta,
+  validateCostApplication,
 } from "./purchases";
 
 describe("Sprint Financeira - Fase 2B - purchases.ts (Helpers de Entrada de Compras)", () => {
@@ -282,6 +285,137 @@ describe("Sprint Financeira - Fase 2B - purchases.ts (Helpers de Entrada de Comp
       it("não deve sugerir se a confiança/score for muito baixo", () => {
         const res = findBestClassificationRule("detergente liquido ype", mockRules);
         expect(res).toBeNull();
+      });
+    });
+  });
+
+  describe("Sprint Financeira - Fase 2D - Aplicação Controlada do Custo Vigente", () => {
+    describe("canApplyPurchaseItemCost", () => {
+      it("deve permitir aplicação para FOOD_INGREDIENT classificado como ingredient e com ID válido", () => {
+        const item = {
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: 1.5,
+          classificationStatus: "classified",
+        };
+        expect(canApplyPurchaseItemCost(item)).toBe(true);
+      });
+
+      it("deve bloquear aplicação para PACKAGING ou LABEL_PRINTING", () => {
+        const packagingItem = {
+          category: "PACKAGING",
+          linkedEntityType: "packaging",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: 1.5,
+          classificationStatus: "classified",
+        };
+        expect(canApplyPurchaseItemCost(packagingItem)).toBe(false);
+      });
+
+      it("deve bloquear aplicação para itens ignorados ou pendentes", () => {
+        const pendingItem = {
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: 1.5,
+          classificationStatus: "pending",
+        };
+        expect(canApplyPurchaseItemCost(pendingItem)).toBe(false);
+
+        const ignoredItem = {
+          category: "IGNORE",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: 1.5,
+          classificationStatus: "ignored",
+        };
+        expect(canApplyPurchaseItemCost(ignoredItem)).toBe(false);
+      });
+
+      it("deve bloquear se faltar linkedEntityId ou computedCostPerBaseUnit", () => {
+        const itemWithoutId = {
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: null,
+          computedCostPerBaseUnit: 1.5,
+          classificationStatus: "classified",
+        };
+        expect(canApplyPurchaseItemCost(itemWithoutId)).toBe(false);
+
+        const itemWithoutCost = {
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: null,
+          classificationStatus: "classified",
+        };
+        expect(canApplyPurchaseItemCost(itemWithoutCost)).toBe(false);
+      });
+
+      it("deve bloquear custos negativos", () => {
+        const itemNegativeCost = {
+          category: "FOOD_INGREDIENT",
+          linkedEntityType: "ingredient",
+          linkedEntityId: 15,
+          computedCostPerBaseUnit: -0.5,
+          classificationStatus: "classified",
+        };
+        expect(canApplyPurchaseItemCost(itemNegativeCost)).toBe(false);
+      });
+    });
+
+    describe("calculateCostDelta", () => {
+      it("deve calcular delta absoluto e percentual corretamente", () => {
+        const res = calculateCostDelta(10, 12);
+        expect(res.diffAbsolute).toBe(2);
+        expect(res.diffPercent).toBe(20);
+        expect(res.isHighVariance).toBe(false);
+      });
+
+      it("deve marcar variação alta quando maior ou igual a 30%", () => {
+        const resPositive = calculateCostDelta(10, 13);
+        expect(resPositive.isHighVariance).toBe(true);
+
+        const resNegative = calculateCostDelta(10, 7);
+        expect(resNegative.isHighVariance).toBe(true);
+      });
+
+      it("não deve disparar variação alta para valores menores que 30%", () => {
+        const res = calculateCostDelta(100, 129);
+        expect(res.isHighVariance).toBe(false);
+      });
+
+      it("deve lidar de forma segura com custos zerados ou inválidos sem gerar NaN/Infinity", () => {
+        const resCurrentZero = calculateCostDelta(0, 10);
+        expect(resCurrentZero.diffAbsolute).toBe(10);
+        expect(resCurrentZero.diffPercent).toBe(0);
+        expect(resCurrentZero.isHighVariance).toBe(false);
+
+        const resInvalid = calculateCostDelta(NaN, 10);
+        expect(resInvalid.diffAbsolute).toBe(0);
+        expect(resInvalid.diffPercent).toBe(0);
+        expect(resInvalid.isHighVariance).toBe(false);
+      });
+    });
+
+    describe("validateCostApplication", () => {
+      it("deve passar para custo válido maior que zero", () => {
+        const res = validateCostApplication(10, 12);
+        expect(res.valid).toBe(true);
+        expect(res.error).toBeUndefined();
+      });
+
+      it("deve reprovar custos negativos", () => {
+        const res = validateCostApplication(10, -5);
+        expect(res.valid).toBe(false);
+        expect(res.error).toBe("O custo sugerido não pode ser negativo.");
+      });
+
+      it("deve retornar warning para custo zero", () => {
+        const res = validateCostApplication(10, 0);
+        expect(res.valid).toBe(true);
+        expect(res.warning).toBeDefined();
       });
     });
   });
