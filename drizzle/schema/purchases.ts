@@ -38,6 +38,11 @@ export const purchaseEntries = mysqlTable("purchase_entries", {
   classificationStatus: mysqlEnum("classification_status", ["pending", "partial", "classified", "ignored"])
     .default("pending")
     .notNull(),
+  fiscalAccessKey: varchar("fiscal_access_key", { length: 44 }).unique(),
+  fiscalDocumentType: varchar("fiscal_document_type", { length: 10 }),
+  fiscalSeries: varchar("fiscal_series", { length: 20 }),
+  fiscalNumber: varchar("fiscal_number", { length: 50 }),
+  fiscalIssuedAt: timestamp("fiscal_issued_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
@@ -76,6 +81,10 @@ export const purchaseEntryItems = mysqlTable("purchase_entry_items", {
   costApplicationStatus: mysqlEnum("cost_application_status", ["pending", "applied", "skipped"])
     .default("pending")
     .notNull(),
+  fiscalCode: varchar("fiscal_code", { length: 50 }),
+  ean: varchar("ean", { length: 50 }),
+  ncm: varchar("ncm", { length: 20 }),
+  cfop: varchar("cfop", { length: 10 }),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),

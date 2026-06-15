@@ -21,6 +21,7 @@ import {
   calculateCostDelta,
   validateCostApplication,
 } from "../../finance/purchases.js";
+import { parseFiscalXml } from "../../finance/fiscalXml.js";
 
 const purchaseItemInputSchema = z.object({
   rawDescription: z.string().min(1, "Descrição do item é obrigatória"),
@@ -759,6 +760,238 @@ export const adminPurchasesRouter = router({
         return {
           success: true,
           message: `Custo do ingrediente "${ing.name}" atualizado para R$ ${newCost.toFixed(4)} por ${ing.unit || "g"}.`,
+        };
+      });
+    }),
+
+  previewFiscalXmlImport: adminProcedure
+    .input(z.object({
+      xmlContent: z.string().min(1, "Conteúdo do XML é obrigatório"),
+      fileName: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const parsed = parseFiscalXml(input.xmlContent);
+
+      // Verificar duplicidade pela chave de acesso
+      const [existing] = await db
+        .select()
+        .from(purchaseEntries)
+        .where(eq(purchaseEntries.fiscalAccessKey, parsed.document.accessKey));
+
+      if (existing) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este XML já foi importado como entrada de compra.",
+        });
+      }
+
+      // Buscar fornecedor por CNPJ
+      const [supplierRecord] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.cnpj, parsed.supplier.cnpj));
+
+      // Carregar todas as regras de classificação para aplicar sugestões
+      const rules = await db.select().from(purchaseClassificationRules);
+
+      // Processar sugestão para cada item
+      const itemsWithSuggestions = await Promise.all(
+        parsed.items.map(async (item) => {
+          const suggestion = findBestClassificationRule(item.description, rules);
+          let linkedEntityName: string | null = null;
+          if (suggestion && suggestion.linkedEntityType === "ingredient" && suggestion.linkedEntityId) {
+            const [ing] = await db
+              .select({ name: ingredients.name })
+              .from(ingredients)
+              .where(eq(ingredients.id, suggestion.linkedEntityId));
+            linkedEntityName = ing?.name || null;
+          }
+          return {
+            ...item,
+            suggestion: suggestion
+              ? {
+                  ...suggestion,
+                  linkedEntityName,
+                }
+              : null,
+          };
+        })
+      );
+
+      return {
+        document: parsed.document,
+        supplier: {
+          ...parsed.supplier,
+          id: supplierRecord?.id || null,
+          exists: !!supplierRecord,
+        },
+        items: itemsWithSuggestions,
+        totals: parsed.totals,
+      };
+    }),
+
+  createEntryFromFiscalXml: adminProcedure
+    .input(z.object({
+      xmlContent: z.string().min(1, "Conteúdo do XML é obrigatório"),
+      notes: z.string().optional().nullable(),
+      supplierId: z.number().optional().nullable(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      const parsed = parseFiscalXml(input.xmlContent);
+
+      // Verificar duplicidade pela chave de acesso novamente
+      const [existing] = await db
+        .select()
+        .from(purchaseEntries)
+        .where(eq(purchaseEntries.fiscalAccessKey, parsed.document.accessKey));
+
+      if (existing) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este XML já foi importado como entrada de compra.",
+        });
+      }
+
+      const adminId = (ctx as any).user?.id || null;
+
+      return db.transaction(async (tx) => {
+        let finalSupplierId = input.supplierId;
+        let supplierName = parsed.supplier.name;
+
+        // Se supplierId não foi fornecido, resolver por CNPJ ou criar
+        if (!finalSupplierId) {
+          const [existingSupplier] = await tx
+            .select()
+            .from(suppliers)
+            .where(eq(suppliers.cnpj, parsed.supplier.cnpj));
+
+          if (existingSupplier) {
+            finalSupplierId = existingSupplier.id;
+            supplierName = existingSupplier.name;
+          } else {
+            // Criar novo fornecedor
+            const contactInfo = `Cidade: ${parsed.supplier.city || ""}, UF: ${parsed.supplier.state || ""}. Inscrição Estadual: ${parsed.supplier.stateRegistration || ""}`;
+            const [newSup] = await tx.insert(suppliers).values({
+              name: parsed.supplier.name,
+              cnpj: parsed.supplier.cnpj,
+              contactInfo,
+            });
+            finalSupplierId = newSup.insertId;
+          }
+        } else {
+          // Validar se fornecedor existe e pegar seu nome
+          const [sup] = await tx
+            .select()
+            .from(suppliers)
+            .where(eq(suppliers.id, finalSupplierId));
+          if (!sup) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Fornecedor selecionado não encontrado.",
+            });
+          }
+          supplierName = sup.name;
+        }
+
+        // Inserir cabeçalho de compras
+        const purchasedAt = parsed.document.issuedAt || new Date();
+        const [newEntry] = await tx.insert(purchaseEntries).values({
+          supplierId: finalSupplierId,
+          supplierNameSnapshot: supplierName,
+          invoiceNumber: parsed.document.number,
+          purchasedAt,
+          totalAmount: String(parsed.document.totalAmount),
+          notes: input.notes,
+          source: "xml",
+          fiscalAccessKey: parsed.document.accessKey,
+          fiscalDocumentType: parsed.document.type,
+          fiscalSeries: parsed.document.series,
+          fiscalNumber: parsed.document.number,
+          fiscalIssuedAt: purchasedAt,
+          classificationStatus: "pending",
+        });
+
+        const entryId = newEntry.insertId;
+        if (!entryId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao gerar a Entrada de Compra a partir do XML.",
+          });
+        }
+
+        // Carregar todas as regras para classificar de forma automática na criação
+        const rules = await tx.select().from(purchaseClassificationRules);
+        let classifiedCount = 0;
+        let ignoredCount = 0;
+        const totalItemsCount = parsed.items.length;
+
+        for (const item of parsed.items) {
+          const suggestion = findBestClassificationRule(item.description, rules);
+
+          let category = null;
+          let linkedEntityType = null;
+          let linkedEntityId = null;
+          let factor = 1;
+          let status: "pending" | "classified" | "ignored" = "pending";
+
+          if (suggestion) {
+            category = suggestion.category;
+            linkedEntityType = suggestion.linkedEntityType;
+            linkedEntityId = suggestion.linkedEntityId;
+            factor = suggestion.conversionFactor || 1;
+            status = inferClassificationStatus({
+              category,
+              linkedEntityType,
+              linkedEntityId,
+              conversionFactor: factor,
+              unit: item.unit,
+            });
+          }
+
+          if (status === "classified") classifiedCount++;
+          if (status === "ignored") ignoredCount++;
+
+          const baseQty = convertPurchaseQuantityToBaseUnit(item.quantity, item.unit, factor);
+          const computedCost = calculateCostPerBaseUnit(item.totalPrice, baseQty);
+
+          await tx.insert(purchaseEntryItems).values({
+            purchaseEntryId: entryId,
+            rawDescription: item.description,
+            quantity: String(item.quantity),
+            unit: item.unit,
+            totalPrice: String(item.totalPrice),
+            category: category as any,
+            linkedEntityType: linkedEntityType as any,
+            linkedEntityId,
+            conversionFactor: String(factor),
+            computedCostPerBaseUnit: String(computedCost),
+            classificationStatus: status,
+            fiscalCode: item.code,
+            ean: item.ean,
+            ncm: item.ncm,
+            cfop: item.cfop,
+          });
+        }
+
+        // Atualizar status global do cabeçalho
+        let globalStatus: "pending" | "partial" | "classified" | "ignored" = "pending";
+        if (classifiedCount + ignoredCount === totalItemsCount) {
+          globalStatus = ignoredCount === totalItemsCount ? "ignored" : "classified";
+        } else if (classifiedCount + ignoredCount > 0) {
+          globalStatus = "partial";
+        }
+
+        await tx
+          .update(purchaseEntries)
+          .set({ classificationStatus: globalStatus })
+          .where(eq(purchaseEntries.id, entryId));
+
+        return {
+          success: true,
+          id: entryId,
+          message: "Entrada de compra importada do XML com sucesso!",
         };
       });
     }),
