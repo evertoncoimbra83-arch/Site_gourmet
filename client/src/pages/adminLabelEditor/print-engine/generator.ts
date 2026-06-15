@@ -1,6 +1,6 @@
 import type { PrintLabelElement } from "./templates";
 import {
-  formatNutritionLinear,
+  formatNutritionTableText,
   type NutritionData,
 } from "./logic";
 import {
@@ -38,11 +38,13 @@ function isNutritionData(value: unknown): value is NutritionData {
   );
 }
 
-function normalizeZplContent(value: unknown): string {
+function normalizeZplContent(value: unknown, options: { compactNutrition?: boolean } = {}): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (isNutritionData(value)) return formatNutritionLinear(value);
+  if (isNutritionData(value)) {
+    return formatNutritionTableText(value, { compact: options.compactNutrition });
+  }
   return String(value);
 }
 
@@ -84,13 +86,16 @@ export function generateZPLForBatch(
     zplBatch += "^CI28\n";
 
     layoutElements.forEach((element) => {
-      const content = normalizeZplContent(parseContent(element.content, index, element));
-
       const x = Math.round((element.x || 0) * pxToDots);
       const y = Math.round((element.y || 0) * pxToDots);
       const w = Math.round((element.width || 0) * pxToDots);
       const h = Math.round((element.height || 0) * pxToDots);
       const fontSize = Math.round((element.fontSize || 12) * pxToDots);
+      const rawContent = parseContent(element.content, index, element);
+      const isNutritionContent = isNutritionData(rawContent);
+      const content = normalizeZplContent(rawContent, {
+        compactNutrition: isNutritionContent && h < 150,
+      });
 
       if (element.type === "box") {
         zplBatch += `^FO${x},${y}\n`;
@@ -118,7 +123,11 @@ export function generateZPLForBatch(
         fontSize,
         fontWidth: Math.round(fontSize * 0.9),
         text: content,
-        maxLines: getZplTextMaxLines(h, fontSize),
+        maxLines: isNutritionContent
+          ? h < 150
+            ? 8
+            : 16
+          : getZplTextMaxLines(h, fontSize),
         alignment: align,
       })}\n`;
     });

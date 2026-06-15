@@ -51,3 +51,35 @@ exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Genera
 
 "
 `;
+
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve renderizar tabela nutricional textual estruturada no lote 1`] = `
+"^XA
+^PW800
+^LL480
+^LH0,0
+^CI28
+^FO21,21
+^A0N,15,14
+^FB169,16,0,L,0
+^FH_
+^FDINFORMACAO NUTRICIONAL\\&PORCAO 300g\\&NUTRIENTE | QTD\\&Energia kcal: 350kcal\\&Energia kJ: 1.464kJ\\&Carboidratos: 40,0g\\&Acucares totais: 4,0g\\&Acucares adicionados: 1,0g\\&Proteinas: 30,0g\\&Gorduras totais: 12,0g\\&Gorduras saturadas: 3,0g\\&Gorduras trans: 0,0g\\&Fibra alimentar: 6,0g\\&Sodio: 420mg^FS
+^XZ
+
+"
+`;
+
+exports[`Sprint Zebra - Fase 1 - Contratos, Escaping e Guards > ZPL Batch Generation Snapshots (generator.ts) > deve usar fallback compacto para tabela nutricional em area pequena no lote 1`] = `
+"^XA
+^PW800
+^LL480
+^LH0,0
+^CI28
+^FO21,21
+^A0N,15,14
+^FB169,8,0,L,0
+^FH_
+^FDINFORMACAO NUTRICIONAL\\&PORCAO --\\&NUTRIENTE | QTD | %VD\\&Energia kcal: 350kcal | 18%\\&Carboidratos: 40,0g | --\\&Proteinas: 30,0g | --\\&Gorduras totais: 12,0g | --\\&Sodio: 420mg | 21%^FS
+^XZ
+
+"
+`;

@@ -9,6 +9,7 @@ export interface NutritionData {
   energyKj?: number;
   proteins?: number;
   carbs?: number;
+  sugars?: number;
   fatTotal?: number;
   fatSaturated?: number;
   fatTrans?: number;
@@ -18,6 +19,14 @@ export interface NutritionData {
   calcium?: number;
   iron?: number;
   yieldWeight?: number;
+}
+
+export interface NutritionTextRow {
+  key: string;
+  label: string;
+  value: string;
+  unit: "kcal" | "kJ" | "g" | "mg";
+  dailyValue?: string;
 }
 
 const EMPTY_NUTRITION_FALLBACK: NutritionData = {
@@ -197,6 +206,7 @@ export function normalizeNutrition(raw: Record<string, unknown>): NutritionData 
     energyKj: safeNumber(raw.energyKj ?? raw.energy_kj),
     proteins: safeNumber(raw.proteins ?? raw.protein),
     carbs: safeNumber(raw.carbs ?? raw.carbohydrates),
+    sugars: safeNumber(raw.sugars ?? raw.totalSugars ?? raw.total_sugars),
     fatTotal: safeNumber(raw.fatTotal ?? raw.fat_total ?? raw.fats),
     fatSaturated: safeNumber(raw.fatSaturated ?? raw.fat_saturated ?? raw.saturatedFats),
     fatTrans: safeNumber(raw.fatTrans ?? raw.fat_trans ?? raw.transFats),
@@ -207,6 +217,150 @@ export function normalizeNutrition(raw: Record<string, unknown>): NutritionData 
     iron: safeNumber(raw.iron),
     yieldWeight: safeNumber(raw.yieldWeight ?? raw.yield_weight),
   };
+}
+
+function parseNutritionNumber(value: unknown): number {
+  const parsed = Number(String(value ?? 0).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readNutritionValue(raw: Record<string, unknown>, keys: string[]): number {
+  for (const key of keys) {
+    if (raw[key] !== undefined && raw[key] !== null && raw[key] !== "") {
+      return parseNutritionNumber(raw[key]);
+    }
+  }
+  return 0;
+}
+
+function readDailyValue(raw: Record<string, unknown>, keys: string[]): string | undefined {
+  const sources = [
+    raw.dailyValues,
+    raw.daily_values,
+    raw.percentDailyValues,
+    raw.percent_daily_values,
+    raw.vd,
+  ];
+
+  for (const key of keys) {
+    const directKeys = [
+      `${key}Vd`,
+      `${key}VD`,
+      `${key}_vd`,
+      `${key}Percent`,
+      `${key}_percent`,
+    ];
+
+    for (const directKey of directKeys) {
+      if (raw[directKey] !== undefined && raw[directKey] !== null && raw[directKey] !== "") {
+        return `${parseNutritionNumber(raw[directKey])}%`;
+      }
+    }
+
+    for (const source of sources) {
+      if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+      const value = (source as Record<string, unknown>)[key];
+      if (value !== undefined && value !== null && value !== "") {
+        return `${parseNutritionNumber(value)}%`;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function formatNutritionValue(value: number, unit: NutritionTextRow["unit"]): string {
+  const integerUnit = unit === "kcal" || unit === "kJ" || unit === "mg";
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: integerUnit ? 0 : 1,
+    maximumFractionDigits: integerUnit ? 0 : 1,
+  });
+}
+
+function formatNutritionPortionValue(value: number): string {
+  const hasFraction = Math.abs(value % 1) > 0;
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: hasFraction ? 1 : 0,
+    maximumFractionDigits: hasFraction ? 1 : 0,
+  });
+}
+
+export function buildNutritionTextRows(
+  rawNutrition: NutritionData | Record<string, unknown> | null | undefined,
+): NutritionTextRow[] {
+  const raw = rawNutrition && typeof rawNutrition === "object"
+    ? (rawNutrition as Record<string, unknown>)
+    : {};
+
+  const energyKcal = Math.round(readNutritionValue(raw, ["energyKcal", "energy_kcal", "kcal"]));
+  const energyKj = Math.round(
+    readNutritionValue(raw, ["energyKj", "energy_kj"]) || energyKcal * 4.2,
+  );
+
+  const defs: Array<{
+    key: string;
+    label: string;
+    keys: string[];
+    unit: NutritionTextRow["unit"];
+    value?: number;
+  }> = [
+    { key: "energyKcal", label: "Energia kcal", keys: ["energyKcal", "energy_kcal", "kcal"], unit: "kcal", value: energyKcal },
+    { key: "energyKj", label: "Energia kJ", keys: ["energyKj", "energy_kj"], unit: "kJ", value: energyKj },
+    { key: "carbs", label: "Carboidratos", keys: ["carbs", "carbohydrates"], unit: "g" },
+    { key: "sugars", label: "Acucares totais", keys: ["sugars", "totalSugars", "total_sugars"], unit: "g" },
+    { key: "addedSugars", label: "Acucares adicionados", keys: ["addedSugars", "added_sugars"], unit: "g" },
+    { key: "proteins", label: "Proteinas", keys: ["proteins", "protein"], unit: "g" },
+    { key: "fatTotal", label: "Gorduras totais", keys: ["fatTotal", "fat_total", "fats"], unit: "g" },
+    { key: "fatSaturated", label: "Gorduras saturadas", keys: ["fatSaturated", "fat_saturated", "saturatedFats"], unit: "g" },
+    { key: "fatTrans", label: "Gorduras trans", keys: ["fatTrans", "fat_trans", "transFats"], unit: "g" },
+    { key: "fiber", label: "Fibra alimentar", keys: ["fiber", "dietary_fiber"], unit: "g" },
+    { key: "sodium", label: "Sodio", keys: ["sodium", "salt"], unit: "mg" },
+  ];
+
+  return defs.map((def) => {
+    const value = def.value ?? readNutritionValue(raw, def.keys);
+    return {
+      key: def.key,
+      label: def.label,
+      value: formatNutritionValue(value, def.unit),
+      unit: def.unit,
+      dailyValue: readDailyValue(raw, [def.key, ...def.keys]),
+    };
+  });
+}
+
+export function getNutritionPortionText(
+  rawNutrition: NutritionData | Record<string, unknown> | null | undefined,
+): string {
+  const raw = rawNutrition && typeof rawNutrition === "object"
+    ? (rawNutrition as Record<string, unknown>)
+    : {};
+  const portion = readNutritionValue(raw, ["yieldWeight", "yield_weight", "portionWeight", "portion_weight"]);
+  return portion > 0 ? `PORCAO ${formatNutritionPortionValue(portion)}g` : "PORCAO --";
+}
+
+export function formatNutritionTableText(
+  rawNutrition: NutritionData | Record<string, unknown> | null,
+  options: { compact?: boolean } = {},
+): string {
+  const rows = buildNutritionTextRows(rawNutrition);
+  const selectedRows = options.compact
+    ? rows.filter((row) => ["energyKcal", "carbs", "proteins", "fatTotal", "sodium"].includes(row.key))
+    : rows;
+  const hasDailyValue = selectedRows.some((row) => row.dailyValue);
+  const header = hasDailyValue ? "NUTRIENTE | QTD | %VD" : "NUTRIENTE | QTD";
+
+  return [
+    "INFORMACAO NUTRICIONAL",
+    getNutritionPortionText(rawNutrition),
+    header,
+    ...selectedRows.map((row) => {
+      const value = `${row.value}${row.unit}`;
+      return hasDailyValue
+        ? `${row.label}: ${value} | ${row.dailyValue ?? "--"}`
+        : `${row.label}: ${value}`;
+    }),
+  ].join("\n");
 }
 
 export function extractNutrition(
@@ -254,8 +408,13 @@ export function extractNutrition(
 }
 
 export function formatNutritionLinear(nutri: NutritionData | null): string {
-  if (!nutri) return "INF. NUTRICIONAL INDISPONÍVEL";
-  return `KCAL: ${nutri.energyKcal?.toFixed(1)} | CARB: ${nutri.carbs?.toFixed(1)}G | PROT: ${nutri.proteins?.toFixed(1)}G | GORD: ${nutri.fatTotal?.toFixed(1)}G`;
+  if (!nutri) return "INF. NUTRICIONAL INDISPONIVEL";
+  const rows = buildNutritionTextRows(nutri);
+  const valueFor = (key: string) => {
+    const row = rows.find((item) => item.key === key);
+    return row ? `${row.value}${row.unit}` : "--";
+  };
+  return `KCAL: ${valueFor("energyKcal")} | CARB: ${valueFor("carbs")} | PROT: ${valueFor("proteins")} | GORD: ${valueFor("fatTotal")}`;
 }
 
 export function formatNutritionText(nutri: NutritionData | null): string {

@@ -233,5 +233,100 @@ describe("Sprint Zebra - Fase 1 - Contratos, Escaping e Guards", () => {
       expect(zpl).toContain("Linha 1\\&Linha 2");
       expect(zpl).toMatchSnapshot();
     });
+
+    it("deve renderizar tabela nutricional textual estruturada no lote", () => {
+      const nutritionElement: PrintLabelElement = {
+        id: "nutrition",
+        type: "text",
+        content: "{{TABELA_NUTRI}}",
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 80,
+        fontSize: 7,
+        fontWeight: "normal",
+        zIndex: 1,
+      };
+
+      const nutrition = {
+        energyKcal: 350,
+        energyKj: 1464,
+        carbs: 40,
+        sugars: 4,
+        addedSugars: 1,
+        proteins: 30,
+        fatTotal: 12,
+        fatSaturated: 3,
+        fatTrans: 0,
+        fiber: 6,
+        sodium: 420,
+        yieldWeight: 300,
+      };
+
+      const zpl = generateZPLForBatch(
+        [nutritionElement],
+        100,
+        60,
+        [nutrition],
+        () => nutrition,
+      );
+
+      expect(zpl).toContain("^FB169,16,0,L,0");
+      expect(zpl).toContain("INFORMACAO NUTRICIONAL");
+      expect(zpl).toContain("PORCAO 300g");
+      expect(zpl).toContain("Energia kcal: 350kcal");
+      expect(zpl).toContain("Energia kJ: 1.464kJ");
+      expect(zpl).toContain("Acucares adicionados: 1,0g");
+      expect(zpl).toContain("Sodio: 420mg");
+      expect(zpl).not.toContain("KCAL: 350");
+      expect(zpl).not.toContain("undefined");
+      expect(zpl).not.toContain("null");
+      expect(zpl).not.toContain("{{TABELA_NUTRI}}");
+      expect(zpl).toMatchSnapshot();
+    });
+
+    it("deve usar fallback compacto para tabela nutricional em area pequena no lote", () => {
+      const nutritionElement: PrintLabelElement = {
+        id: "nutrition-small",
+        type: "text",
+        content: "{{TABELA_NUTRI}}",
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 18,
+        fontSize: 7,
+        fontWeight: "normal",
+        zIndex: 1,
+      };
+
+      const nutrition = {
+        energyKcal: 350,
+        carbs: 40,
+        proteins: 30,
+        fatTotal: 12,
+        sodium: 420,
+        dailyValues: {
+          energyKcal: 18,
+          sodium: 21,
+        },
+      };
+
+      const zpl = generateZPLForBatch(
+        [nutritionElement],
+        100,
+        60,
+        [nutrition],
+        () => nutrition,
+      );
+
+      expect(zpl).toContain("^FB169,8,0,L,0");
+      expect(zpl).toContain("NUTRIENTE | QTD | %VD");
+      expect(zpl).toContain("Energia kcal: 350kcal | 18%");
+      expect(zpl).toContain("Sodio: 420mg | 21%");
+      expect(zpl).not.toContain("Acucares totais");
+      expect(zpl).not.toContain("undefined");
+      expect(zpl).not.toContain("null");
+      expect(zpl).toMatchSnapshot();
+    });
   });
 });

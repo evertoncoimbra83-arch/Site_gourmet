@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateZplNutritionTable > renderiza tabela textual completa com 11 nutrientes no Canvas/Studio 1`] = `
+"^FO21,21
+^A0N,15,14
+^FB339,16,0,L,0
+^FH_
+^FDINFORMACAO NUTRICIONAL\\&PORCAO 300g\\&NUTRIENTE | QTD | %VD\\&Energia kcal: 350kcal | 18%\\&Energia kJ: 1.464kJ | --\\&Carboidratos: 40,0g | 13%\\&Acucares totais: 4,0g | --\\&Acucares adicionados: 1,0g | --\\&Proteinas: 30,0g | 40%\\&Gorduras totais: 12,0g | --\\&Gorduras saturadas: 3,0g | --\\&Gorduras trans: 0,0g | --\\&Fibra alimentar: 6,0g | --\\&Sodio: 420mg | 21%^FS"
+`;
+
+exports[`generateZplNutritionTable > usa fallback compacto quando a area e pequena 1`] = `
+"^FO21,21
+^A0N,15,14
+^FB339,8,0,L,0
+^FH_
+^FDINFORMACAO NUTRICIONAL\\&PORCAO 300g\\&NUTRIENTE | QTD | %VD\\&Energia kcal: 350kcal | 18%\\&Carboidratos: 40,0g | 13%\\&Proteinas: 30,0g | 40%\\&Gorduras totais: 12,0g | --\\&Sodio: 420mg | 21%^FS"
+`;
