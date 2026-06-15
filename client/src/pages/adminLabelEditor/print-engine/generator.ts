@@ -9,6 +9,7 @@ import {
   PX_PER_MM,
 } from "./zplTextBlock";
 import { sanitizeCode128BarcodeValue } from "./zplEscaping";
+import { getZplImageOrTriggerPreload } from "./zplImage";
 
 
 export type ZebraDPI = 203 | 300;
@@ -151,8 +152,16 @@ export function generateZPLForBatch(
       }
 
       if (element.type === "image") {
-        zplBatch += `^FO${x},${y}\n`;
-        zplBatch += `^GB${w},${h},1^FS\n`;
+        const zplGF = getZplImageOrTriggerPreload(element.content, element.width || 0, element.height || 0, dpi);
+        if (zplGF) {
+          zplBatch += `^FO${x},${y}\n${zplGF}^FS\n`;
+        } else {
+          // Fallback seguro: moldura com a palavra LOGO
+          zplBatch += `^FO${x},${y}\n^GB${w},${h},1^FS\n`;
+          const textFontSize = Math.max(10, Math.min(18, Math.round(h * 0.3)));
+          const textY = Math.round(y + (h - textFontSize) / 2);
+          zplBatch += `^FO${x},${textY}^A0N,${textFontSize},${Math.round(textFontSize * 0.9)}^FB${w},1,0,C,0^FDLOGO^FS\n`;
+        }
         return;
       }
 

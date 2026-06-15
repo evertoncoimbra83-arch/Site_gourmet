@@ -8,6 +8,7 @@ import {
 import { isLocalPrintTransportAllowed, validateZplPayload } from "./transportGuards";
 import { mapToLabelDataContract, normalizeLabelData } from "./labelDataContract";
 import { generateZPLForBatch } from "./generator";
+import { validateImageDataUrl } from "./zplImage";
 import type { PrintLabelElement } from "./templates";
 
 describe("Sprint Zebra - Fase 1 - Contratos, Escaping e Guards", () => {
@@ -449,6 +450,163 @@ describe("Sprint Zebra - Fase 1 - Contratos, Escaping e Guards", () => {
         expect(zpl).not.toContain("null");
         expect(zpl).not.toContain("{{");
       });
+    });
+  });
+
+  describe("Sprint Zebra - Fase 5B - Suporte a Imagem/Logo em ZPL (generator.ts e zplImage.ts)", () => {
+    const validBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    it("deve validar corretamente diferentes tipos de source de imagem", () => {
+      // Vazio / indefinido
+      expect(validateImageDataUrl("").isValid).toBe(false);
+      expect(validateImageDataUrl("").error).toContain("vazia");
+
+      // URLs remotas
+      expect(validateImageDataUrl("https://example.com/logo.png").isValid).toBe(false);
+      expect(validateImageDataUrl("http://example.com/logo.png").error).toContain("remotas");
+
+      // Paths locais
+      expect(validateImageDataUrl("/assets/logo.png").isValid).toBe(false);
+      expect(validateImageDataUrl("assets/logo.png").error).toContain("Origem de imagem inválida");
+
+      // SVG/WebP
+      expect(validateImageDataUrl("data:image/svg+xml;base64,PHN2Zz4...").isValid).toBe(false);
+      expect(validateImageDataUrl("data:image/svg+xml;base64,PHN2Zz4...").error).toContain("Formato de imagem não suportado");
+      expect(validateImageDataUrl("data:image/webp;base64,UklGR...").isValid).toBe(false);
+      expect(validateImageDataUrl("data:image/webp;base64,UklGR...").error).toContain("Formato de imagem não suportado");
+
+      // Base64 inválido (sem prefixo correcto)
+      expect(validateImageDataUrl("iVBORw0KGgoAAAANSUhEUgAA...").isValid).toBe(false);
+
+      // Base64 grande
+      const hugeBase64 = "data:image/png;base64," + "a".repeat(1.6 * 1024 * 1024);
+      expect(validateImageDataUrl(hugeBase64).isValid).toBe(false);
+      expect(validateImageDataUrl(hugeBase64).error).toContain("limite máximo");
+
+      // Válida
+      expect(validateImageDataUrl(validBase64).isValid).toBe(true);
+    });
+
+    it("deve gerar fallback seguro quando imagem for vazia ou inválida", () => {
+      const imageElement = {
+        id: "img_invalid",
+        type: "image",
+        content: "https://example.com/invalid_logo.png",
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 50,
+        fontSize: 12,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      const zpl = generateZPLForBatch(
+        [imageElement],
+        100,
+        60,
+        [{}],
+        () => "",
+      );
+
+      // Moldura e LOGO
+      expect(zpl).toContain("^GB106,106,1^FS");
+      expect(zpl).toContain("^FDLOGO^FS");
+      expect(zpl).not.toContain("undefined");
+      expect(zpl).not.toContain("null");
+      expect(zpl).not.toContain("{{");
+      expect(zpl).not.toContain("~DG");
+      expect(zpl).not.toContain("^GF");
+
+      expect(zpl).toMatchSnapshot("imagem-fallback-seguro");
+    });
+
+    it("deve renderizar ^GF inline para imagem pequena válida mockada (203dpi e 300dpi)", () => {
+      const imageElement = {
+        id: "img_valid",
+        type: "image",
+        content: validBase64,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 50,
+        fontSize: 12,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      // 1. Primeira chamada: dispara pre-loading e retorna fallback seguro (com moldura e LOGO)
+      const zplFirst = generateZPLForBatch(
+        [imageElement],
+        100,
+        60,
+        [{}],
+        () => "",
+        { dpi: 203 }
+      );
+      expect(zplFirst).toContain("LOGO");
+
+      // 2. Segunda chamada (Cached/Preloaded): deve conter ^GF inline no lote a 203 DPI
+      const zplSecond203 = generateZPLForBatch(
+        [imageElement],
+        100,
+        60,
+        [{}],
+        () => "",
+        { dpi: 203 }
+      );
+      expect(zplSecond203).toContain("^GFB");
+      expect(zplSecond203).not.toContain("LOGO");
+      expect(zplSecond203).not.toContain("~DG"); // Não pode ter ~DG
+      expect(zplSecond203).toMatchSnapshot("imagem-gf-203dpi");
+
+      // 3. Terceira chamada a 300 DPI (Cached/Preloaded): deve conter ^GF inline no lote a 300 DPI
+      // Primeiro pre-carregamento para 300dpi
+      generateZPLForBatch([imageElement], 100, 60, [{}], () => "", { dpi: 300 });
+      // Agora gera
+      const zplSecond300 = generateZPLForBatch(
+        [imageElement],
+        100,
+        60,
+        [{}],
+        () => "",
+        { dpi: 300 }
+      );
+      expect(zplSecond300).toContain("^GFB");
+      expect(zplSecond300).not.toContain("LOGO");
+      expect(zplSecond300).toMatchSnapshot("imagem-gf-300dpi");
+    });
+
+    it("deve gerar lote com múltiplas etiquetas contendo imagem pequena", () => {
+      const imageElement = {
+        id: "img_batch",
+        type: "image",
+        content: validBase64,
+        x: 10,
+        y: 10,
+        width: 40,
+        height: 40,
+        fontSize: 12,
+        fontWeight: "normal",
+        zIndex: 1,
+      } as unknown as PrintLabelElement;
+
+      // Garante cache para 203dpi
+      generateZPLForBatch([imageElement], 100, 60, [{}], () => "", { dpi: 203 });
+
+      const batchZpl = generateZPLForBatch(
+        [imageElement],
+        100,
+        60,
+        [{}, {}], // Duas etiquetas
+        () => "",
+        { dpi: 203 }
+      );
+
+      // Deve ter dois ^GFB (um por etiqueta)
+      const gfCount = (batchZpl.match(/\^GFB/g) || []).length;
+      expect(gfCount).toBe(2);
+      expect(batchZpl).not.toContain("LOGO");
     });
   });
 });

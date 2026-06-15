@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Barcode, Box, FlipHorizontal, Image as ImageIcon, Trash2, Type, X } from "lucide-react";
 import type { LabelElement } from "./LabelCanvas";
 import { sanitizeCode128BarcodeValue } from "../../print-engine/zplEscaping";
+import { validateImageDataUrl } from "../../print-engine/zplImage";
 
 interface LabelPropertiesProps {
   selectedElement: LabelElement | undefined;
@@ -192,6 +193,38 @@ export function LabelProperties({
             <p className="ml-1 text-[8px] font-semibold leading-normal text-slate-500">
               Use um identificador curto, como {"{{PEDIDO_ID}}"} ou {"{{LOTE}}"}.
             </p>
+          </div>
+        )}
+
+        {selectedElement.type === "image" && (
+          <div className="space-y-1.5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
+            <p className="ml-1 text-[8px] font-black uppercase tracking-wider text-emerald-600">
+              Informações da Imagem
+            </p>
+            {(() => {
+              const validation = validateImageDataUrl(selectedElement.content);
+              const kbSize = selectedElement.content
+                ? Math.round((selectedElement.content.length * 0.75) / 1024)
+                : 0;
+              if (!validation.isValid) {
+                return (
+                  <div className="space-y-1 text-[9px]">
+                    <p className="font-bold text-red-600">⚠️ Imagem Inválida</p>
+                    <p className="text-slate-600 leading-normal">{validation.error}</p>
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-1 text-[9px] text-slate-600 leading-normal">
+                  <p className="font-bold text-emerald-700">✓ Imagem Válida</p>
+                  <p>Tamanho Estimado: <span className="font-bold">{kbSize} KB</span></p>
+                  <p>Limites Físicos: <span className="font-bold">200x200 dots</span></p>
+                  <p className="text-[8px] text-slate-400">
+                    A imagem será automaticamente convertida para bitmap monocromático e redimensionada para caber no limite físico da impressora ZPL.
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

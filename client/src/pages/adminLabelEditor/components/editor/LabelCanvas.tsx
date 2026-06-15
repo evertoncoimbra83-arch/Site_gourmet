@@ -3,6 +3,7 @@ import { Rnd } from "react-rnd";
 import { cn } from "@/lib/utils";
 import { LabelNutritionTable } from "./LabelNutritionTable";
 import { sanitizeCode128BarcodeValue } from "../../print-engine/zplEscaping";
+import { validateImageDataUrl } from "../../print-engine/zplImage";
 
 export interface LabelElement {
   id: string;
@@ -136,6 +137,15 @@ export function LabelCanvas({
 
         const renderContent = () => {
           if (el.type === "image") {
+            const validation = validateImageDataUrl(el.content);
+            if (!validation.isValid) {
+              return (
+                <div className="flex h-full w-full flex-col items-center justify-center border border-dashed border-red-300 bg-red-50 p-1 text-center text-[9px] text-red-500">
+                  <span className="font-black">LOGOTIPO INVÁLIDO</span>
+                  <span className="text-[7px] leading-tight text-red-400">{validation.error}</span>
+                </div>
+              );
+            }
             return <img src={el.content} className="h-full w-full object-contain" alt="" />;
           }
 

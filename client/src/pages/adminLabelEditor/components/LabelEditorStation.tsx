@@ -27,6 +27,7 @@ import {
   type AdminLabelTemplate,
 } from "../print-engine";
 import { LabelCanvas, type LabelElement } from "./editor/LabelCanvas";
+import { validateImageDataUrl } from "../print-engine/zplImage";
 import { LabelProperties } from "./editor/LabelProperties";
 import { LabelToolbar } from "./editor/LabelToolbar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -283,13 +284,36 @@ export function LabelEditorStation({
         type="file"
         ref={fileInputRef}
         className="hidden"
-        accept="image/*"
+        accept="image/png, image/jpeg, image/jpg"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (!file) return;
 
+          // Validação de tamanho no upload (limite de 1MB)
+          if (file.size > 1024 * 1024) {
+            toast.error("O arquivo de imagem excede o limite máximo permitido (1MB).");
+            event.target.value = "";
+            return;
+          }
+
+          // Validação de formato no upload
+          if (file.type !== "image/png" && file.type !== "image/jpeg" && file.type !== "image/jpg") {
+            toast.error("Formato de imagem não suportado. Use PNG ou JPG.");
+            event.target.value = "";
+            return;
+          }
+
           const reader = new FileReader();
-          reader.onload = (loadEvent) => addElement("image", loadEvent.target?.result as string);
+          reader.onload = (loadEvent) => {
+            const result = loadEvent.target?.result as string;
+            const validation = validateImageDataUrl(result);
+            if (!validation.isValid) {
+              toast.error(validation.error || "Imagem inválida.");
+              event.target.value = "";
+              return;
+            }
+            addElement("image", result);
+          };
           reader.readAsDataURL(file);
         }}
       />
