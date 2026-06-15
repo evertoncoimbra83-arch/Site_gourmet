@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Palette, RotateCcw, Loader2, Sparkles, Monitor, Type } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { appToast as toast } from "@/lib/app-toast";
 
 // --- INTERFACES ---
 
@@ -28,7 +28,6 @@ const getContrastColor = (hexcolor: string) => {
 };
 
 export function AdminThemeView() {
-  const { toast } = useToast();
   const utils = trpc.useUtils();
   
   const [theme, setTheme] = useState<ThemeConfig>({ 
@@ -42,20 +41,14 @@ export function AdminThemeView() {
   
   const mutation = trpc.adminTheme.save.useMutation({
     onSuccess: () => {
-      // ✅ FIX 2345: Passando o título como primeiro argumento (string) e as opções como segundo.
-      // Caso o seu useToast não aceite segundo argumento, ele usará apenas a string do título.
-      
-      toast("DNA Visual Atualizado!", { 
-        description: "As novas cores foram aplicadas ao sistema." 
+      toast.success("DNA Visual Atualizado!", {
+        description: "As novas cores foram aplicadas ao sistema."
       });
       utils.adminTheme.get.invalidate();
     },
     onError: (err) => {
-      // ✅ FIX 2345: Mesmo ajuste para o erro
-      
-      toast("Erro ao salvar", { 
-        variant: "destructive", 
-        description: err.message 
+      toast.error("Erro ao salvar", {
+        description: err.message
       });
     }
   });

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { appToast } from "@/lib/app-toast";
 
 // --- INTERFACES & SCHEMAS ---
 
@@ -68,11 +68,14 @@ interface AuthRouter {
 
 export function AddressForm({ onSuccess, onCancel, initialData, userId }: AddressFormProps) {
   const [isFetchingCep, setIsFetchingCep] = useState(false);
-  const { toast } = useToast();
   const utils = trpc.useUtils();
 
   const safeToast = (opts: ToastOptions) => {
-    (toast as unknown as (opts: ToastOptions) => void)(opts);
+    if (opts.variant === "destructive") {
+      appToast.error(opts.title, { description: opts.description });
+    } else {
+      appToast.success(opts.title, { description: opts.description });
+    }
   };
 
   const {
@@ -117,7 +120,7 @@ export function AddressForm({ onSuccess, onCancel, initialData, userId }: Addres
         .catch(() => safeToast({ variant: "destructive", title: "Erro", description: "Falha ao buscar CEP" }))
         .finally(() => setIsFetchingCep(false));
     }
-  }, [zipCode, setValue, watch, toast]);
+  }, [zipCode, setValue, watch]);
 
   const authRouter = (trpc.auth as unknown) as AuthRouter;
   const authUtils = (utils.auth as unknown) as AuthRouter;

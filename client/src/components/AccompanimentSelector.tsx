@@ -11,6 +11,8 @@ export interface Option {
   defaultGrammage?: number;
   weight?: number;
   groupId?: string | number;
+  isNoAccompaniment?: boolean;
+  is_no_accompaniment?: boolean;
 }
 
 export interface Group {

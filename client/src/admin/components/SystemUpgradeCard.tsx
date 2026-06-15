@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, ShieldCheck, AlertTriangle, Loader2 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { appToast } from "@/lib/app-toast";
 
 // Interface para definir a estrutura esperada pelo Toast do Shadcn UI
 interface ToastProps {
@@ -13,10 +13,13 @@ interface ToastProps {
 export function SystemUpgradeCard() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const { toast } = useToast();
 
   const safeToast = (props: ToastProps) => {
-    (toast as unknown as (args: ToastProps) => void)(props);
+    if (props.variant === "destructive") {
+      appToast.error(props.title, { description: props.description });
+    } else {
+      appToast.success(props.title, { description: props.description });
+    }
   };
 
   const handleUpload = async () => {

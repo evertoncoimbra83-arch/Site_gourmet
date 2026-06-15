@@ -46,3 +46,33 @@ export function safeBoolean(value: unknown, fallback = false): boolean {
   }
   return fallback;
 }
+
+export function safeJsonStringifyForDb(value: unknown, fallback: unknown = null): string {
+  try {
+    const replacer = (key: string, val: unknown) => {
+      if (val === undefined) return null;
+      if (typeof val === "number") {
+        if (Number.isNaN(val) || !Number.isFinite(val)) return null;
+      }
+      if (typeof val === "bigint") {
+        return String(val);
+      }
+      return val;
+    };
+    const result = JSON.stringify(value, replacer);
+    return result === undefined ? JSON.stringify(fallback) : result;
+  } catch {
+    return JSON.stringify(fallback);
+  }
+}
+
+export function assertJsonValidString(value: unknown): asserts value is string {
+  if (typeof value !== "string") {
+    throw new Error("Value is not a string");
+  }
+  try {
+    JSON.parse(value);
+  } catch (err) {
+    throw new Error("Invalid JSON string: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
