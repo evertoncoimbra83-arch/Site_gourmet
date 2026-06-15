@@ -24,14 +24,21 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
   const [confirmHighVariance, setConfirmHighVariance] = useState(false);
   const [itemSearchText, setItemSearchText] = useState("");
   const [purchaseItem, setPurchaseItem] = useState<any>(null);
+  const [selectedIngredient, setSelectedIngredient] = useState<{
+    id: number;
+    name: string;
+    unit: string;
+    currentCostPerBaseUnit: number;
+    currentCostBaseUnit: string | null;
+  } | null>(null);
 
   const utils = trpc.useUtils();
 
   // Queries
   const { data: ingredientsList, isLoading: isLoadingIngredients } =
-    trpc.admin.ingredients.list.useQuery(
-      { search: itemSearchText || undefined },
-      { enabled: category === "FOOD_INGREDIENT" }
+    trpc.admin.purchases.searchLinkableIngredients.useQuery(
+      { search: itemSearchText },
+      { enabled: category === "FOOD_INGREDIENT" && itemSearchText.trim().length >= 2 }
     );
 
   const { data: suggestion } =
@@ -201,6 +208,15 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
                     setConversionFactor(String(suggestion.conversionFactor));
                     if (suggestion.linkedEntityType === "ingredient" && suggestion.linkedEntityName) {
                       setItemSearchText(suggestion.linkedEntityName);
+                      setSelectedIngredient({
+                        id: suggestion.linkedEntityId as number,
+                        name: suggestion.linkedEntityName,
+                        unit: suggestion.unit || "g",
+                        currentCostPerBaseUnit: parseFloat(String(suggestion.currentCostPerBaseUnit || "0")),
+                        currentCostBaseUnit: suggestion.currentCostBaseUnit || null,
+                      });
+                    } else {
+                      setSelectedIngredient(null);
                     }
                     toast.success("Sugestão inteligente aplicada!");
                   }}
@@ -257,6 +273,13 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
                         onClick={() => {
                           setLinkedEntityId(ing.id);
                           setItemSearchText(ing.name);
+                          setSelectedIngredient({
+                            id: ing.id,
+                            name: ing.name,
+                            unit: ing.unit || "g",
+                            currentCostPerBaseUnit: parseFloat(String(ing.currentCostPerBaseUnit || "0")),
+                            currentCostBaseUnit: ing.currentCostBaseUnit || null,
+                          });
                         }}
                         className={`px-3 py-2 text-xs font-bold rounded-lg cursor-pointer transition-colors border ${
                           linkedEntityId === ing.id
@@ -313,6 +336,80 @@ export function ItemClassifier({ itemId, onClose, onSuccess }: ItemClassifierPro
                 </div>
               </div>
             )}
+
+            {/* Comparação visual de Custo para Insumo selecionado */}
+            {(() => {
+              if (category !== "FOOD_INGREDIENT" || !linkedEntityId || !costPreview || costPreview.cost <= 0) {
+                return null;
+              }
+
+              let currentCost = 0;
+              let hasData = false;
+              let ingName = "";
+              let baseUnit = costPreview.baseUnit;
+
+              if (selectedIngredient && selectedIngredient.id === linkedEntityId) {
+                currentCost = selectedIngredient.currentCostPerBaseUnit;
+                ingName = selectedIngredient.name;
+                baseUnit = selectedIngredient.unit || costPreview.baseUnit;
+                hasData = true;
+              } else if (suggestion && suggestion.linkedEntityId === linkedEntityId && suggestion.currentCostPerBaseUnit != null) {
+                currentCost = parseFloat(String(suggestion.currentCostPerBaseUnit));
+                ingName = suggestion.linkedEntityName || "";
+                baseUnit = suggestion.unit || costPreview.baseUnit;
+                hasData = true;
+              } else if (preview && preview.linkedEntityId === linkedEntityId && preview.currentCost != null) {
+                currentCost = preview.currentCost;
+                ingName = preview.ingredientName || "";
+                baseUnit = preview.baseUnit || costPreview.baseUnit;
+                hasData = true;
+              }
+
+              if (!hasData) return null;
+
+              const newCost = costPreview.cost;
+              const diffAbsolute = newCost - currentCost;
+              let diffPercent = 0;
+              if (currentCost > 0) {
+                diffPercent = (diffAbsolute / currentCost) * 100;
+              }
+              const isHighVariance = Math.abs(diffPercent) >= 30;
+
+              return (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 text-left animate-in fade-in slide-in-from-top-2 duration-300">
+                  <h4 className="text-[10px] font-black uppercase text-slate-600 tracking-wider flex items-center gap-1.5">
+                    📊 Comparação de Custo Estimado
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4 text-[10px] font-semibold text-slate-500 bg-white p-3 rounded-xl border border-slate-100">
+                    <div>
+                      <p className="text-[8px] uppercase text-slate-400">Custo Atual no Catálogo</p>
+                      <p className="text-xs font-black text-slate-700 mt-0.5">
+                        R$ {currentCost.toFixed(6)} <span className="text-[8px] font-normal text-slate-400">/ {baseUnit}</span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] uppercase text-slate-400">Novo Custo Estimado</p>
+                      <p className="text-xs font-black text-emerald-600 mt-0.5">
+                        R$ {newCost.toFixed(6)} <span className="text-[8px] font-normal text-slate-400">/ {baseUnit}</span>
+                      </p>
+                    </div>
+                    <div className="col-span-2 border-t border-slate-100 pt-2">
+                      <p className="text-[8px] uppercase text-slate-400">Variação Prevista</p>
+                      <p className={`text-xs font-black mt-0.5 ${isHighVariance ? "text-amber-600" : "text-slate-700"}`}>
+                        R$ {diffAbsolute >= 0 ? "+" : ""}{diffAbsolute.toFixed(6)} ({diffPercent >= 0 ? "+" : ""}{diffPercent.toFixed(2)}%)
+                      </p>
+                    </div>
+                  </div>
+
+                  {isHighVariance && (
+                    <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-xl text-amber-800 text-[9px] font-bold uppercase leading-tight">
+                      <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+                      <span>Atenção: A variação estimada é de {diffPercent.toFixed(2)}%, o que atinge ou supera o limite crítico de 30%.</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Checkbox de salvar regra */}
             {purchaseItem.classificationStatus !== "classified" && (

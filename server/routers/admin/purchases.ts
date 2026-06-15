@@ -541,15 +541,29 @@ export const adminPurchasesRouter = router({
       const suggestion = findBestClassificationRule(item.rawDescription, rules);
       if (suggestion && suggestion.linkedEntityType === "ingredient" && suggestion.linkedEntityId) {
         const [ing] = await db
-          .select({ name: ingredients.name })
+          .select({
+            name: ingredients.name,
+            unit: ingredients.unit,
+            currentCostPerBaseUnit: ingredients.currentCostPerBaseUnit,
+            currentCostBaseUnit: ingredients.currentCostBaseUnit,
+          })
           .from(ingredients)
           .where(eq(ingredients.id, suggestion.linkedEntityId));
         return {
           ...suggestion,
           linkedEntityName: ing?.name || null,
+          unit: ing?.unit || null,
+          currentCostPerBaseUnit: ing?.currentCostPerBaseUnit || null,
+          currentCostBaseUnit: ing?.currentCostBaseUnit || null,
         };
       }
-      return suggestion ? { ...suggestion, linkedEntityName: null } : null;
+      return suggestion ? {
+        ...suggestion,
+        linkedEntityName: null,
+        unit: null,
+        currentCostPerBaseUnit: null,
+        currentCostBaseUnit: null,
+      } : null;
     }),
 
   getCostApplicationPreview: adminProcedure
@@ -994,5 +1008,34 @@ export const adminPurchasesRouter = router({
           message: "Entrada de compra importada do XML com sucesso!",
         };
       });
+    }),
+
+  searchLinkableIngredients: adminProcedure
+    .input(
+      z.object({
+        search: z.string().optional().default(""),
+        limit: z.number().optional().default(15),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const term = input.search ? input.search.trim() : "";
+
+      if (!term || term.length < 2) {
+        return [];
+      }
+
+      return db
+        .select({
+          id: ingredients.id,
+          name: ingredients.name,
+          unit: ingredients.unit,
+          currentCostPerBaseUnit: ingredients.currentCostPerBaseUnit,
+          currentCostBaseUnit: ingredients.currentCostBaseUnit,
+        })
+        .from(ingredients)
+        .where(like(ingredients.name, `%${term}%`))
+        .orderBy(asc(ingredients.name))
+        .limit(input.limit);
     }),
 });
