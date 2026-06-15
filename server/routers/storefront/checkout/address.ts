@@ -8,6 +8,7 @@ import {
 } from "../../../../drizzle/schema/index.js";
 import axios from "axios";
 import { safeJsonParse, safeNumber } from "../../../lib/safe-parse.js";
+import { resolveDeliveryCoverage } from "../../../services/shippingService.js";
 
 type Database = Awaited<ReturnType<typeof getDb>>;
 type TxType = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -221,11 +222,6 @@ export async function loadAddressSnapshot(
     });
   }
 
-  const activeRules = await tx
-    .select()
-    .from(shippingZones)
-    .where(eq(shippingZones.isActive, true));
-
   const [addr] = await tx
     .select()
     .from(userAddresses)
@@ -240,17 +236,8 @@ export async function loadAddressSnapshot(
   }
 
   const finalAddressData = buildAddressData(addr);
-  const cleanZip = finalAddressData.zipCode;
 
-  const zipRule = activeRules.find((rule) => {
-    if (rule.type !== "zipcode") return false;
-    return cleanZip >= rule.zipCodeStart && cleanZip <= rule.zipCodeEnd;
-  });
-
-  if (zipRule) {
-    return buildReturn(finalAddressData, zipRule);
-  }
-
+  // Geocodificação Nominatim se lat/lng forem nulos, igual ao comportamento original
   let lat = finalAddressData.lat;
   let lng = finalAddressData.lng;
 
@@ -279,43 +266,23 @@ export async function loadAddressSnapshot(
     }
   }
 
-  if (lat != null && lng != null) {
-    const clientPoint: GeoPoint = { lat, lng };
+  // Chamar o validador unificado
+  const coverage = await resolveDeliveryCoverage({
+    cep: finalAddressData.zipCode,
+    storeSlug: "jundiai",
+    coords: { lat, lng },
+    tx,
+    context: "place_order",
+  });
 
-    for (const rule of activeRules) {
-      if (!rule.polygonCoords) continue;
-
-      const geoData = safeJsonParse<unknown>(rule.polygonCoords, null);
-
-      if (rule.type === "circle") {
-        const geoRecord =
-          geoData && typeof geoData === "object"
-            ? (geoData as Record<string, unknown>)
-            : null;
-        const center = parseGeoPoint(geoRecord?.center);
-        const radius = safeNumber(geoRecord?.radius, Number.NaN);
-
-        if (center && Number.isFinite(radius)) {
-          if (isPointInCircle(clientPoint, center, radius)) {
-            return buildReturn(finalAddressData, rule);
-          }
-        }
-      }
-
-      if (rule.type === "polygon" && Array.isArray(geoData)) {
-        const polygon = geoData
-          .map(parseGeoPoint)
-          .filter((point): point is GeoPoint => point !== null);
-
-        if (polygon.length > 2 && isPointInPolygon(clientPoint, polygon)) {
-          return buildReturn(finalAddressData, rule);
-        }
-      }
-    }
+  if (!coverage.allowed) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: coverage.reason || `Infelizmente nossa logística ainda não atende a região do CEP ${finalAddressData.zipCode}.`,
+    });
   }
 
-  throw new TRPCError({
-    code: "FORBIDDEN",
-    message: `Infelizmente nossa logística ainda não atende a região do CEP ${finalAddressData.zipCode}.`,
-  });
+  return buildReturn(finalAddressData, {
+    shippingCost: String(coverage.fee),
+  } as any);
 }
