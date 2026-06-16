@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Loader2,
   Mail,
   MapPin,
   MessageSquare,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { appToast as toast } from "@/lib/app-toast";
 
 export interface CustomerOrderData {
   customerName?: string;
@@ -44,6 +46,13 @@ function updateField(
   setEditForm({ ...editForm, [key]: value });
 }
 
+function maskCep(value: string) {
+  return value
+    .replace(/\D/g, "")
+    .replace(/^(\d{5})(\d)/, "$1-$2")
+    .slice(0, 9);
+}
+
 export function AdminOrderCustomer({
   order,
   isEditing,
@@ -51,7 +60,51 @@ export function AdminOrderCustomer({
   setEditForm,
 }: AdminOrderCustomerProps) {
   const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [isFetchingCep, setIsFetchingCep] = useState(false);
+  const lastFetchedCepRef = useRef("");
   const displayData = isEditing ? editForm : order;
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const cleanZip = String(editForm.shippingZipCode || "").replace(/\D/g, "");
+    if (cleanZip.length !== 8 || cleanZip === lastFetchedCepRef.current) return;
+
+    const controller = new AbortController();
+    lastFetchedCepRef.current = cleanZip;
+
+    const fetchAddress = async () => {
+      setIsFetchingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`, {
+          signal: controller.signal,
+        });
+        const data = await response.json();
+
+        if (data?.erro) {
+          toast.error("CEP nao encontrado. Preencha o endereco manualmente.");
+          return;
+        }
+
+        setEditForm({
+          ...editForm,
+          shippingAddress: data.logradouro || editForm.shippingAddress || "",
+          shippingNeighborhood: data.bairro || editForm.shippingNeighborhood || "",
+          shippingCity: data.localidade || editForm.shippingCity || "",
+          shippingState: data.uf || editForm.shippingState || "",
+          shippingZipCode: maskCep(cleanZip),
+        });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          toast.error("Erro ao buscar CEP. Preencha o endereco manualmente.");
+        }
+      } finally {
+        setIsFetchingCep(false);
+      }
+    };
+
+    fetchAddress();
+    return () => controller.abort();
+  }, [editForm, isEditing, setEditForm]);
 
   const fullAddress = useMemo(() => {
     return [
@@ -173,6 +226,28 @@ export function AdminOrderCustomer({
 
           {isEditing ? (
             <div className="grid gap-3">
+              <div className="relative">
+                <Input
+                  value={editForm.shippingZipCode || ""}
+                  onChange={(event) =>
+                    updateField(
+                      editForm,
+                      setEditForm,
+                      "shippingZipCode",
+                      maskCep(event.target.value),
+                    )
+                  }
+                  placeholder="CEP"
+                  maxLength={9}
+                  className="h-10 rounded-xl border-slate-200 bg-slate-50 pr-9 text-xs font-bold text-slate-900 placeholder:text-slate-400"
+                />
+                {isFetchingCep && (
+                  <Loader2
+                    size={14}
+                    className="absolute right-3 top-3 animate-spin text-emerald-500"
+                  />
+                )}
+              </div>
               <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
                 <Input
                   value={editForm.shippingAddress || ""}
@@ -221,14 +296,6 @@ export function AdminOrderCustomer({
                     )
                   }
                   placeholder="Bairro"
-                  className="h-10 rounded-xl border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 placeholder:text-slate-400"
-                />
-                <Input
-                  value={editForm.shippingZipCode || ""}
-                  onChange={(event) =>
-                    updateField(editForm, setEditForm, "shippingZipCode", event.target.value)
-                  }
-                  placeholder="CEP"
                   className="h-10 rounded-xl border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 placeholder:text-slate-400"
                 />
               </div>

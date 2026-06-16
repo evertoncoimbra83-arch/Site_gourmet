@@ -173,7 +173,8 @@ export function useCheckoutViewModel(): CheckoutViewModel {
     const finalTotal = calculateGrandTotal(cartSubtotal, shippingCost, totalDiscounts);
     const minAmount = shippingValidation.minOrderValue || Number(storeSettings.generalMinOrderAmount || 50);
 
-    const isBelowMin = store.selectedShippingType === "delivery" && cartSubtotal < minAmount;
+    const isBelowMinForDelivery = cartSubtotal > 0 && cartSubtotal < minAmount;
+    const isBelowMin = store.selectedShippingType === "delivery" && isBelowMinForDelivery;
     const errorMessage = isBelowMin
       ? `Pedido mínimo: ${formatMoney(minAmount)}`
       : shippingValidation.isCityDenied
@@ -206,7 +207,10 @@ export function useCheckoutViewModel(): CheckoutViewModel {
         shippingCostFormatted: formatMoney(shippingCost),
         canContinue: store.selectedShippingType === "pickup" || (shippingValidation.canContinue && !isBelowMin),
         errorMessage,
-        canDeliver: !isBelowMin && !shippingValidation.isZipOutOfArea && (store.selectedShippingType === "pickup" || (!!currentZip && currentZip.length === 8)),
+        canDeliver: !isBelowMinForDelivery && !shippingValidation.isZipOutOfArea && (store.selectedShippingType === "pickup" || (!!currentZip && currentZip.length === 8)),
+        minOrderValue: minAmount,
+        isBelowMinForDelivery,
+        shippingTypeManuallySelected: Boolean(store.shippingTypeManuallySelected),
         zipCode: currentZip
       },
       payment: {
@@ -268,7 +272,12 @@ export function useCheckoutViewModel(): CheckoutViewModel {
       },
       actions: {
         setField: (f, v) => store.setField(f as never, v as never),
-        setShippingType: (t) => store.setField("selectedShippingType", t),
+        setShippingType: (t, options) => {
+          store.setField("selectedShippingType", t);
+          if (options?.manual !== false) {
+            store.setField("shippingTypeManuallySelected", true);
+          }
+        },
         setAddress: (id) => store.setField("selectedAddressId", id),
         setPayment: (id) => store.setField("selectedPaymentId", id),
         setNotes: (n) => store.setField("notes", n),

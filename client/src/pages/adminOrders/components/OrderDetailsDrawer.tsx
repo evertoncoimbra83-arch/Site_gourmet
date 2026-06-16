@@ -8,6 +8,7 @@ import {
   Plus,
   Printer,
   RotateCcw,
+  Save,
   Tag,
   X,
 } from "lucide-react";
@@ -43,6 +44,8 @@ import OrderPrintTemplate, {
 } from "./orderDrawer/print/OrderPrintTemplate";
 import type { CustomerOrderData } from "./orderDrawer/AdminOrderCustomer";
 import type { OrderItem as DrawerOrderItem } from "./orderDrawer/AdminOrderItems";
+
+type AdminOrderStatus = keyof typeof statusLabels;
 
 export interface LocalOrderData {
   id: string;
@@ -92,7 +95,6 @@ function toSafeMoney(value: unknown, fallback = 0): number {
 export default function OrderDetailsDrawer({
   orderId,
   onClose,
-  onUpdateStatus = () => {},
   onUpdateOrder = () => {},
   isUpdating = false,
 }: OrderDrawerProps) {
@@ -107,6 +109,7 @@ export default function OrderDetailsDrawer({
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [selectedItemForLabel, setSelectedItemForLabel] = useState<Record<string, unknown> | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<AdminOrderStatus | "">("");
 
   const ticketRef = useRef<HTMLDivElement>(null);
   const quickLabelRef = useRef<HTMLDivElement>(null);
@@ -137,6 +140,41 @@ export default function OrderDetailsDrawer({
       utils.admin.ordersAdmin.list.invalidate();
       },
       onError: (err) => toast.error(getAdminMutationErrorMessage(err, "Erro ao salvar ajuste administrativo.")),
+    });
+
+  const updateStatusMutation = trpc.admin.ordersAdmin.updateStatus.useMutation({
+    onSuccess: async () => {
+      toast.success("Status atualizado!");
+      await Promise.all([
+        utils.admin.ordersAdmin.list.invalidate(undefined, { refetchType: "all" }),
+        utils.admin.ordersAdmin.getById.invalidate({ orderId: String(orderId) }),
+        utils.admin.orders.list.invalidate(undefined, { refetchType: "all" }),
+      ]);
+      await refetch();
+      onUpdateOrder();
+    },
+    onError: (err) =>
+      toast.error(getAdminMutationErrorMessage(err, "Erro ao atualizar status.")),
+  });
+
+  const updateDeliveryAddressMutation =
+    trpc.admin.ordersAdmin.updateDeliveryAddress.useMutation({
+      onSuccess: async () => {
+        toast.success("Endereco de entrega atualizado!");
+        await Promise.all([
+          utils.admin.ordersAdmin.list.invalidate(undefined, { refetchType: "all" }),
+          utils.admin.ordersAdmin.getById.invalidate({ orderId: String(orderId) }),
+        ]);
+        await refetch();
+        onUpdateOrder();
+      },
+      onError: (err) =>
+        toast.error(
+          getAdminMutationErrorMessage(
+            err,
+            "Erro ao atualizar endereco de entrega.",
+          ),
+        ),
     });
 
   const order = useMemo(() => {
@@ -215,6 +253,7 @@ export default function OrderDetailsDrawer({
   useEffect(() => {
     if (order) {
       setEditForm(safeJsonParse<LocalOrderData>(JSON.stringify(order), order));
+      setPendingStatus(order.status as AdminOrderStatus);
     }
   }, [order]);
 
@@ -345,6 +384,59 @@ export default function OrderDetailsDrawer({
     setNewItemQty(1);
   };
 
+  const validateAddress = (form: LocalOrderData) => {
+    const requiredFields: Array<[keyof LocalOrderData, string]> = [
+      ["shippingZipCode", "CEP"],
+      ["shippingAddress", "Rua / Avenida"],
+      ["shippingAddressNumber", "Numero"],
+      ["shippingNeighborhood", "Bairro"],
+      ["shippingCity", "Cidade"],
+      ["shippingState", "UF"],
+    ];
+
+    const missing = requiredFields.find(([key]) => !String(form[key] || "").trim());
+    if (missing) {
+      toast.error(`Preencha o campo ${missing[1]}.`);
+      return false;
+    }
+
+    if (String(form.shippingState || "").trim().length !== 2) {
+      toast.error("UF deve ter 2 letras.");
+      return false;
+    }
+
+    if (String(form.shippingZipCode || "").replace(/\D/g, "").length < 8) {
+      toast.error("CEP deve ter pelo menos 8 digitos.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSaveStatus = () => {
+    if (!order || !pendingStatus || pendingStatus === order.status) return;
+    updateStatusMutation.mutate({ id: order.id, status: pendingStatus });
+  };
+
+  const handleSaveAddress = () => {
+    if (!editForm || !order) return;
+    if (validateAddress(editForm) === false) return;
+
+    updateDeliveryAddressMutation.mutate({
+      orderId: order.id,
+      address: {
+        shippingAddress: String(editForm.shippingAddress || "").trim(),
+        shippingAddressNumber: String(editForm.shippingAddressNumber || "").trim(),
+        shippingAddressComplement:
+          String(editForm.shippingAddressComplement || "").trim() || null,
+        shippingNeighborhood: String(editForm.shippingNeighborhood || "").trim(),
+        shippingCity: String(editForm.shippingCity || "").trim(),
+        shippingState: String(editForm.shippingState || "").trim().toUpperCase(),
+        shippingZipCode: String(editForm.shippingZipCode || "").trim(),
+      },
+    });
+  };
+
   const handleSaveEdit = () => {
     if (!editForm || !order) return;
     if (justification.trim().length < 5) {
@@ -381,6 +473,7 @@ export default function OrderDetailsDrawer({
 
   if (!orderId) return null;
   const isFinalized = order ? isFinalizedOrderStatus(order.status) : false;
+  const isStatusDirty = pendingStatus !== order?.status;
 
   if (isLoading || !order || !editForm) {
     return (
@@ -478,8 +571,7 @@ export default function OrderDetailsDrawer({
               </div>
             </div>
 
-            {!isEditing && (
-              <div className="space-y-3">
+            <div className="space-y-3">
                 {isFinalized && (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
@@ -495,9 +587,11 @@ export default function OrderDetailsDrawer({
                     Status:
                   </span>
                   <select
-                    value={String(order.status)}
-                    onChange={(event) => onUpdateStatus(String(order.id), event.target.value)}
-                    disabled={isFinalized}
+                    value={pendingStatus || String(order.status)}
+                    onChange={(event) =>
+                      setPendingStatus(event.target.value as AdminOrderStatus)
+                    }
+                    disabled={isFinalized || updateStatusMutation.isPending}
                     title={isFinalized ? FINALIZED_ORDER_MESSAGE : "Alterar status"}
                     className="flex-1 cursor-pointer border-none bg-transparent text-xs font-black uppercase text-slate-900 outline-none disabled:cursor-not-allowed disabled:text-slate-400"
                   >
@@ -507,9 +601,22 @@ export default function OrderDetailsDrawer({
                       </option>
                     ))}
                   </select>
+                  {isStatusDirty && (
+                    <Button
+                      onClick={handleSaveStatus}
+                      disabled={updateStatusMutation.isPending}
+                      className="h-8 rounded-xl bg-emerald-600 px-3 text-[9px] font-black uppercase text-white hover:bg-emerald-500 disabled:opacity-60"
+                    >
+                      {updateStatusMutation.isPending ? (
+                        <Loader2 size={12} className="mr-1 animate-spin" />
+                      ) : (
+                        <Save size={12} className="mr-1" />
+                      )}
+                      Salvar
+                    </Button>
+                  )}
                 </div>
               </div>
-            )}
           </div>
 
           <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto p-6 pb-32">
@@ -521,6 +628,25 @@ export default function OrderDetailsDrawer({
                 setEditForm((prev) => (prev ? { ...prev, ...value } : prev))
               }
             />
+
+            {isEditing && (
+              <Button
+                onClick={handleSaveAddress}
+                disabled={
+                  updateDeliveryAddressMutation.isPending ||
+                  commitAdministrativeEditMutation.isPending ||
+                  isUpdating
+                }
+                className="h-11 w-full rounded-2xl bg-emerald-600 text-[10px] font-black uppercase text-white shadow-sm hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {updateDeliveryAddressMutation.isPending ? (
+                  <Loader2 size={14} className="mr-2 animate-spin" />
+                ) : (
+                  <Save size={14} className="mr-2" />
+                )}
+                Salvar endereco
+              </Button>
+            )}
 
             {isEditing && (
               <div className="animate-in fade-in rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-left shadow-sm duration-200">

@@ -3,14 +3,16 @@ import { trpc } from "@/_core/trpc";
 import { keepPreviousData } from "@tanstack/react-query";
 import { appToast as toast } from "@/lib/app-toast";
 
-export const statusLabels: Record<string, string> = {
+export const statusLabels = {
   pending: "Pendente",
   preparing: "Preparando",
   shipped: "Enviado",
   delivered: "Entregue",
   cancelled: "Cancelado",
   completed: "Concluído",
-};
+} as const;
+
+export type AdminOrderStatus = keyof typeof statusLabels;
 
 interface OrderFilters {
   status?: string;

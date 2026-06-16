@@ -31,7 +31,15 @@ interface OrderOptionsJson {
   [key: string]: unknown;
 }
 
-
+export interface DeliveryAddressSnapshot {
+  shippingAddress: string;
+  shippingAddressNumber: string;
+  shippingAddressComplement?: string | null;
+  shippingNeighborhood: string;
+  shippingCity: string;
+  shippingState: string;
+  shippingZipCode: string;
+}
 
 export const FINALIZED_ORDER_STATUSES = ["completed", "cancelled", "delivered"] as const;
 
@@ -222,6 +230,51 @@ export const OrderManagerService = {
     }
 
     return result;
+  },
+
+  async updateDeliveryAddress(id: string, address: DeliveryAddressSnapshot) {
+    const db = await getDb();
+    await this.assertOrdersAreMutable([id]);
+
+    const [oldOrder] = await db
+      .select()
+      .from(schema.orders)
+      .where(eq(schema.orders.id, id))
+      .limit(1);
+
+    if (!oldOrder) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Pedido nao encontrado.",
+      });
+    }
+
+    await db
+      .update(schema.orders)
+      .set({
+        shippingAddress: address.shippingAddress,
+        shippingAddressNumber: address.shippingAddressNumber,
+        shippingAddressComplement: address.shippingAddressComplement || null,
+        shippingNeighborhood: address.shippingNeighborhood,
+        shippingCity: address.shippingCity,
+        shippingState: address.shippingState,
+        shippingZipCode: address.shippingZipCode,
+        updatedAt: new Date(),
+      } as typeof schema.orders.$inferInsert)
+      .where(eq(schema.orders.id, id));
+
+    return {
+      oldAddress: {
+        shippingAddress: unseal(oldOrder.shippingAddress),
+        shippingAddressNumber: unseal(oldOrder.shippingAddressNumber),
+        shippingAddressComplement: unseal(oldOrder.shippingAddressComplement),
+        shippingNeighborhood: unseal(oldOrder.shippingNeighborhood),
+        shippingCity: oldOrder.shippingCity || "",
+        shippingState: oldOrder.shippingState || "",
+        shippingZipCode: oldOrder.shippingZipCode || "",
+      },
+      newAddress: address,
+    };
   },
 
   /**

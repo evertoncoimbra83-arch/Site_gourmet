@@ -1,5 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { useAdminOrders, statusLabels } from "../logic/useAdminOrders";
+import {
+  useAdminOrders,
+  statusLabels,
+  type AdminOrderStatus,
+} from "../logic/useAdminOrders";
 import {
   FINALIZED_ORDER_MESSAGE,
   isFinalizedOrderStatus,
@@ -284,7 +288,7 @@ export function AdminOrdersView() {
     deleteOrderMutation.mutate({ id: idStr, ...confirmation });
   };
 
-  const handleQuickStatusUpdate = (id: string, newStatus: string) => {
+  const handleQuickStatusUpdate = (id: string, newStatus: AdminOrderStatus) => {
     mutations.updateStatus.mutate(
       { id, status: newStatus },
       {
@@ -345,7 +349,12 @@ export function AdminOrdersView() {
               {Object.entries(statusLabels).map(([sk, label]) => (
                 <DropdownMenuItem
                   key={sk}
-                  onClick={() => updateStatusBatch.mutate({ ids: selectedIds, status: sk })}
+                  onClick={() =>
+                    updateStatusBatch.mutate({
+                      ids: selectedIds,
+                      status: sk as AdminOrderStatus,
+                    })
+                  }
                   className="py-3 text-[10px] font-black uppercase rounded-xl text-slate-900 focus:bg-slate-50 focus:text-slate-900 cursor-pointer"
                 >
                   {label}
@@ -535,7 +544,12 @@ export function AdminOrdersView() {
                             {Object.entries(statusLabels).map(([sk, label]) => (
                               <DropdownMenuItem
                                 key={sk}
-                                onClick={() => handleQuickStatusUpdate(idStr, sk)}
+                                onClick={() =>
+                                  handleQuickStatusUpdate(
+                                    idStr,
+                                    sk as AdminOrderStatus,
+                                  )
+                                }
                                 className={cn(
                                   "py-3 text-[10px] font-black uppercase rounded-xl text-slate-900 focus:bg-slate-50 focus:text-slate-900",
                                   order.status === sk
@@ -583,7 +597,6 @@ export function AdminOrdersView() {
         <OrderDetailsDrawer
           orderId={toSafeString(state.selectedOrderId)}
           onClose={() => actions.setSelectedOrderId(null)}
-          onUpdateStatus={(id: string, status: string) => handleQuickStatusUpdate(id, status)}
           onUpdateOrder={async () => { await utils.admin.ordersAdmin.list.invalidate(undefined, { refetchType: 'all' }); }}
           isUpdating={mutations.updateStatus.isPending}
         />

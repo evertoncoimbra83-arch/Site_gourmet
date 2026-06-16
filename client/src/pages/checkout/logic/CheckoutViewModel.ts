@@ -63,6 +63,9 @@ export interface CheckoutViewModel {
     canContinue: boolean;
     errorMessage?: string;
     canDeliver: boolean;
+    minOrderValue: number;
+    isBelowMinForDelivery: boolean;
+    shippingTypeManuallySelected: boolean;
     zipCode?: string;
   };
 
@@ -91,7 +94,10 @@ export interface CheckoutViewModel {
 
   actions: {
     setField: (field: string, value: string | number | boolean | null) => void;
-    setShippingType: (type: "delivery" | "pickup") => void;
+    setShippingType: (
+      type: "delivery" | "pickup",
+      options?: { manual?: boolean },
+    ) => void;
     setAddress: (id: string) => void;
     setPayment: (id: string) => void;
     setNotes: (notes: string) => void;

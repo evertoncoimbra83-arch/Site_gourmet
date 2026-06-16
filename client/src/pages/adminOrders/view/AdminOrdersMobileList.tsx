@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isFinalizedOrderStatus } from "../logic/orderStatusGuards";
-import { statusLabels } from "../logic/useAdminOrders";
+import { statusLabels, type AdminOrderStatus } from "../logic/useAdminOrders";
 import type { Order } from "./AdminOrdersView";
 
 interface AdminOrdersMobileListProps {
@@ -90,7 +90,7 @@ export function AdminOrdersMobileList({
                   })}
                 </p>
                 <span className="mt-2 inline-flex rounded-full bg-amber-50 px-3 py-1 text-[9px] font-black uppercase text-amber-700">
-                  {statusLabels[order.status] || order.status}
+                  {statusLabels[order.status as AdminOrderStatus] || order.status}
                 </span>
               </div>
             </div>

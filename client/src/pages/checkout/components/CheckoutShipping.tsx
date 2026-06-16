@@ -155,8 +155,9 @@ export default function CheckoutShipping() {
   const isLocked = machineState === 'submitting' || machineState === 'success';
 
   const subtotal = summary?.subtotal ?? 0;
-  const MIN_VALUE_FOR_DELIVERY = 50;
-  const isBelowMinForDelivery = subtotal < MIN_VALUE_FOR_DELIVERY;
+  const minValueForDelivery = logistics.minOrderValue || 50;
+  const MIN_VALUE_FOR_DELIVERY = minValueForDelivery;
+  const isBelowMinForDelivery = logistics.isBelowMinForDelivery;
 
   const isPickup = selectedShippingType === "pickup";
   const selectedAddress = addresses.find((a) => String(a.id) === String(selectedAddressId));
@@ -168,10 +169,27 @@ export default function CheckoutShipping() {
   };
 
   useEffect(() => {
+    if (isLocked) return;
+
     if (isBelowMinForDelivery && !isPickup) {
-      actions.setShippingType("pickup");
+      actions.setShippingType("pickup", { manual: false });
+      return;
     }
-  }, [isBelowMinForDelivery, isPickup, actions]);
+
+    if (
+      !isBelowMinForDelivery &&
+      isPickup &&
+      !logistics.shippingTypeManuallySelected
+    ) {
+      actions.setShippingType("delivery", { manual: false });
+    }
+  }, [
+    isBelowMinForDelivery,
+    isPickup,
+    isLocked,
+    logistics.shippingTypeManuallySelected,
+    actions,
+  ]);
 
   const toggleShippingMode = () => {
     if (isBelowMinForDelivery || isLocked) return;

@@ -323,4 +323,33 @@ describe("checkout guest email identity check guard", () => {
     expect(checkoutCustomer).toContain("cpf: cleanCpf");
     expect(checkoutCustomer).toContain("maskCpfForDisplay(customer.cpf)");
   });
+
+  it("defaults checkout logistics back to delivery unless pickup was manually selected", () => {
+    const store = readFileSync("client/src/_core/store/useCheckoutStore.ts", "utf8");
+    const shipping = readFileSync(
+      "client/src/pages/checkout/components/CheckoutShipping.tsx",
+      "utf8",
+    );
+    const viewModel = readFileSync(
+      "client/src/pages/checkout/logic/useCheckoutViewModel.ts",
+      "utf8",
+    );
+
+    expect(store).toContain('selectedShippingType: "delivery"');
+    expect(store).toContain("shippingTypeManuallySelected");
+    expect(shipping).toContain('actions.setShippingType("delivery", { manual: false })');
+    expect(shipping).toContain("!logistics.shippingTypeManuallySelected");
+    expect(viewModel).toContain("isBelowMinForDelivery");
+  });
+
+  it("only auto-selects pickup when delivery is blocked by minimum order", () => {
+    const shipping = readFileSync(
+      "client/src/pages/checkout/components/CheckoutShipping.tsx",
+      "utf8",
+    );
+
+    expect(shipping).toContain("isBelowMinForDelivery && !isPickup");
+    expect(shipping).toContain('actions.setShippingType("pickup", { manual: false })');
+    expect(shipping).not.toContain("const MIN_VALUE_FOR_DELIVERY = 50");
+  });
 });

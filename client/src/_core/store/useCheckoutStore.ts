@@ -11,6 +11,7 @@ interface CheckoutFields {
   notes: string;
   selectedAddressId: string | number | null; // ID real vindo do banco (Finding 6)
   selectedShippingType: "delivery" | "pickup";
+  shippingTypeManuallySelected: boolean;
   selectedPaymentId: number | string | null;
   manualZipCode: string;
 }
@@ -30,6 +31,7 @@ const initialState: CheckoutFields = {
   notes: "",
   selectedAddressId: null,
   selectedShippingType: "delivery",
+  shippingTypeManuallySelected: false,
   selectedPaymentId: null,
   manualZipCode: "",
 };
@@ -56,6 +58,7 @@ export const useCheckoutStore = create<CheckoutStore>()(
           notes,
           selectedAddressId,
           selectedShippingType,
+          shippingTypeManuallySelected,
           selectedPaymentId,
           manualZipCode
         } = state;
@@ -68,6 +71,7 @@ export const useCheckoutStore = create<CheckoutStore>()(
           notes,
           selectedAddressId,
           selectedShippingType,
+          shippingTypeManuallySelected,
           selectedPaymentId,
           manualZipCode
         };

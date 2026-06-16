@@ -38,6 +38,25 @@ interface DiscountSnapshot {
 
 type OrderStatus = "pending" | "preparing" | "shipped" | "delivered" | "cancelled" | "completed";
 
+const orderStatusSchema = z.enum([
+    "pending",
+    "preparing",
+    "shipped",
+    "delivered",
+    "cancelled",
+    "completed",
+]);
+
+const deliveryAddressSchema = z.object({
+    shippingAddress: z.string().trim().min(1, "Endereco e obrigatorio"),
+    shippingAddressNumber: z.string().trim().min(1, "Numero e obrigatorio"),
+    shippingAddressComplement: z.string().trim().optional().nullable(),
+    shippingNeighborhood: z.string().trim().min(1, "Bairro e obrigatorio"),
+    shippingCity: z.string().trim().min(1, "Cidade e obrigatoria"),
+    shippingState: z.string().trim().length(2, "UF deve ter 2 letras").transform((value) => value.toUpperCase()),
+    shippingZipCode: z.string().trim().min(8, "CEP e obrigatorio"),
+});
+
 export const ordersAdminRouter = router({
     /**
      * Inicia ou reutiliza uma sessão ativa de Venda Manual para o operador atual.
@@ -150,7 +169,7 @@ export const ordersAdminRouter = router({
     updateStatus: operatorProcedure
         .input(z.object({
             id: z.string(),
-            status: z.string()
+            status: orderStatusSchema
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -178,6 +197,39 @@ export const ordersAdminRouter = router({
                     newValues: { status: input.status }
                 });
             }
+            return { success: true };
+        }),
+
+    updateDeliveryAddress: operatorProcedure
+        .input(z.object({
+            orderId: z.string(),
+            address: deliveryAddressSchema,
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const result = await OrderManagerService.updateDeliveryAddress(
+                input.orderId,
+                input.address,
+            );
+
+            const actor = {
+                userId: ctx.user?.id,
+                ipAddress: ctx.req?.ip || (ctx.req?.headers?.["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "127.0.0.1",
+                userAgent: ctx.req?.headers?.["user-agent"] || "unknown",
+                requestId: (ctx.req as any)?.requestId
+            };
+
+            void AuditLogService.record({
+                actor,
+                module: "orders",
+                action: "UPDATE_DELIVERY_ADDRESS",
+                severity: "warning",
+                entityType: "orders",
+                entityId: input.orderId,
+                entityLabel: `Pedido ${input.orderId}`,
+                oldValues: result.oldAddress,
+                newValues: result.newAddress,
+            });
+
             return { success: true };
         }),
 
