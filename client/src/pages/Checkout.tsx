@@ -35,6 +35,7 @@ function CheckoutContent() {
     firstIssue,
     handleFinalizeClick,
     machineState,
+    readiness,
   } = useCheckout();
 
   useEffect(() => {
@@ -53,14 +54,14 @@ function CheckoutContent() {
   }, [summary?.subtotal, logistics?.shippingCost, summary?.total]);
 
   const buttonText = useMemo(() => {
-    if (machineState === "shipping_validating") {
-      return "Validando frete...";
-    }
-    if (!firstIssue) {
+    if (readiness.gate === "ready" && !firstIssue) {
       return `Finalizar pedido • ${summary?.totalFormatted || ""}`;
     }
-    return firstIssue.message;
-  }, [firstIssue, summary?.totalFormatted, machineState]);
+    return "Finalizar pedido";
+  }, [firstIssue, summary?.totalFormatted, readiness.gate]);
+
+  const isProcessing = machineState === "submitting" || isSubmitting;
+  const canSubmit = readiness.isReady && !isProcessing && !isLoading;
 
   if (isLoading) {
     return (
@@ -73,8 +74,8 @@ function CheckoutContent() {
   }
 
   return (
-    // ✅ pb-36 no mobile para evitar que o rodapé sticky cubra os inputs
-    <div className="min-h-dvh overflow-x-hidden bg-[#FBFBFC] flex flex-col font-sans text-left pb-36 lg:pb-10">
+    // ✅ pb-64 no mobile para evitar que o CTA e a bottom nav cubram os inputs
+    <div className="min-h-dvh overflow-x-hidden bg-[#FBFBFC] flex flex-col font-sans text-left pb-64 lg:pb-10">
       <header className="bg-white border-b p-4 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto w-full flex justify-between items-center">
           <button onClick={() => navigate("/carrinho")} className="p-1 text-slate-400 hover:text-slate-900 flex items-center gap-2 transition-colors">
@@ -133,54 +134,50 @@ function CheckoutContent() {
         </div>
       </main>
 
-      {/* ✅ Sticky CTA rodapé mobile (exibido apenas no mobile e se tiver itens no carrinho) */}
-      {summary.items.length > 0 && (
-        <div
-          className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.06)] z-40 p-4 flex flex-col gap-3"
-          style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))" }}
-        >
-          {/* Resumo compacto */}
-          <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-slate-500 px-1">
-            <span>{totalItems} {totalItems === 1 ? "item" : "itens"}</span>
-            <div className="flex items-center gap-3">
-              <span>Subtotal: {summary.subtotalFormatted}</span>
-              {totalDiscount > 0 && (
-                <span className="text-emerald-600">Desc: -{formatBRL(totalDiscount)}</span>
-              )}
-              <span>
-                {logistics.type === "pickup" ? "Retirada: Grátis" : `Entrega: ${logistics.shippingCostFormatted}`}
-              </span>
-            </div>
-          </div>
-
-          {firstIssue && (
-            <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest text-center animate-pulse">
-              ⚠️ {firstIssue.message}
-            </p>
-          )}
-
-          {/* Botão de Finalizar */}
-          <Button
-            data-testid="btn-finalize-order-mobile"
-            onClick={handleFinalizeClick}
-            disabled={isSubmitting || isLoading}
-            className={`w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl transition-all flex items-center justify-center gap-2 ${
-              !firstIssue
-                ? "bg-slate-900 hover:bg-emerald-600 text-white"
-                : "bg-slate-100 text-slate-400 cursor-not-allowed"
-            }`}
-          >
-            {isSubmitting ? (
-              <Loader2 className="animate-spin text-white" size={16} />
-            ) : (
-              <>
-                <span>{buttonText}</span>
-                {!firstIssue && <ArrowRight size={14} />}
-              </>
+      {/* Sticky CTA do mobile: sempre visível; bloqueios aparecem como estado desabilitado. */}
+      <div
+        className="lg:hidden fixed left-0 right-0 bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.10)] z-[80] p-4 flex flex-col gap-3"
+        style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <div className="flex items-center justify-between gap-3 text-[9px] font-black uppercase tracking-wider text-slate-500 px-1">
+          <span className="shrink-0">{totalItems} {totalItems === 1 ? "item" : "itens"}</span>
+          <div className="min-w-0 flex items-center justify-end gap-2">
+            <span className="truncate">Subtotal: {summary.subtotalFormatted}</span>
+            {totalDiscount > 0 && (
+              <span className="shrink-0 text-emerald-600">Desc: -{formatBRL(totalDiscount)}</span>
             )}
-          </Button>
+            <span className="shrink-0">
+              {logistics.type === "pickup" ? "Retirada: Grátis" : `Entrega: ${logistics.shippingCostFormatted}`}
+            </span>
+          </div>
         </div>
-      )}
+
+        {!canSubmit && !isProcessing && (
+          <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest text-center">
+            {firstIssue?.message || readiness.message}
+          </p>
+        )}
+
+        <Button
+          data-testid="btn-finalize-order-mobile"
+          onClick={handleFinalizeClick}
+          disabled={!canSubmit}
+          className={`w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl transition-all flex items-center justify-center gap-2 ${
+            canSubmit
+              ? "bg-slate-900 hover:bg-emerald-600 text-white"
+              : "bg-slate-100 text-slate-400 cursor-not-allowed disabled:pointer-events-auto"
+          }`}
+        >
+          {isProcessing ? (
+            <Loader2 className="animate-spin text-white" size={16} />
+          ) : (
+            <>
+              <span className="min-w-0 truncate">{buttonText}</span>
+              {canSubmit && <ArrowRight size={14} className="shrink-0" />}
+            </>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

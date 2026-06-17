@@ -157,7 +157,7 @@ describe("checkout guest email identity check guard", () => {
     expect(checkoutSummary).not.toContain("gate={readiness.gate}");
     expect(checkoutSummary).not.toContain("machine={machineState}");
     expect(checkoutSummary).toContain("firstIssue?.message");
-    expect(checkoutPage).toContain("firstIssue.message");
+    expect(checkoutPage).toContain("firstIssue?.message");
     expect(checkoutPage).not.toContain("gate=");
     expect(checkoutPage).not.toContain("machine=");
   });
